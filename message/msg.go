@@ -14,7 +14,7 @@ type Msg struct {
 	Name     string
 	Content  []ContentBlock
 	Metadata map[string]any
-	CreateAt time.Time
+	CreatedAt time.Time
 }
 
 // GetTextContent concatenates all text blocks into a single string
@@ -61,7 +61,7 @@ func NewMsg() *MsgBuilder {
 		msg: &Msg{
 			ID:       uuid.New().String(),
 			Metadata: make(map[string]any),
-			CreateAt: time.Now(),
+			CreatedAt: time.Now(),
 		},
 	}
 }

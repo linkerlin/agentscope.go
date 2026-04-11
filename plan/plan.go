@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
 )
 
@@ -218,6 +217,3 @@ func formatPlan(p *Plan) map[string]any {
 	}
 	return map[string]any{"plan_id": p.ID, "name": p.Name, "steps": steps}
 }
-
-// Ensure PlanNotebook's tool satisfies model.ToolSpec
-var _ model.ToolSpec = model.ToolSpec{}

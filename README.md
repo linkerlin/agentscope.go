@@ -1,0 +1,2 @@
+# agentscope.go
+AgentScope Go!

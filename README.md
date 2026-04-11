@@ -133,9 +133,9 @@ agent, _ := react.Builder().
 import "github.com/linkerlin/agentscope.go/plan"
 
 notebook := plan.NewPlanNotebook()
-planID, _ := notebook.CreatePlan("Research Task")
-notebook.AddStep(planID, "Search for information")
-notebook.AddStep(planID, "Summarize findings")
+p := notebook.CreatePlan("Research Task")
+notebook.AddStep(p.ID, "Search for information")
+notebook.AddStep(p.ID, "Summarize findings")
 
 // Use as a tool in an agent
 agent, _ := react.Builder().

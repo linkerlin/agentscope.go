@@ -1,14 +1,14 @@
 # agentscope.go
 
-A Go implementation of [AgentScope Java](https://github.com/agentscope-ai/agentscope-java) — a production-ready AI agent framework for building LLM-powered applications in Go.
+[AgentScope Java](https://github.com/agentscope-ai/agentscope-java) 的 Go 语言实现 —— 一个生产级的 AI Agent 开发框架，助你使用 Go 构建基于大语言模型的智能应用。
 
-## Overview
+## 概述
 
-AgentScope Go provides everything you need to create intelligent agents using the ReAct (Reasoning + Acting) paradigm: tool calling, memory management, multi-agent collaboration, and more — all implemented idiomatically in Go.
+AgentScope Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
-## Quick Start
+## 快速开始
 
-**Requirements:** Go 1.22+
+**环境要求：** Go 1.22 或更高版本
 
 ```bash
 go get github.com/linkerlin/agentscope.go
@@ -46,37 +46,37 @@ func main() {
 }
 ```
 
-## Supported Models
+## 支持的模型
 
-| Provider       | Package                                        |
-|---------------|------------------------------------------------|
-| OpenAI         | `github.com/linkerlin/agentscope.go/model/openai`      |
-| DashScope (Alibaba) | `github.com/linkerlin/agentscope.go/model/dashscope` |
+| 提供商 | 包路径 |
+|--------|--------|
+| OpenAI | `github.com/linkerlin/agentscope.go/model/openai` |
+| DashScope (阿里云) | `github.com/linkerlin/agentscope.go/model/dashscope` |
 
-Any OpenAI-compatible endpoint is supported via `BaseURL`.
+任何兼容 OpenAI API 格式的服务都可以通过 `BaseURL` 配置使用。
 
-## Core Packages
+## 核心包
 
-| Package | Description |
-|---------|-------------|
-| `message` | `Msg` type with multimodal content blocks (text, image, audio, video, tool use/result, thinking) |
-| `model` | `ChatModel` interface with streaming support |
-| `agent` | `Agent` interface |
-| `agent/react` | ReAct agent implementation |
-| `memory` | `Memory` interface + in-memory implementation |
-| `tool` | `Tool` interface + `FunctionTool` adapter |
-| `session` | Session management |
-| `hook` | Hook system for human-in-the-loop control |
-| `plan` | PlanNotebook for structured multi-step task management |
+| 包名 | 说明 |
+|------|------|
+| `message` | `Msg` 类型，支持多模态内容块（文本、图片、音频、视频、工具调用/结果、思考过程） |
+| `model` | `ChatModel` 接口，支持流式响应 |
+| `agent` | `Agent` 基础接口 |
+| `agent/react` | ReAct Agent 实现 |
+| `memory` | `Memory` 接口 + 内存实现 |
+| `tool` | `Tool` 接口 + `FunctionTool` 适配器 |
+| `session` | 会话管理 |
+| `hook` | 钩子系统，支持人机协作 |
+| `plan` | PlanNotebook，用于结构化多步骤任务管理 |
 
-## Using Tools
+## 使用工具
 
 ```go
 import "github.com/linkerlin/agentscope.go/tool"
 
 myTool := tool.NewFunctionTool(
     "weather",
-    "Get the current weather for a city",
+    "获取指定城市的当前天气",
     map[string]any{
         "type": "object",
         "properties": map[string]any{
@@ -86,7 +86,7 @@ myTool := tool.NewFunctionTool(
     },
     func(ctx context.Context, input map[string]any) (any, error) {
         city := input["city"].(string)
-        return fmt.Sprintf("Sunny, 22°C in %s", city), nil
+        return fmt.Sprintf("%s 天气晴朗，22°C", city), nil
     },
 )
 
@@ -97,7 +97,7 @@ agent, _ := react.Builder().
     Build()
 ```
 
-## Memory
+## 记忆管理
 
 ```go
 import "github.com/linkerlin/agentscope.go/memory"
@@ -110,7 +110,7 @@ agent, _ := react.Builder().
     Build()
 ```
 
-## Hooks (Human-in-the-Loop)
+## 钩子系统（人机协作）
 
 ```go
 import "github.com/linkerlin/agentscope.go/hook"
@@ -127,17 +127,17 @@ agent, _ := react.Builder().
     Build()
 ```
 
-## PlanNotebook
+## 计划笔记本
 
 ```go
 import "github.com/linkerlin/agentscope.go/plan"
 
 notebook := plan.NewPlanNotebook()
-p := notebook.CreatePlan("Research Task")
-notebook.AddStep(p.ID, "Search for information")
-notebook.AddStep(p.ID, "Summarize findings")
+p := notebook.CreatePlan("研究任务")
+notebook.AddStep(p.ID, "搜索信息")
+notebook.AddStep(p.ID, "总结发现")
 
-// Use as a tool in an agent
+// 作为工具在 Agent 中使用
 agent, _ := react.Builder().
     Name("Planner").
     Model(chatModel).
@@ -145,7 +145,7 @@ agent, _ := react.Builder().
     Build()
 ```
 
-## DashScope (Alibaba Cloud)
+## DashScope（阿里云）
 
 ```go
 import "github.com/linkerlin/agentscope.go/model/dashscope"
@@ -156,11 +156,11 @@ chatModel, _ := dashscope.Builder().
     Build()
 ```
 
-## Examples
+## 示例
 
-- [`examples/hello`](examples/hello/main.go) — Basic agent usage
-- [`examples/tools`](examples/tools/main.go) — Agent with calculator tool
+- [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
+- [`examples/tools`](examples/tools/main.go) —— 带计算工具的 Agent
 
-## License
+## 许可证
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Apache License 2.0 —— 详见 [LICENSE](LICENSE) 文件。

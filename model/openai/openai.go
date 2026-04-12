@@ -6,24 +6,30 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	goopenai "github.com/sashabaranov/go-openai"
 
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
+	"github.com/linkerlin/agentscope.go/retry"
 )
 
 // OpenAIChatModel implements model.ChatModel using the OpenAI API
 type OpenAIChatModel struct {
-	client    *goopenai.Client
-	modelName string
+	client           *goopenai.Client
+	modelName        string
+	retryMaxAttempts int
+	retryBackoff     time.Duration
 }
 
 // OpenAIChatModelBuilder builds an OpenAIChatModel
 type OpenAIChatModelBuilder struct {
-	apiKey    string
-	modelName string
-	baseURL   string
+	apiKey           string
+	modelName        string
+	baseURL          string
+	retryMaxAttempts int
+	retryBackoff     time.Duration
 }
 
 // Builder returns a new OpenAIChatModelBuilder
@@ -48,6 +54,13 @@ func (b *OpenAIChatModelBuilder) BaseURL(url string) *OpenAIChatModelBuilder {
 	return b
 }
 
+// Retry 设置 Chat/ChatStream 建立连接前的重试策略；maxAttempts < 2 表示关闭（默认关闭）
+func (b *OpenAIChatModelBuilder) Retry(maxAttempts int, backoff time.Duration) *OpenAIChatModelBuilder {
+	b.retryMaxAttempts = maxAttempts
+	b.retryBackoff = backoff
+	return b
+}
+
 func (b *OpenAIChatModelBuilder) Build() (*OpenAIChatModel, error) {
 	if b.apiKey == "" {
 		return nil, errors.New("openai: API key is required")
@@ -57,8 +70,10 @@ func (b *OpenAIChatModelBuilder) Build() (*OpenAIChatModel, error) {
 		cfg.BaseURL = b.baseURL
 	}
 	return &OpenAIChatModel{
-		client:    goopenai.NewClientWithConfig(cfg),
-		modelName: b.modelName,
+		client:           goopenai.NewClientWithConfig(cfg),
+		modelName:        b.modelName,
+		retryMaxAttempts: b.retryMaxAttempts,
+		retryBackoff:     b.retryBackoff,
 	}, nil
 }
 
@@ -66,6 +81,26 @@ func (m *OpenAIChatModel) ModelName() string { return m.modelName }
 
 // Chat converts Msg slice to OpenAI messages, calls the API, and converts back
 func (m *OpenAIChatModel) Chat(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
+	if m.retryMaxAttempts < 2 {
+		return m.chatOnce(ctx, messages, options...)
+	}
+	ro := retry.Options{MaxAttempts: m.retryMaxAttempts, Backoff: m.retryBackoff}
+	var out *message.Msg
+	err := retry.Do(ctx, ro, func() error {
+		msg, err := m.chatOnce(ctx, messages, options...)
+		if err != nil {
+			return classifyOpenAIErr(err)
+		}
+		out = msg
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
 	opts := applyOptions(options)
 	req := goopenai.ChatCompletionRequest{
 		Model:    m.modelName,
@@ -93,6 +128,26 @@ func (m *OpenAIChatModel) Chat(ctx context.Context, messages []*message.Msg, opt
 
 // ChatStream calls the OpenAI streaming API and returns a channel of StreamChunks
 func (m *OpenAIChatModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+	if m.retryMaxAttempts < 2 {
+		return m.chatStreamOnce(ctx, messages, options...)
+	}
+	ro := retry.Options{MaxAttempts: m.retryMaxAttempts, Backoff: m.retryBackoff}
+	var out <-chan *model.StreamChunk
+	err := retry.Do(ctx, ro, func() error {
+		ch, err := m.chatStreamOnce(ctx, messages, options...)
+		if err != nil {
+			return classifyOpenAIErr(err)
+		}
+		out = ch
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
 	opts := applyOptions(options)
 	req := goopenai.ChatCompletionRequest{
 		Model:    m.modelName,

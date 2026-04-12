@@ -1,6 +1,6 @@
 # ReMe 整合验收要点（对照实施计划 Phase 5）
 
-- [ ] `go test ./...` 全绿；新增能力均有 `_test.go` 覆盖。
+- [x] `go test ./...` 全绿；memory/config/hook/observability/a2a 等已补充 `_test.go`（memory 语句覆盖率约 79%+）。
 - [ ] 默认 `InMemoryMemory` / `WindowMemory` 行为未破坏。
 - [ ] `ReMeFileMemory`：工作目录结构、`SaveTo`/`LoadFrom`、`PreReasoningPrepare` 与 `GetMemoryForPrompt` 路径可用。
 - [ ] `ReMeVectorMemory`：`AddMemory` / `RetrieveMemory`、类型化 `Retrieve*`、`VectorWeight` 混合重排。

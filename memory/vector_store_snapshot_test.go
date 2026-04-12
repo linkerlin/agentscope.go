@@ -28,3 +28,13 @@ func TestLocalVectorStoreSnapshotRoundTrip(t *testing.T) {
 		t.Fatalf("%v %v", res, err)
 	}
 }
+
+func TestLocalVectorStoreSnapshotNil(t *testing.T) {
+	var s *LocalVectorStore
+	if err := s.WriteSnapshot("x"); err == nil {
+		t.Fatal("expected error")
+	}
+	if err := s.ReadSnapshot("x"); err == nil {
+		t.Fatal("expected error")
+	}
+}

@@ -2,6 +2,9 @@ package memory
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/linkerlin/agentscope.go/message"
 )
@@ -124,6 +127,42 @@ func MessagesToMemoryNodes(msgs []*message.Msg, memType MemoryType, target strin
 		out = append(out, n)
 	}
 	return out
+}
+
+// SaveTo 持久化文件记忆快照，并将会话对应的向量索引写入 sessions/<id>.vector.json
+func (v *ReMeVectorMemory) SaveTo(sessionID string) error {
+	if v == nil || v.ReMeFileMemory == nil {
+		return errors.New("memory: nil ReMeVectorMemory")
+	}
+	if err := v.ReMeFileMemory.SaveTo(sessionID); err != nil {
+		return err
+	}
+	if v.store == nil {
+		return nil
+	}
+	path := filepath.Join(v.sessionsPath, sessionID+".vector.json")
+	return v.store.WriteSnapshot(path)
+}
+
+// LoadFrom 加载会话快照；若存在向量快照则恢复 LocalVectorStore
+func (v *ReMeVectorMemory) LoadFrom(sessionID string) error {
+	if v == nil || v.ReMeFileMemory == nil {
+		return errors.New("memory: nil ReMeVectorMemory")
+	}
+	if err := v.ReMeFileMemory.LoadFrom(sessionID); err != nil {
+		return err
+	}
+	if v.store == nil {
+		return nil
+	}
+	path := filepath.Join(v.sessionsPath, sessionID+".vector.json")
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return v.store.ReadSnapshot(path)
 }
 
 var _ VectorMemory = (*ReMeVectorMemory)(nil)

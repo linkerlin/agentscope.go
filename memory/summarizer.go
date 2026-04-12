@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,36 @@ func (s *Summarizer) SummarizeToDailyFile(ctx context.Context, msgs []*message.M
 	sb.WriteString(day)
 	sb.WriteString("\n\n")
 	sb.WriteString(text)
+	sb.WriteString("\n")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(sb.String())
+	return err
+}
+
+// AppendToMemoryMD 将一段 Markdown 追加到 workingDir/memory/MEMORY.md（演进方案中的长期记忆汇总文件）
+func (s *Summarizer) AppendToMemoryMD(title, body string) error {
+	if s == nil || s.WorkingDir == "" {
+		return errors.New("memory: summarizer requires WorkingDir")
+	}
+	dir := filepath.Join(s.WorkingDir, "memory")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "MEMORY.md")
+	var sb strings.Builder
+	if title != "" {
+		sb.WriteString("## ")
+		sb.WriteString(title)
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString(body)
+	if !strings.HasSuffix(body, "\n") {
+		sb.WriteString("\n")
+	}
 	sb.WriteString("\n")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {

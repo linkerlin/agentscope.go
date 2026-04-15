@@ -7,12 +7,7 @@
 
 ## P1 - 高优先级
 
-### 1. ToolMemory 自动触发闭环
-- **现状**：`ToolSummarizer` 已存在，但 `MemoryOrchestrator.Summarize` 中 Tool 分支为空（需要外部提供 `ToolCallResult`，无法从纯消息提取）。
-- **目标**：
-  - 在 Agent/Hook 层收集 `ToolCallResult` 并批量传递给 `ReMeVectorMemory`
-  - 实现 `SummarizeToolUsage` 的自动调用与写入向量库
-- **影响文件**：`memory/handler/orchestrator.go`、`tool` 包集成点。
+（P1 已全部完成）
 
 ---
 

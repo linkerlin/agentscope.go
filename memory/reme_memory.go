@@ -24,4 +24,6 @@ type ReMeMemory interface {
 type Orchestrator interface {
 	Summarize(ctx context.Context, msgs []*message.Msg, userName, taskName, toolName string) (*SummarizeResult, error)
 	Retrieve(ctx context.Context, query string, userName, taskName, toolName string, opts RetrieveOptions) ([]*MemoryNode, error)
+	AddToolCallResult(result ToolCallResult) error
+	SummarizeToolUsage(ctx context.Context, toolName string) error
 }

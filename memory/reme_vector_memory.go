@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/linkerlin/agentscope.go/message"
 )
@@ -21,13 +23,18 @@ type VectorMemory interface {
 	RetrievePersonal(ctx context.Context, userName, query string, topK int) ([]*MemoryNode, error)
 	RetrieveProcedural(ctx context.Context, taskName, query string, topK int) ([]*MemoryNode, error)
 	RetrieveTool(ctx context.Context, toolName, query string, topK int) ([]*MemoryNode, error)
+
+	AddToolCallResult(ctx context.Context, result ToolCallResult) error
+	SummarizeToolUsage(ctx context.Context, toolName string) error
 }
 
 // ReMeVectorMemory 组合文件记忆与向量存储
 type ReMeVectorMemory struct {
 	*ReMeFileMemory
-	store VectorStore
-	orch  Orchestrator
+	store       VectorStore
+	orch        Orchestrator
+	toolResults map[string][]ToolCallResult
+	toolMu      sync.Mutex
 }
 
 // NewReMeVectorMemory 创建向量记忆；store 为空则使用 LocalVectorStore(embed)
@@ -233,6 +240,26 @@ func NewReMeVectorMemoryWithOrchestrator(cfg ReMeFileConfig, counter TokenCounte
 	}
 	v.orch = orch
 	return v, nil
+}
+
+// AddToolCallResult 收集工具调用结果，供后续批量总结
+func (v *ReMeVectorMemory) AddToolCallResult(ctx context.Context, result ToolCallResult) error {
+	v.toolMu.Lock()
+	defer v.toolMu.Unlock()
+	if v.toolResults == nil {
+		v.toolResults = make(map[string][]ToolCallResult)
+	}
+	result.CreateTime = time.Now()
+	v.toolResults[result.ToolName] = append(v.toolResults[result.ToolName], result)
+	return nil
+}
+
+// SummarizeToolUsage 触发指定工具的调用总结并写入向量库
+func (v *ReMeVectorMemory) SummarizeToolUsage(ctx context.Context, toolName string) error {
+	if v.orch == nil {
+		return errors.New("memory: orchestrator not set")
+	}
+	return v.orch.SummarizeToolUsage(ctx, toolName)
 }
 
 // Close 关闭底层资源（FTS 数据库连接等）

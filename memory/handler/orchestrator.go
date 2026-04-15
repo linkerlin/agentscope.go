@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/linkerlin/agentscope.go/memory"
@@ -20,6 +21,9 @@ type MemoryOrchestrator struct {
 	Dedup       *memory.MemoryDeduplicator
 
 	Config memory.OrchestratorConfig
+
+	toolMu       sync.Mutex
+	toolResults  map[string][]memory.ToolCallResult
 }
 
 // NewMemoryOrchestrator 创建编排器
@@ -80,9 +84,11 @@ func (o *MemoryOrchestrator) Summarize(ctx context.Context, msgs []*message.Msg,
 		}
 	}
 
-	// 4) Tool Memory（当前版本需要外部提供 ToolCallResult，此处预留扩展）
+	// 4) Tool Memory
 	if o.Config.EnableTool && toolName != "" && o.ToolSum != nil {
-		// ToolSummarizer 依赖 ToolCallResult，无法直接从纯消息提取，暂留空
+		if err := o.SummarizeToolUsage(ctx, toolName); err == nil {
+			res.ToolMemories = o.flushToolResults(toolName)
+		}
 	}
 
 	return res, nil
@@ -223,6 +229,42 @@ func (o *MemoryOrchestrator) writeMemoryNode(ctx context.Context, node *memory.M
 		return o.MemoryTool.UpdateMemory(ctx, updateTarget)
 	}
 	return o.MemoryTool.AddMemory(ctx, node)
+}
+
+// AddToolCallResult 收集工具调用结果
+func (o *MemoryOrchestrator) AddToolCallResult(result memory.ToolCallResult) error {
+	o.toolMu.Lock()
+	defer o.toolMu.Unlock()
+	if o.toolResults == nil {
+		o.toolResults = make(map[string][]memory.ToolCallResult)
+	}
+	o.toolResults[result.ToolName] = append(o.toolResults[result.ToolName], result)
+	return nil
+}
+
+// SummarizeToolUsage 对指定工具的调用记录进行总结并持久化
+func (o *MemoryOrchestrator) SummarizeToolUsage(ctx context.Context, toolName string) error {
+	if o.ToolSum == nil || o.MemoryTool == nil {
+		return nil
+	}
+	o.toolMu.Lock()
+	results := o.toolResults[toolName]
+	o.toolMu.Unlock()
+	if len(results) == 0 {
+		return nil
+	}
+	node, err := o.ToolSum.SummarizeToolUsage(ctx, toolName, results)
+	if err != nil || node == nil {
+		return err
+	}
+	return o.MemoryTool.AddMemory(ctx, node)
+}
+
+func (o *MemoryOrchestrator) flushToolResults(toolName string) []*memory.MemoryNode {
+	o.toolMu.Lock()
+	defer o.toolMu.Unlock()
+	delete(o.toolResults, toolName)
+	return nil
 }
 
 func firstNonEmpty(vals ...string) string {

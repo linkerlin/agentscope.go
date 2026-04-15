@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/memory"
@@ -96,5 +97,46 @@ func TestOrchestratorRetrieve(t *testing.T) {
 	}
 	if len(res2) != 1 {
 		t.Fatalf("expected 1 result for procedural retrieve, got %d", len(res2))
+	}
+}
+
+func TestOrchestratorSummarizeToolUsage(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewLocalVectorStore(fixedEmbed{dim: 4})
+	memTool := NewMemoryHandler(store)
+
+	m := &mockModel{response: "使用该工具时建议传入明确的参数。"}
+	ts := memory.NewToolSummarizer(m, "zh")
+
+	o := NewMemoryOrchestrator(nil, nil, ts, memTool, nil, nil, nil)
+
+	// 添加两条工具调用记录
+	_ = o.AddToolCallResult(memory.ToolCallResult{
+		ToolName: "search",
+		Input:    map[string]any{"query": "go generics"},
+		Output:   "Go 1.18 引入泛型",
+		Success:  true,
+		Score:    0.9,
+	})
+	_ = o.AddToolCallResult(memory.ToolCallResult{
+		ToolName: "search",
+		Input:    map[string]any{"query": "go channels"},
+		Output:   "channels 用于 goroutine 通信",
+		Success:  true,
+		Score:    0.85,
+	})
+
+	// 触发总结
+	if err := o.SummarizeToolUsage(ctx, "search"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 验证 Tool Memory 已写入
+	nodes, _ := memTool.ListMemory(ctx, memory.MemoryTypeTool, "search", 10)
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 tool memory, got %d", len(nodes))
+	}
+	if !strings.Contains(nodes[0].Content, "使用该工具时建议传入明确的参数") {
+		t.Fatalf("unexpected tool memory content: %s", nodes[0].Content)
 	}
 }

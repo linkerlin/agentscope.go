@@ -311,6 +311,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 		_, _, _ = a.fireHooks(ctx, hook.HookPostCall, history, finalResponse, "", nil)
 	}()
 
+	calledTools := make(map[string]bool)
 	for i := 0; i < a.maxIterations; i++ {
 		select {
 		case <-ctx.Done():
@@ -416,7 +417,9 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 				return nil, err
 			}
 
+			tcStart := time.Now()
 			result, toolErr := a.executeTool(ctx, tc.Name, tc.Input)
+			tcElapsed := time.Since(tcStart).Seconds()
 
 			var resultText string
 			if toolErr != nil {
@@ -425,6 +428,21 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 				resultJSON, _ := json.Marshal(result)
 				resultText = string(resultJSON)
 			}
+
+			// 收集 ToolCallResult 用于 ToolMemory 总结
+			if tcrCollector, ok := a.memory.(interface {
+				AddToolCallResult(ctx context.Context, result memory.ToolCallResult) error
+			}); ok {
+				_ = tcrCollector.AddToolCallResult(ctx, memory.ToolCallResult{
+					ToolName: tc.Name,
+					Input:    tc.Input,
+					Output:   resultText,
+					Success:  toolErr == nil,
+					TimeCost: tcElapsed,
+				})
+				calledTools[tc.Name] = true
+			}
+
 			singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
 				message.NewToolResultBlock(tc.ID, []message.ContentBlock{
 					message.NewTextBlock(resultText),
@@ -472,6 +490,15 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 	if finalResponse == nil {
 		err = errors.New("react agent: max iterations reached without final answer")
 		return nil, err
+	}
+
+	// 批量总结工具调用
+	if tcrCollector, ok := a.memory.(interface {
+		SummarizeToolUsage(ctx context.Context, toolName string) error
+	}); ok {
+		for toolName := range calledTools {
+			_ = tcrCollector.SummarizeToolUsage(ctx, toolName)
+		}
 	}
 
 	// Persist to memory

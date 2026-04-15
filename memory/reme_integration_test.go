@@ -102,6 +102,14 @@ func (m *mockOrchestrator) Retrieve(ctx context.Context, query string, userName,
 	return m.retrieveResult, nil
 }
 
+func (m *mockOrchestrator) AddToolCallResult(result ToolCallResult) error {
+	return nil
+}
+
+func (m *mockOrchestrator) SummarizeToolUsage(ctx context.Context, toolName string) error {
+	return nil
+}
+
 func TestReMeVectorMemoryWithOrchestrator(t *testing.T) {
 	e := fixedEmbed{dim: 4}
 	dir := t.TempDir()
@@ -146,10 +154,21 @@ func TestReMeVectorMemoryWithOrchestrator(t *testing.T) {
 		t.Fatalf("expected 1 retrieve result, got %d", len(retRes))
 	}
 
+	// AddToolCallResult + SummarizeToolUsage
+	if err := v.AddToolCallResult(ctx, ToolCallResult{ToolName: "grep", Input: map[string]any{}, Output: "ok", Success: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.SummarizeToolUsage(ctx, "grep"); err != nil {
+		t.Fatal(err)
+	}
+
 	// 测试未设置 orchestrator 时的错误
 	v2, _ := NewReMeVectorMemory(cfg, NewSimpleTokenCounter(), nil, e)
 	defer v2.Close()
 	if _, err := v2.SummarizeMemory(ctx, msgs, "", "", ""); err == nil {
+		t.Fatal("expected error when orchestrator not set")
+	}
+	if err := v2.SummarizeToolUsage(ctx, "grep"); err == nil {
 		t.Fatal("expected error when orchestrator not set")
 	}
 }

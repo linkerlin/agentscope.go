@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/message"
@@ -15,11 +17,13 @@ func TestReMeFileMemorySaveLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer m.Close()
 	m.SetLongTermMemory("prefs")
 	if err := m.SaveTo("s1"); err != nil {
 		t.Fatal(err)
 	}
 	m2, _ := NewReMeFileMemory(cfg, NewSimpleTokenCounter())
+	defer m2.Close()
 	if err := m2.LoadFrom("s1"); err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +45,7 @@ func TestReMeVectorMemoryRetrieve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer v.Close()
 	ctx := context.Background()
 	n := NewMemoryNode(MemoryTypePersonal, "alice", "likes Go")
 	if err := v.AddMemory(ctx, n); err != nil {
@@ -61,6 +66,7 @@ func TestReMeVectorMemorySaveLoadSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer v.Close()
 	ctx := context.Background()
 	n := NewMemoryNode(MemoryTypePersonal, "bob", "vector persist")
 	if err := v.AddMemory(ctx, n); err != nil {
@@ -73,6 +79,7 @@ func TestReMeVectorMemorySaveLoadSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer v2.Close()
 	if err := v2.LoadFrom("sess"); err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +111,7 @@ func TestReMeVectorMemoryWithOrchestrator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer v.Close()
 
 	mock := &mockOrchestrator{
 		summarizeResult: &SummarizeResult{
@@ -140,7 +148,67 @@ func TestReMeVectorMemoryWithOrchestrator(t *testing.T) {
 
 	// 测试未设置 orchestrator 时的错误
 	v2, _ := NewReMeVectorMemory(cfg, NewSimpleTokenCounter(), nil, e)
+	defer v2.Close()
 	if _, err := v2.SummarizeMemory(ctx, msgs, "", "", ""); err == nil {
 		t.Fatal("expected error when orchestrator not set")
+	}
+}
+
+func TestReMeVectorMemoryFTSIntegration(t *testing.T) {
+	e := fixedEmbed{dim: 4}
+	dir := t.TempDir()
+	cfg := DefaultReMeFileConfig()
+	cfg.WorkingDir = dir
+	v, err := NewReMeVectorMemory(cfg, NewSimpleTokenCounter(), nil, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+
+	ctx := context.Background()
+	n1 := NewMemoryNode(MemoryTypePersonal, "alice", "用户喜欢 Go 语言")
+	n2 := NewMemoryNode(MemoryTypePersonal, "alice", "用户热爱 Python 数据分析")
+	if err := v.AddMemory(ctx, n1); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.AddMemory(ctx, n2); err != nil {
+		t.Fatal(err)
+	}
+
+	// 验证 SQLite 文件已生成
+	dbPath := filepath.Join(dir, ".agentscope", "reme.db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Fatalf("expected fts db file at %s", dbPath)
+	}
+
+	// 纯向量检索（VectorWeight=1）应返回 2 条
+	resVector, err := v.RetrieveMemory(ctx, "Go", RetrieveOptions{TopK: 5, VectorWeight: 1.0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resVector) != 2 {
+		t.Fatalf("expected 2 vector results, got %d", len(resVector))
+	}
+
+	// 混合检索（VectorWeight=0.5）应返回按 BM25 融合排序的结果
+	resHybrid, err := v.RetrieveMemory(ctx, "Go 语言", RetrieveOptions{TopK: 5, VectorWeight: 0.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resHybrid) != 2 {
+		t.Fatalf("expected 2 hybrid results, got %d", len(resHybrid))
+	}
+	// 由于固定嵌入对两个文本返回相同向量，BM25 应决定排序："Go 语言" 更匹配查询
+	if resHybrid[0].MemoryID != n1.MemoryID {
+		t.Fatalf("expected n1 to rank first in hybrid, got %s", resHybrid[0].MemoryID)
+	}
+
+	// 测试删除后 FTS 同步
+	if err := v.DeleteMemory(ctx, n1.MemoryID); err != nil {
+		t.Fatal(err)
+	}
+	cnt, _ := v.fts.Count()
+	if cnt != 1 {
+		t.Fatalf("expected fts count 1 after delete, got %d", cnt)
 	}
 }

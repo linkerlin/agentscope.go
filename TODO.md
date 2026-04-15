@@ -7,20 +7,7 @@
 
 ## P1 - 高优先级
 
-### 1. BM25/FTS5 全文索引（P0）
-- **现状**：`memory/hybrid_search.go` 当前使用极简词袋重叠率（`overlapRatio`）作为 BM25 的替代。
-- **技术选型**：`modernc.org/sqlite`（纯 Go，无 CGO，默认包含 FTS5）。
-- **数据库路径**：`{working_dir}/.agentscope/reme.db`
-- **目标**：
-  1. 新建 `memory/fts_index.go` 封装 SQLite FTS5 的 CRUD 与 BM25 查询
-  2. `FTSIndex` 随 `ReMeFileMemory` 一起初始化，路径固定为 `working_dir/.agentscope/reme.db`
-  3. `ReMeVectorMemory` 的 `Add/Update/Delete` 同步维护 FTS5 索引
-  4. `RetrieveMemory` 在 `VectorWeight∈(0,1)` 时执行「向量召回 + BM25 精排」两阶段混合检索
-  5. `RankMemoryNodesHybrid` 内部优先调用 `FTSIndex.BM25Scores`；`FTSIndex=nil` 时回退旧版词袋重叠
-- **参考文档**：[`演进方案_BM25_FTS5.md`](演进方案_BM25_FTS5.md)
-- **影响文件**：`memory/fts_index.go`、`hybrid_search.go`、`reme_file_memory.go`、`reme_vector_memory.go`
-
-### 2. 多后端 VectorStore
+### 1. 多后端 VectorStore
 - **现状**：仅实现了内存版 `LocalVectorStore`。
 - **目标**：增加远程/持久化向量存储后端的 Go 客户端封装：
   - `ChromaVectorStore`

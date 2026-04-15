@@ -16,6 +16,7 @@ func TestReMeHookBeforeModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer m.Close()
 	_ = m.Add(message.NewMsg().Role(message.RoleUser).TextContent("ping").Build())
 
 	h := NewReMeHook(m).(*ReMeHook)
@@ -38,6 +39,7 @@ func TestReMeHookSkipsOtherPoints(t *testing.T) {
 	cfg := DefaultReMeFileConfig()
 	cfg.WorkingDir = dir
 	m, _ := NewReMeFileMemory(cfg, NewSimpleTokenCounter())
+	defer m.Close()
 	h := NewReMeHook(m).(*ReMeHook)
 	res, err := h.OnEvent(context.Background(), &hook.HookContext{
 		Point:    hook.HookAfterModel,

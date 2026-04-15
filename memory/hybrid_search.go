@@ -43,10 +43,21 @@ func overlapRatio(qtok, dtok []string) float64 {
 }
 
 // RankMemoryNodesHybrid 对已有向量检索结果按 HybridScore 重排
-func RankMemoryNodesHybrid(nodes []*MemoryNode, query string, vectorWeight float64) []*MemoryNode {
+// 若传入 fts 则使用真正的 BM25；否则回退到词袋重叠率
+func RankMemoryNodesHybrid(nodes []*MemoryNode, query string, vectorWeight float64, fts *FTSIndex) []*MemoryNode {
 	if len(nodes) == 0 {
 		return nodes
 	}
+
+	var bm25 map[string]float64
+	if fts != nil {
+		ids := make([]string, len(nodes))
+		for i, n := range nodes {
+			ids[i] = n.MemoryID
+		}
+		bm25, _ = fts.BM25Scores(query, ids)
+	}
+
 	type scored struct {
 		n *MemoryNode
 		f float64
@@ -60,7 +71,12 @@ func RankMemoryNodesHybrid(nodes []*MemoryNode, query string, vectorWeight float
 		if vs < 0 {
 			vs = 0
 		}
-		h := HybridScore(vs, query, n.Content, vectorWeight)
+		var h float64
+		if bm25 != nil {
+			h = vectorWeight*vs + (1-vectorWeight)*bm25[n.MemoryID]
+		} else {
+			h = HybridScore(vs, query, n.Content, vectorWeight)
+		}
 		nn := *n
 		nn.Score = h
 		out = append(out, scored{&nn, h})

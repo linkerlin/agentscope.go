@@ -27,6 +27,7 @@ func TestRetrieversWithVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer v.Close()
 	ctx := context.Background()
 	_ = v.AddMemory(ctx, NewMemoryNode(MemoryTypeProcedural, "t1", "step one"))
 

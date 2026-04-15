@@ -33,12 +33,14 @@ type ReMeFileMemory struct {
 	toolResultPath string
 	dialogPath     string
 	sessionsPath   string
+	agentscopePath string
 
 	tokenCounter TokenCounter
 	compactor    *Compactor
 	summarizer   *Summarizer
 	toolCompact  *ToolResultCompactor
 	config       ReMeFileConfig
+	fts          *FTSIndex
 
 	summaryMu    sync.Mutex
 	summaryTasks []*asyncSummaryTask
@@ -59,12 +61,15 @@ func NewReMeFileMemory(cfg ReMeFileConfig, counter TokenCounter) (*ReMeFileMemor
 		filepath.Join(base, "dialog"),
 		filepath.Join(base, "tool_result"),
 		filepath.Join(base, "sessions"),
+		filepath.Join(base, ".agentscope"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
 	}
+	ftsIndex, _ := NewFTSIndex(filepath.Join(base, ".agentscope", "reme.db"))
+
 	m := &ReMeFileMemory{
 		marks:          NewMarkStore(),
 		workingPath:    base,
@@ -72,8 +77,10 @@ func NewReMeFileMemory(cfg ReMeFileConfig, counter TokenCounter) (*ReMeFileMemor
 		dialogPath:     filepath.Join(base, "dialog"),
 		toolResultPath: filepath.Join(base, "tool_result"),
 		sessionsPath:   filepath.Join(base, "sessions"),
+		agentscopePath: filepath.Join(base, ".agentscope"),
 		tokenCounter:   counter,
 		config:         cfg,
+		fts:            ftsIndex,
 	}
 	m.toolCompact = NewToolResultCompactor(m.toolResultPath, cfg.RecentMaxBytes, cfg.OldMaxBytes, cfg.ToolResultRetentionDays)
 	return m, nil
@@ -387,6 +394,13 @@ func (m *ReMeFileMemory) AddAsyncSummaryTask(ctx context.Context, msgs []*messag
 	m.summaryMu.Unlock()
 }
 
+// FTSIndex 返回全文索引实例（可能为 nil）
+func (m *ReMeFileMemory) FTSIndex() *FTSIndex {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.fts
+}
+
 // AwaitSummaryTasks 等待所有后台摘要任务完成并返回第一个错误
 func (m *ReMeFileMemory) AwaitSummaryTasks() error {
 	m.summaryMu.Lock()
@@ -402,6 +416,14 @@ func (m *ReMeFileMemory) AwaitSummaryTasks() error {
 		}
 	}
 	return firstErr
+}
+
+// Close 关闭资源（如 FTS 数据库连接）
+func (m *ReMeFileMemory) Close() error {
+	if m.fts != nil {
+		return m.fts.Close()
+	}
+	return nil
 }
 
 var _ ReMeMemory = (*ReMeFileMemory)(nil)

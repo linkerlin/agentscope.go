@@ -266,7 +266,7 @@ agentscope.go/memory/
 | `ToolResultCompactor` | ✅ 已实现 | 工具结果压缩 |
 | `LocalVectorStore` | ✅ 已实现 | 本地向量存储 |
 | `ReMeHook` | ✅ 已实现 | Hook 系统集成 |
-| `HybridSearch` | ✅ 已实现 | 混合检索重排 |
+| `HybridSearch` | ✅ 已实现 | 向量检索 + SQLite FTS5 BM25 混合重排 |
 | `PersonalSummarizer` | ✅ 已实现 | 个人记忆自动提取 |
 | `ProceduralSummarizer` | ✅ 已实现 | 任务经验自动提取 |
 | `ToolSummarizer` | ✅ 已实现 | 工具使用指南生成 |
@@ -279,7 +279,6 @@ agentscope.go/memory/
 
 | 模块 | 优先级 | 说明 |
 |-----|-------|------|
-| BM25/FTS5 全文索引 | **P0** | 用 `modernc.org/sqlite` + `FTS5` 实现真正的 BM25，数据库路径 `{working_dir}/.agentscope/reme.db`。详见 [`演进方案_BM25_FTS5.md`](演进方案_BM25_FTS5.md)。 |
 | VectorStore 快照 | P1 | 会话级持久化（已部分实现） |
 | 配置系统整合 | P1 | 统一配置管理（config.ReMeMemoryConfig 已存在） |
 | ReMeInMemoryMemory 独立抽象 | P2 | 从 ReMeFileMemory 中解耦 |
@@ -843,7 +842,7 @@ Phase 4: 高级记忆功能 (3-4 周) ✅ 已完成
 ├── Hybrid Search 完善 (BM25索引) ⚠️ 简化版
 └── 与 ReAct Agent 深度集成 ✅ (通过 ReMeHook)
 
-Phase 4.5: BM25/FTS5 全文索引 (1-2 周) 🔄 进行中
+Phase 4.5: BM25/FTS5 全文索引 (1-2 周) ✅ 已完成
 ├── SQLite + FTS5 封装 (`memory/fts_index.go`)
 ├── BM25 与向量混合重排升级
 ├── ReMeFileMemory/ReMeVectorMemory 集成

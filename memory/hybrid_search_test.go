@@ -14,7 +14,7 @@ func TestRankMemoryNodesHybrid(t *testing.T) {
 		{Content: "foo bar", Score: 0.8},
 		{Content: "baz", Score: 0.9},
 	}
-	out := RankMemoryNodesHybrid(nodes, "foo bar", 0.5)
+	out := RankMemoryNodesHybrid(nodes, "foo bar", 0.5, nil)
 	if len(out) != 2 {
 		t.Fatal(len(out))
 	}

@@ -16,6 +16,7 @@ func TestReMeFileMemoryCheckContextAndRecent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer m.Close()
 	for i := 0; i < 5; i++ {
 		_ = m.Add(message.NewMsg().Role(message.RoleUser).TextContent("line").Build())
 	}
@@ -43,6 +44,7 @@ func TestReMeFileMemoryCompactMemoryNoModel(t *testing.T) {
 	cfg := DefaultReMeFileConfig()
 	cfg.WorkingDir = dir
 	m, _ := NewReMeFileMemory(cfg, NewSimpleTokenCounter())
+	defer m.Close()
 	_, err := m.CompactMemory(context.Background(), []*message.Msg{}, CompactOptions{})
 	if !errors.Is(err, ErrCompactorNoModel) {
 		t.Fatal(err)
@@ -54,6 +56,7 @@ func TestReMeFileMemoryInitCompactor(t *testing.T) {
 	cfg := DefaultReMeFileConfig()
 	cfg.WorkingDir = dir
 	m, _ := NewReMeFileMemory(cfg, NewSimpleTokenCounter())
+	defer m.Close()
 	m.InitCompactorWithModel(&mockChatModel{})
 	_, err := m.CompactMemory(context.Background(), []*message.Msg{
 		message.NewMsg().Role(message.RoleUser).TextContent("x").Build(),
@@ -73,6 +76,7 @@ func TestReMeFileMemorySaveToEmptyID(t *testing.T) {
 	cfg := DefaultReMeFileConfig()
 	cfg.WorkingDir = dir
 	m, _ := NewReMeFileMemory(cfg, NewSimpleTokenCounter())
+	defer m.Close()
 	if err := m.SaveTo(""); err == nil {
 		t.Fatal("expected error")
 	}

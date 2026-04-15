@@ -45,12 +45,18 @@ func NewReMeVectorMemory(cfg ReMeFileConfig, counter TokenCounter, store *LocalV
 	return &ReMeVectorMemory{ReMeFileMemory: f, store: store}, nil
 }
 
-// AddMemory 写入向量库
+// AddMemory 写入向量库并同步维护 FTS5
 func (v *ReMeVectorMemory) AddMemory(ctx context.Context, node *MemoryNode) error {
 	if v == nil || v.store == nil {
 		return ErrEmbeddingRequired
 	}
-	return v.store.Insert(ctx, []*MemoryNode{node})
+	if err := v.store.Insert(ctx, []*MemoryNode{node}); err != nil {
+		return err
+	}
+	if v.ReMeFileMemory != nil && v.ReMeFileMemory.fts != nil {
+		_ = v.ReMeFileMemory.fts.Insert(node)
+	}
+	return nil
 }
 
 // RetrieveMemory 语义检索；若 VectorWeight 在 (0,1) 则做混合重排
@@ -58,31 +64,52 @@ func (v *ReMeVectorMemory) RetrieveMemory(ctx context.Context, query string, opt
 	if v == nil || v.store == nil {
 		return nil, ErrEmbeddingRequired
 	}
-	nodes, err := v.store.Search(ctx, query, opts)
+	// 两阶段混合检索：向量召回候选集扩大 3 倍
+	vectorOpts := opts
+	if vectorOpts.TopK <= 0 {
+		vectorOpts.TopK = 10
+	}
+	vectorOpts.TopK *= 3
+	nodes, err := v.store.Search(ctx, query, vectorOpts)
 	if err != nil {
 		return nil, err
 	}
 	w := opts.VectorWeight
-	if w > 0 && w < 1 && len(nodes) > 0 {
-		nodes = RankMemoryNodesHybrid(nodes, query, w)
+	if w > 0 && w < 1 && len(nodes) > 0 && v.fts != nil {
+		nodes = RankMemoryNodesHybrid(nodes, query, w, v.fts)
+	}
+	if opts.TopK > 0 && len(nodes) > opts.TopK {
+		nodes = nodes[:opts.TopK]
 	}
 	return nodes, nil
 }
 
-// UpdateMemory 更新节点
+// UpdateMemory 更新节点并同步维护 FTS5
 func (v *ReMeVectorMemory) UpdateMemory(ctx context.Context, node *MemoryNode) error {
 	if v == nil || v.store == nil {
 		return ErrEmbeddingRequired
 	}
-	return v.store.Update(ctx, node)
+	if err := v.store.Update(ctx, node); err != nil {
+		return err
+	}
+	if v.ReMeFileMemory != nil && v.ReMeFileMemory.fts != nil {
+		_ = v.ReMeFileMemory.fts.Update(node)
+	}
+	return nil
 }
 
-// DeleteMemory 删除节点
+// DeleteMemory 删除节点并同步维护 FTS5
 func (v *ReMeVectorMemory) DeleteMemory(ctx context.Context, memoryID string) error {
 	if v == nil || v.store == nil {
 		return ErrEmbeddingRequired
 	}
-	return v.store.Delete(ctx, memoryID)
+	if err := v.store.Delete(ctx, memoryID); err != nil {
+		return err
+	}
+	if v.ReMeFileMemory != nil && v.ReMeFileMemory.fts != nil {
+		_ = v.ReMeFileMemory.fts.Delete(memoryID)
+	}
+	return nil
 }
 
 // RetrievePersonal 个人偏好类记忆
@@ -200,6 +227,14 @@ func NewReMeVectorMemoryWithOrchestrator(cfg ReMeFileConfig, counter TokenCounte
 	}
 	v.orch = orch
 	return v, nil
+}
+
+// Close 关闭底层资源（FTS 数据库连接等）
+func (v *ReMeVectorMemory) Close() error {
+	if v == nil || v.ReMeFileMemory == nil {
+		return nil
+	}
+	return v.ReMeFileMemory.Close()
 }
 
 var _ VectorMemory = (*ReMeVectorMemory)(nil)

@@ -27,6 +27,7 @@ type VectorMemory interface {
 type ReMeVectorMemory struct {
 	*ReMeFileMemory
 	store *LocalVectorStore
+	orch  Orchestrator
 }
 
 // NewReMeVectorMemory 创建向量记忆；store 为空则使用 LocalVectorStore(embed)
@@ -163,6 +164,42 @@ func (v *ReMeVectorMemory) LoadFrom(sessionID string) error {
 		return err
 	}
 	return v.store.ReadSnapshot(path)
+}
+
+// SetOrchestrator 注入编排器
+func (v *ReMeVectorMemory) SetOrchestrator(o Orchestrator) {
+	v.orch = o
+}
+
+// VectorStore 返回底层本地向量存储（供 Handler 等外部组件使用）
+func (v *ReMeVectorMemory) VectorStore() *LocalVectorStore {
+	return v.store
+}
+
+// SummarizeMemory 端到端记忆提取与持久化
+func (v *ReMeVectorMemory) SummarizeMemory(ctx context.Context, msgs []*message.Msg, userName, taskName, toolName string) (*SummarizeResult, error) {
+	if v.orch == nil {
+		return nil, errors.New("memory: orchestrator not set")
+	}
+	return v.orch.Summarize(ctx, msgs, userName, taskName, toolName)
+}
+
+// RetrieveMemoryUnified 统一检索入口
+func (v *ReMeVectorMemory) RetrieveMemoryUnified(ctx context.Context, query string, userName, taskName, toolName string, opts RetrieveOptions) ([]*MemoryNode, error) {
+	if v.orch == nil {
+		return nil, errors.New("memory: orchestrator not set")
+	}
+	return v.orch.Retrieve(ctx, query, userName, taskName, toolName, opts)
+}
+
+// NewReMeVectorMemoryWithOrchestrator 创建带编排器的向量记忆
+func NewReMeVectorMemoryWithOrchestrator(cfg ReMeFileConfig, counter TokenCounter, store *LocalVectorStore, embed EmbeddingModel, orch Orchestrator) (*ReMeVectorMemory, error) {
+	v, err := NewReMeVectorMemory(cfg, counter, store, embed)
+	if err != nil {
+		return nil, err
+	}
+	v.orch = orch
+	return v, nil
 }
 
 var _ VectorMemory = (*ReMeVectorMemory)(nil)

@@ -105,6 +105,41 @@ type CompactOptions struct {
 	AddThinkingBlock bool    `json:"add_thinking_block"`
 }
 
+// SummarizeResult 编排器 summarize 结果
+type SummarizeResult struct {
+	PersonalMemories   []*MemoryNode
+	ProceduralMemories []*MemoryNode
+	ToolMemories       []*MemoryNode
+	UpdatedProfiles    map[string]map[string]any // user -> profile
+	AddedHistory       *MemoryNode
+}
+
+// OrchestratorConfig 编排器配置
+type OrchestratorConfig struct {
+	EnablePersonal         bool
+	EnableProcedural       bool
+	EnableTool             bool
+	EnableProfile          bool
+	EnableHistory          bool
+	RetrieveTopK           int
+	MinScore               float64
+	DeduplicateThreshold   float64
+}
+
+// DefaultOrchestratorConfig 返回默认配置
+func DefaultOrchestratorConfig() OrchestratorConfig {
+	return OrchestratorConfig{
+		EnablePersonal:       true,
+		EnableProcedural:     true,
+		EnableTool:           true,
+		EnableProfile:        true,
+		EnableHistory:        true,
+		RetrieveTopK:         20,
+		MinScore:             0.1,
+		DeduplicateThreshold: 0.85,
+	}
+}
+
 // MessageMark 消息标记
 type MessageMark string
 

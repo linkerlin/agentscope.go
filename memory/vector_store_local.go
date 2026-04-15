@@ -176,6 +176,26 @@ func (s *LocalVectorStore) DeleteAll(ctx context.Context) error {
 	return nil
 }
 
+// List 按类型和目标过滤列出节点，limit<=0 表示不限制
+func (s *LocalVectorStore) List(memType MemoryType, target string, limit int) ([]*MemoryNode, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*MemoryNode
+	for _, n := range s.nodes {
+		if n.MemoryType != memType {
+			continue
+		}
+		if target != "" && n.MemoryTarget != target {
+			continue
+		}
+		out = append(out, n)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // ErrEmbeddingRequired 未配置嵌入模型
 var ErrEmbeddingRequired = errors.New("memory: embedding model required")
 

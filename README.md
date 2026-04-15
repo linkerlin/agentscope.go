@@ -99,6 +99,8 @@ agent, _ := react.Builder().
 
 ## 记忆管理
 
+### 基础 Memory
+
 ```go
 import "github.com/linkerlin/agentscope.go/memory"
 
@@ -108,6 +110,26 @@ agent, _ := react.Builder().
     Model(chatModel).
     Memory(mem).
     Build()
+```
+
+### ReMe 长期记忆（文件 + 向量）
+
+```go
+import "github.com/linkerlin/agentscope.go/memory"
+import "github.com/linkerlin/agentscope.go/memory/handler"
+
+// 创建向量记忆
+v, _ := memory.NewReMeVectorMemory(cfg, counter, nil, embedModel)
+
+// 注入编排器，实现自动提取与检索
+orch := handler.NewMemoryOrchestrator(personalSum, proceduralSum, toolSum, memTool, profileTool, historyTool, dedup)
+v.SetOrchestrator(orch)
+
+// 端到端自动提取个人/任务记忆并写入向量库
+res, _ := v.SummarizeMemory(ctx, msgs, "alice", "coding_task", "")
+
+// 统一检索
+nodes, _ := v.RetrieveMemoryUnified(ctx, "Go 最佳实践", "alice", "coding_task", "", memory.RetrieveOptions{TopK: 5})
 ```
 
 ## 钩子系统（人机协作）
@@ -160,6 +182,9 @@ chatModel, _ := dashscope.Builder().
 
 - [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
 - [`examples/tools`](examples/tools/main.go) —— 带计算工具的 Agent
+- [`examples/reme/file`](examples/reme/file/main.go) —— ReMe 文件型记忆（ReMeLight）
+- [`examples/reme/vector`](examples/reme/vector/main.go) —— ReMe 向量记忆检索
+- [`examples/reme/orchestrator`](examples/reme/orchestrator/main.go) —— ReMe Orchestrator 端到端（提取 + 检索 + Profile）
 
 ## 许可证
 

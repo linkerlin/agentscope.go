@@ -14,6 +14,12 @@ import (
 	"github.com/linkerlin/agentscope.go/model"
 )
 
+// asyncSummaryTask 异步摘要任务
+type asyncSummaryTask struct {
+	done chan struct{}
+	err  error
+}
+
 // ReMeFileMemory 文件型 ReMe 记忆（ReMeLight 对齐）
 type ReMeFileMemory struct {
 	mu       sync.RWMutex
@@ -30,8 +36,12 @@ type ReMeFileMemory struct {
 
 	tokenCounter TokenCounter
 	compactor    *Compactor
+	summarizer   *Summarizer
 	toolCompact  *ToolResultCompactor
 	config       ReMeFileConfig
+
+	summaryMu    sync.Mutex
+	summaryTasks []*asyncSummaryTask
 }
 
 // NewReMeFileMemory 创建工作目录结构并返回实例
@@ -78,6 +88,17 @@ func (m *ReMeFileMemory) InitCompactorWithModel(cm model.ChatModel) {
 		return
 	}
 	m.compactor = NewCompactor(cm)
+}
+
+// InitSummarizerWithModel 注入用于持久化摘要的 ChatModel
+func (m *ReMeFileMemory) InitSummarizerWithModel(cm model.ChatModel) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cm == nil {
+		m.summarizer = nil
+		return
+	}
+	m.summarizer = &Summarizer{Model: cm, WorkingDir: m.workingPath}
 }
 
 // Add 追加消息
@@ -281,6 +302,12 @@ func (m *ReMeFileMemory) PreReasoningPrepare(ctx context.Context, history []*mes
 	m.mu.Lock()
 	m.compSum = sum.Raw
 	m.mu.Unlock()
+
+	// 触发异步摘要（非阻塞）
+	if m.summarizer != nil {
+		m.AddAsyncSummaryTask(ctx, cc.MessagesToCompact)
+	}
+
 	var out []*message.Msg
 	if sum.Raw != "" {
 		out = append(out, message.NewMsg().
@@ -343,6 +370,38 @@ func (m *ReMeFileMemory) SetLongTermMemory(text string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.longTerm = text
+}
+
+// AddAsyncSummaryTask 启动后台摘要任务（将待压缩消息写入 memory/YYYY-MM-DD.md）
+func (m *ReMeFileMemory) AddAsyncSummaryTask(ctx context.Context, msgs []*message.Msg) {
+	if m.summarizer == nil || m.summarizer.Model == nil {
+		return
+	}
+	task := &asyncSummaryTask{done: make(chan struct{})}
+	go func() {
+		task.err = m.summarizer.SummarizeToDailyFile(ctx, msgs)
+		close(task.done)
+	}()
+	m.summaryMu.Lock()
+	m.summaryTasks = append(m.summaryTasks, task)
+	m.summaryMu.Unlock()
+}
+
+// AwaitSummaryTasks 等待所有后台摘要任务完成并返回第一个错误
+func (m *ReMeFileMemory) AwaitSummaryTasks() error {
+	m.summaryMu.Lock()
+	tasks := m.summaryTasks
+	m.summaryTasks = nil
+	m.summaryMu.Unlock()
+
+	var firstErr error
+	for _, t := range tasks {
+		<-t.done
+		if t.err != nil && firstErr == nil {
+			firstErr = t.err
+		}
+	}
+	return firstErr
 }
 
 var _ ReMeMemory = (*ReMeFileMemory)(nil)

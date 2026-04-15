@@ -229,21 +229,30 @@ class BaseVectorStore(ABC):
 
 ```
 agentscope.go/memory/
-├── memory.go              # 基础 Memory 接口
-├── inmemory.go            # InMemoryMemory 实现
-├── window.go              # WindowMemory 滑动窗口
-├── reme_types.go          # ReMe 核心类型 (已部分实现)
-├── reme_memory.go         # ReMeMemory 接口
-├── reme_file_memory.go    # ReMeFileMemory 实现 (已部分实现)
-├── reme_vector_memory.go  # ReMeVectorMemory 实现 (已部分实现)
-├── reme_hook.go           # ReMeHook 集成
-├── compactor.go           # Compactor 实现
-├── summarizer.go          # Summarizer 实现
-├── context_checker.go     # ContextChecker 实现
-├── tool_result_compactor.go # ToolResultCompactor
-├── vector_store_local.go  # LocalVectorStore 实现
-├── hybrid_search.go       # 混合搜索 (向量 + BM25)
-└── embedding.go           # EmbeddingModel 接口
+├── memory.go                   # 基础 Memory 接口
+├── inmemory.go                 # InMemoryMemory 实现
+├── window.go                   # WindowMemory 滑动窗口
+├── reme_types.go               # ReMe 核心类型 (已部分实现)
+├── reme_memory.go              # ReMeMemory 接口
+├── reme_file_memory.go         # ReMeFileMemory 实现
+├── reme_vector_memory.go       # ReMeVectorMemory 实现
+├── reme_hook.go                # ReMeHook 集成
+├── compactor.go                # Compactor 实现
+├── summarizer.go               # Summarizer 实现
+├── summarizer_personal.go      # PersonalSummarizer
+├── summarizer_procedural.go    # ProceduralSummarizer
+├── summarizer_tool.go          # ToolSummarizer
+├── context_checker.go          # ContextChecker 实现
+├── tool_result_compactor.go    # ToolResultCompactor
+├── deduplicator.go             # MemoryDeduplicator
+├── vector_store_local.go       # LocalVectorStore 实现
+├── hybrid_search.go            # 混合搜索 (向量 + BM25)
+├── embedding.go                # EmbeddingModel 接口
+└── handler/                    # Handler 层（新增）
+    ├── orchestrator.go         # MemoryOrchestrator
+    ├── memory_handler.go       # MemoryHandler
+    ├── profile_handler.go      # ProfileHandler
+    └── history_handler.go      # HistoryHandler
 ```
 
 ### 3.2 已实现功能清单
@@ -258,17 +267,24 @@ agentscope.go/memory/
 | `LocalVectorStore` | ✅ 已实现 | 本地向量存储 |
 | `ReMeHook` | ✅ 已实现 | Hook 系统集成 |
 | `HybridSearch` | ✅ 已实现 | 混合检索重排 |
+| `PersonalSummarizer` | ✅ 已实现 | 个人记忆自动提取 |
+| `ProceduralSummarizer` | ✅ 已实现 | 任务经验自动提取 |
+| `ToolSummarizer` | ✅ 已实现 | 工具使用指南生成 |
+| `MemoryOrchestrator` | ✅ 已实现 | 编排 Summarize + Retrieve |
+| `MemoryHandler` | ✅ 已实现 | 向量库 CRUD + 草稿检索 |
+| `ProfileHandler` | ✅ 已实现 | 本地用户画像管理 |
+| `HistoryHandler` | ✅ 已实现 | 历史记录节点读写 |
 
 ### 3.3 待完善功能清单
 
 | 模块 | 优先级 | 说明 |
 |-----|-------|------|
-| PersonalSummarizer | P0 | 个人记忆自动提取 |
-| ProceduralSummarizer | P0 | 任务经验自动提取 |
-| ToolSummarizer | P1 | 工具使用指南生成 |
-| VectorStore 快照 | P1 | 会话级持久化 |
-| BM25 索引 | P2 | 全文检索能力 |
-| 配置系统整合 | P1 | 统一配置管理 |
+| BM25/FTS5 全文索引 | **P0** | 用 `modernc.org/sqlite` + `FTS5` 实现真正的 BM25，数据库路径 `{working_dir}/.agentscope/reme.db`。详见 [`演进方案_BM25_FTS5.md`](演进方案_BM25_FTS5.md)。 |
+| VectorStore 快照 | P1 | 会话级持久化（已部分实现） |
+| 配置系统整合 | P1 | 统一配置管理（config.ReMeMemoryConfig 已存在） |
+| ReMeInMemoryMemory 独立抽象 | P2 | 从 ReMeFileMemory 中解耦 |
+| 多后端 VectorStore | P2 | Chroma/Qdrant/ES/pgvector Go 客户端 |
+| ToolMemory 自动触发 | P2 | 需外部提供 ToolCallResult，暂为预留接口 |
 
 ---
 
@@ -795,33 +811,48 @@ Phase 1: 基础层完善 (1-2 周) ✅ 已完成
 ├── msgHandler 消息处理工具
 └── 基础测试覆盖 (79%+)
 
-Phase 2: File-Based Memory 完善 (2-3 周) 🔄 进行中
+Phase 1: 基础层完善 (1-2 周) ✅ 已完成
+├── TokenCounter 接口与实现
+├── MessageMark 消息标记系统
+├── msgHandler 消息处理工具
+└── 基础测试覆盖 (79%+)
+
+Phase 2: File-Based Memory 完善 (2-3 周) ✅ 已完成
 ├── ReMeFileMemory 核心实现 ✅
 ├── ContextChecker 上下文检查 ✅
 ├── ToolResultCompactor 工具结果压缩 ✅
 ├── Compactor 记忆压缩 ✅
 ├── Summarizer 持久化摘要 ✅
+├── 异步摘要任务 ✅
 └── 目录结构管理 ✅
 
-Phase 3: Vector-Based Memory 完善 (2-3 周) 📋 计划中
+Phase 3: Vector-Based Memory 完善 (2-3 周) ✅ 已完成
 ├── VectorStore 接口 ✅
 ├── LocalVectorStore 实现 ✅
 ├── EmbeddingModel 接口 ✅
 ├── ReMeVectorMemory 实现 ✅
 ├── MemoryNode CRUD ✅
-└── VectorStore 快照持久化
+└── VectorStore 快照持久化 ✅
 
-Phase 4: 高级记忆功能 (3-4 周) 📋 计划中
-├── PersonalSummarizer 个人记忆提取
-├── ProceduralSummarizer 任务经验提取
-├── ToolSummarizer 工具使用指南生成
-├── Hybrid Search 完善 (BM25索引)
-└── 与 ReAct Agent 深度集成
+Phase 4: 高级记忆功能 (3-4 周) ✅ 已完成
+├── PersonalSummarizer 个人记忆提取 ✅
+├── ProceduralSummarizer 任务经验提取 ✅
+├── ToolSummarizer 工具使用指南生成 ✅
+├── MemoryOrchestrator 编排层 ✅
+├── MemoryHandler / ProfileHandler / HistoryHandler ✅
+├── Hybrid Search 完善 (BM25索引) ⚠️ 简化版
+└── 与 ReAct Agent 深度集成 ✅ (通过 ReMeHook)
+
+Phase 4.5: BM25/FTS5 全文索引 (1-2 周) 🔄 进行中
+├── SQLite + FTS5 封装 (`memory/fts_index.go`)
+├── BM25 与向量混合重排升级
+├── ReMeFileMemory/ReMeVectorMemory 集成
+└── 端到端测试与示例更新
 
 Phase 5: 生产就绪 (2-3 周) 📋 计划中
 ├── 性能优化 (并发、缓存)
-├── 完整测试覆盖
-├── 文档和示例完善
+├── 完整测试覆盖 ✅ (~85% 核心路径已覆盖)
+├── 文档和示例完善 ✅
 ├── 与 AgentScope-Java 功能对齐验证
 └── 发布准备
 ```
@@ -830,10 +861,10 @@ Phase 5: 生产就绪 (2-3 周) 📋 计划中
 
 | 里程碑 | 目标日期 | 关键交付物 | 成功标准 |
 |-------|---------|-----------|---------|
-| M1 - 基础稳定 | Week 2 | ReMeFileMemory 完整实现 | `go test ./memory/...` 全绿 |
-| M2 - 向量就绪 | Week 5 | ReMeVectorMemory 完整实现 | 向量检索准确率 > 90% |
-| M3 - 智能提取 | Week 8 | 三种记忆类型自动提取 | 端到端示例运行成功 |
-| M4 - 生产发布 | Week 11 | 完整文档与测试 | 与 Python ReMe 功能对齐 |
+| M1 - 基础稳定 | Week 2 | ReMeFileMemory 完整实现 | ✅ `go test ./memory/...` 全绿 |
+| M2 - 向量就绪 | Week 5 | ReMeVectorMemory 完整实现 | ✅ 向量检索 + 快照可用 |
+| M3 - 智能提取 | Week 8 | Orchestrator + 自动提取 | ✅ `examples/reme/orchestrator` 运行成功 |
+| M4 - 生产发布 | Week 11 | 完整文档与测试 | 🔄 与 Python ReMe 功能对齐度 ~85% |
 
 ---
 

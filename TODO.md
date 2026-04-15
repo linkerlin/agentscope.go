@@ -13,12 +13,7 @@
 
 ## P2 - 中优先级
 
-### 4. ReMeInMemoryMemory 独立抽象
-- **现状**：`ReMeInMemoryMemory` 的能力（`marks`、`compSum`、`dialog` 持久化等）直接耦合在 `ReMeFileMemory` 内部。
-- **目标**：提取独立结构体 `ReMeInMemoryMemory`，让 `ReMeFileMemory` 组合它而非内联所有字段。保持与 Python `ReMeInMemoryMemory` 的对齐。
-- **影响文件**：`reme_file_memory.go`、新增 `reme_in_memory.go`。
-
-### 5. 性能优化（并发、缓存）
+### 4. 性能优化（并发、缓存）
 - **目标**：
   - 为 `LocalVectorStore.Search` 引入读写锁优化或分片锁
   - 为 Embedding 调用增加本地缓存（LRU），避免重复文本的重复嵌入

@@ -259,7 +259,7 @@ agentscope.go/memory/
 
 | 模块 | 状态 | 说明 |
 |-----|------|------|
-| `ReMeFileMemory` | ✅ 已实现 | 文件型记忆基础功能 |
+| `ReMeFileMemory` | ✅ 已实现 | 文件型记忆基础功能（组合 ReMeInMemoryMemory） |
 | `ReMeVectorMemory` | ✅ 已实现 | 向量记忆基础功能 |
 | `Compactor` | ✅ 已实现 | 基础压缩功能 |
 | `ContextChecker` | ✅ 已实现 | 上下文检查 |
@@ -285,7 +285,7 @@ agentscope.go/memory/
 |-----|-------|------|
 | VectorStore 快照 | P1 | 会话级持久化（已部分实现） |
 | 配置系统整合 | P1 | 统一配置管理（config.ReMeMemoryConfig 已存在） |
-| ReMeInMemoryMemory 独立抽象 | P2 | 从 ReMeFileMemory 中解耦 |
+
 
 
 ---
@@ -353,6 +353,7 @@ type VectorMemory interface {
 | ReMe (Python) | Go 对应实现 | 状态 |
 |---------------|------------|------|
 | `ReMeLight` | `ReMeFileMemory` | ✅ 已实现 |
+| `ReMeInMemoryMemory` | `ReMeInMemoryMemory` | ✅ 已实现 |
 | `ReMe` | `ReMeVectorMemory` | ✅ 已实现 |
 | `ContextChecker` | `context_checker.go` | ✅ 已实现 |
 | `Compactor` | `compactor.go` | ✅ 已实现 |

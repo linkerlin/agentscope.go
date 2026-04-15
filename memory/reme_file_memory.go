@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
@@ -22,11 +21,7 @@ type asyncSummaryTask struct {
 
 // ReMeFileMemory 文件型 ReMe 记忆（ReMeLight 对齐）
 type ReMeFileMemory struct {
-	mu       sync.RWMutex
-	msgs     []*message.Msg
-	marks    *MarkStore
-	compSum  string
-	longTerm string
+	*ReMeInMemoryMemory
 
 	workingPath    string
 	memoryPath     string
@@ -71,16 +66,16 @@ func NewReMeFileMemory(cfg ReMeFileConfig, counter TokenCounter) (*ReMeFileMemor
 	ftsIndex, _ := NewFTSIndex(filepath.Join(base, ".agentscope", "reme.db"))
 
 	m := &ReMeFileMemory{
-		marks:          NewMarkStore(),
-		workingPath:    base,
-		memoryPath:     filepath.Join(base, "memory"),
-		dialogPath:     filepath.Join(base, "dialog"),
-		toolResultPath: filepath.Join(base, "tool_result"),
-		sessionsPath:   filepath.Join(base, "sessions"),
-		agentscopePath: filepath.Join(base, ".agentscope"),
-		tokenCounter:   counter,
-		config:         cfg,
-		fts:            ftsIndex,
+		ReMeInMemoryMemory: NewReMeInMemoryMemory(filepath.Join(base, "dialog")),
+		workingPath:        base,
+		memoryPath:         filepath.Join(base, "memory"),
+		dialogPath:         filepath.Join(base, "dialog"),
+		toolResultPath:     filepath.Join(base, "tool_result"),
+		sessionsPath:       filepath.Join(base, "sessions"),
+		agentscopePath:     filepath.Join(base, ".agentscope"),
+		tokenCounter:       counter,
+		config:             cfg,
+		fts:                ftsIndex,
 	}
 	m.toolCompact = NewToolResultCompactor(m.toolResultPath, cfg.RecentMaxBytes, cfg.OldMaxBytes, cfg.ToolResultRetentionDays)
 	return m, nil
@@ -108,77 +103,9 @@ func (m *ReMeFileMemory) InitSummarizerWithModel(cm model.ChatModel) {
 	m.summarizer = &Summarizer{Model: cm, WorkingDir: m.workingPath}
 }
 
-// Add 追加消息
-func (m *ReMeFileMemory) Add(msg *message.Msg) error {
-	if msg == nil {
-		return nil
-	}
-	m.mu.Lock()
-	m.msgs = append(m.msgs, msg)
-	m.mu.Unlock()
-	return m.appendToDialog([]*message.Msg{msg})
-}
-
-// GetAll 返回未删除视图（可选排除 compressed，与 ReMe 语义一致时排除 compressed）
-func (m *ReMeFileMemory) GetAll() ([]*message.Msg, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.getFiltered(true), nil
-}
-
-// GetRecent 最近 n 条（过滤后）
-func (m *ReMeFileMemory) GetRecent(n int) ([]*message.Msg, error) {
-	all, err := m.GetAll()
-	if err != nil {
-		return nil, err
-	}
-	if n >= len(all) {
-		return append([]*message.Msg(nil), all...), nil
-	}
-	return append([]*message.Msg(nil), all[len(all)-n:]...), nil
-}
-
-// Clear 清空
-func (m *ReMeFileMemory) Clear() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.msgs = nil
-	m.marks = NewMarkStore()
-	m.compSum = ""
-	m.longTerm = ""
-	return nil
-}
-
-// Size 条数
-func (m *ReMeFileMemory) Size() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.getFiltered(false))
-}
-
-func (m *ReMeFileMemory) getFiltered(excludeCompressed bool) []*message.Msg {
-	var out []*message.Msg
-	for _, msg := range m.msgs {
-		if msg == nil {
-			continue
-		}
-		if m.marks.Has(msg.ID, MarkDeleted) {
-			continue
-		}
-		if excludeCompressed && m.marks.Has(msg.ID, MarkCompressed) {
-			continue
-		}
-		out = append(out, msg)
-	}
-	return out
-}
-
 // CheckContext 对当前内存中的消息做上下文切分
 func (m *ReMeFileMemory) CheckContext(ctx context.Context, threshold, reserve int) (*ContextCheckResult, error) {
-	m.mu.RLock()
-	msgs := cloneMsgSlice(m.msgs)
-	m.mu.RUnlock()
-	return CheckContext(ctx, msgs, threshold, reserve, m.tokenCounter)
+	return CheckContext(ctx, m.Msgs(), threshold, reserve, m.tokenCounter)
 }
 
 // CompactMemory 压缩给定消息并更新内部摘要文本
@@ -190,9 +117,7 @@ func (m *ReMeFileMemory) CompactMemory(ctx context.Context, messages []*message.
 	if err != nil {
 		return "", err
 	}
-	m.mu.Lock()
-	m.compSum = sum.Raw
-	m.mu.Unlock()
+	m.SetCompSum(sum.Raw)
 	return sum.Raw, nil
 }
 
@@ -223,15 +148,14 @@ func (m *ReMeFileMemory) SaveTo(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("memory: empty session id")
 	}
-	m.mu.RLock()
-	snap := &sessionSnapshotV1{
+	snap := m.ReMeInMemoryMemory.Snapshot()
+	fsnap := &sessionSnapshotV1{
 		Version:           1,
-		CompressedSummary: m.compSum,
-		LongTermMemory:    m.longTerm,
-		Marks:             m.marks.ToMap(),
+		CompressedSummary: snap.CompressedSummary,
+		LongTermMemory:    snap.LongTermMemory,
+		Marks:             snap.Marks,
 	}
-	m.mu.RUnlock()
-	data, err := json.MarshalIndent(snap, "", "  ")
+	data, err := json.MarshalIndent(fsnap, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -249,15 +173,15 @@ func (m *ReMeFileMemory) LoadFrom(sessionID string) error {
 	if err != nil {
 		return err
 	}
-	var snap sessionSnapshotV1
-	if err := json.Unmarshal(data, &snap); err != nil {
+	var fsnap sessionSnapshotV1
+	if err := json.Unmarshal(data, &fsnap); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	m.compSum = snap.CompressedSummary
-	m.longTerm = snap.LongTermMemory
-	m.marks = LoadMarkStore(snap.Marks)
-	m.mu.Unlock()
+	m.ReMeInMemoryMemory.Restore(&InMemorySnapshot{
+		CompressedSummary: fsnap.CompressedSummary,
+		LongTermMemory:    fsnap.LongTermMemory,
+		Marks:             fsnap.Marks,
+	})
 	return nil
 }
 
@@ -301,14 +225,12 @@ func (m *ReMeFileMemory) PreReasoningPrepare(ctx context.Context, history []*mes
 	}
 	sum, err := m.compactor.Compact(ctx, cc.MessagesToCompact, CompactOptions{
 		Language:        m.config.Language,
-		PreviousSummary: m.compSum,
+		PreviousSummary: m.GetCompSum(),
 	})
 	if err != nil {
 		return nil, nil, err
 	}
-	m.mu.Lock()
-	m.compSum = sum.Raw
-	m.mu.Unlock()
+	m.SetCompSum(sum.Raw)
 
 	// 触发异步摘要（非阻塞）
 	if m.summarizer != nil {
@@ -328,18 +250,16 @@ func (m *ReMeFileMemory) PreReasoningPrepare(ctx context.Context, history []*mes
 
 // GetMemoryForPrompt 返回带长期记忆与摘要前缀的消息视图（供 buildHistory 使用）
 func (m *ReMeFileMemory) GetMemoryForPrompt(prepend bool) ([]*message.Msg, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	filtered := m.getFiltered(true)
+	filtered, _ := m.GetAll()
 	if !prepend {
 		return append([]*message.Msg(nil), filtered...), nil
 	}
 	var parts []string
-	if m.longTerm != "" {
-		parts = append(parts, "# Memories\n\n"+m.longTerm)
+	if lt := m.GetLongTermMemory(); lt != "" {
+		parts = append(parts, "# Memories\n\n"+lt)
 	}
-	if m.compSum != "" {
-		parts = append(parts, "# Summary of previous conversation\n\n"+m.compSum)
+	if cs := m.GetCompSum(); cs != "" {
+		parts = append(parts, "# Summary of previous conversation\n\n"+cs)
 	}
 	if len(parts) == 0 {
 		return append([]*message.Msg(nil), filtered...), nil
@@ -350,33 +270,6 @@ func (m *ReMeFileMemory) GetMemoryForPrompt(prepend bool) ([]*message.Msg, error
 		TextContent(strings.Join(parts, "\n\n")).
 		Build()
 	return append([]*message.Msg{sumMsg}, filtered...), nil
-}
-
-func (m *ReMeFileMemory) appendToDialog(msgs []*message.Msg) error {
-	if len(msgs) == 0 {
-		return nil
-	}
-	dateStr := time.Now().Format("2006-01-02")
-	filename := filepath.Join(m.dialogPath, dateStr+".jsonl")
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	for _, msg := range msgs {
-		data, _ := json.Marshal(msg)
-		if _, err := f.Write(append(data, '\n')); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// SetLongTermMemory 设置长期记忆文本（如 MEMORY.md 内容）
-func (m *ReMeFileMemory) SetLongTermMemory(text string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.longTerm = text
 }
 
 // AddAsyncSummaryTask 启动后台摘要任务（将待压缩消息写入 memory/YYYY-MM-DD.md）

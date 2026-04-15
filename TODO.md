@@ -7,16 +7,7 @@
 
 ## P1 - 高优先级
 
-### 1. 多后端 VectorStore
-- **现状**：仅实现了内存版 `LocalVectorStore`。
-- **目标**：增加远程/持久化向量存储后端的 Go 客户端封装：
-  - `ChromaVectorStore`
-  - `QdrantVectorStore`
-  - `ESVectorStore` (Elasticsearch)
-  - `PGVectorStore` (PostgreSQL + pgvector)
-- **影响文件**：新增 `memory/vector_store_chroma.go` 等。
-
-### 3. ToolMemory 自动触发闭环
+### 1. ToolMemory 自动触发闭环
 - **现状**：`ToolSummarizer` 已存在，但 `MemoryOrchestrator.Summarize` 中 Tool 分支为空（需要外部提供 `ToolCallResult`，无法从纯消息提取）。
 - **目标**：
   - 在 Agent/Hook 层收集 `ToolCallResult` 并批量传递给 `ReMeVectorMemory`

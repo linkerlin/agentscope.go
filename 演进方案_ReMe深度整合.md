@@ -265,6 +265,10 @@ agentscope.go/memory/
 | `ContextChecker` | ✅ 已实现 | 上下文检查 |
 | `ToolResultCompactor` | ✅ 已实现 | 工具结果压缩 |
 | `LocalVectorStore` | ✅ 已实现 | 本地向量存储 |
+| `QdrantVectorStore` | ✅ 已实现 | Qdrant 远程向量存储 |
+| `ChromaVectorStore` | ✅ 已实现 | Chroma 远程向量存储 |
+| `ESVectorStore` | ✅ 已实现 | Elasticsearch 远程向量存储 |
+| `PGVectorStore` | ✅ 已实现 | PostgreSQL + pgvector 远程向量存储 |
 | `ReMeHook` | ✅ 已实现 | Hook 系统集成 |
 | `HybridSearch` | ✅ 已实现 | 向量检索 + SQLite FTS5 BM25 混合重排 |
 | `PersonalSummarizer` | ✅ 已实现 | 个人记忆自动提取 |
@@ -282,7 +286,6 @@ agentscope.go/memory/
 | VectorStore 快照 | P1 | 会话级持久化（已部分实现） |
 | 配置系统整合 | P1 | 统一配置管理（config.ReMeMemoryConfig 已存在） |
 | ReMeInMemoryMemory 独立抽象 | P2 | 从 ReMeFileMemory 中解耦 |
-| 多后端 VectorStore | P2 | Chroma/Qdrant/ES/pgvector Go 客户端 |
 | ToolMemory 自动触发 | P2 | 需外部提供 ToolCallResult，暂为预留接口 |
 
 ---
@@ -852,6 +855,7 @@ Phase 5: 生产就绪 (2-3 周) 📋 计划中
 ├── 性能优化 (并发、缓存)
 ├── 完整测试覆盖 ✅ (~85% 核心路径已覆盖)
 ├── 文档和示例完善 ✅
+├── 多后端 VectorStore ✅ (Qdrant/Chroma/ES/PGVector)
 ├── 与 AgentScope-Java 功能对齐验证
 └── 发布准备
 ```

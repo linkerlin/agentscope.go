@@ -26,12 +26,12 @@ type VectorMemory interface {
 // ReMeVectorMemory 组合文件记忆与向量存储
 type ReMeVectorMemory struct {
 	*ReMeFileMemory
-	store *LocalVectorStore
+	store VectorStore
 	orch  Orchestrator
 }
 
 // NewReMeVectorMemory 创建向量记忆；store 为空则使用 LocalVectorStore(embed)
-func NewReMeVectorMemory(cfg ReMeFileConfig, counter TokenCounter, store *LocalVectorStore, embed EmbeddingModel) (*ReMeVectorMemory, error) {
+func NewReMeVectorMemory(cfg ReMeFileConfig, counter TokenCounter, store VectorStore, embed EmbeddingModel) (*ReMeVectorMemory, error) {
 	f, err := NewReMeFileMemory(cfg, counter)
 	if err != nil {
 		return nil, err
@@ -169,7 +169,10 @@ func (v *ReMeVectorMemory) SaveTo(sessionID string) error {
 		return nil
 	}
 	path := filepath.Join(v.sessionsPath, sessionID+".vector.json")
-	return v.store.WriteSnapshot(path)
+	if lv, ok := v.store.(*LocalVectorStore); ok {
+		return lv.WriteSnapshot(path)
+	}
+	return nil
 }
 
 // LoadFrom 加载会话快照；若存在向量快照则恢复 LocalVectorStore
@@ -190,7 +193,10 @@ func (v *ReMeVectorMemory) LoadFrom(sessionID string) error {
 		}
 		return err
 	}
-	return v.store.ReadSnapshot(path)
+	if lv, ok := v.store.(*LocalVectorStore); ok {
+		return lv.ReadSnapshot(path)
+	}
+	return nil
 }
 
 // SetOrchestrator 注入编排器
@@ -198,8 +204,8 @@ func (v *ReMeVectorMemory) SetOrchestrator(o Orchestrator) {
 	v.orch = o
 }
 
-// VectorStore 返回底层本地向量存储（供 Handler 等外部组件使用）
-func (v *ReMeVectorMemory) VectorStore() *LocalVectorStore {
+// VectorStore 返回底层向量存储（供 Handler 等外部组件使用）
+func (v *ReMeVectorMemory) VectorStore() VectorStore {
 	return v.store
 }
 
@@ -220,7 +226,7 @@ func (v *ReMeVectorMemory) RetrieveMemoryUnified(ctx context.Context, query stri
 }
 
 // NewReMeVectorMemoryWithOrchestrator 创建带编排器的向量记忆
-func NewReMeVectorMemoryWithOrchestrator(cfg ReMeFileConfig, counter TokenCounter, store *LocalVectorStore, embed EmbeddingModel, orch Orchestrator) (*ReMeVectorMemory, error) {
+func NewReMeVectorMemoryWithOrchestrator(cfg ReMeFileConfig, counter TokenCounter, store VectorStore, embed EmbeddingModel, orch Orchestrator) (*ReMeVectorMemory, error) {
 	v, err := NewReMeVectorMemory(cfg, counter, store, embed)
 	if err != nil {
 		return nil, err

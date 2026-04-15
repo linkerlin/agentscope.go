@@ -52,7 +52,7 @@ func (d *MemoryDeduplicator) Deduplicate(ctx context.Context, memories []*Memory
 }
 
 // DeduplicateAgainstStore 将新记忆与已有存储去重
-func (d *MemoryDeduplicator) DeduplicateAgainstStore(ctx context.Context, newMemories []*MemoryNode, store *LocalVectorStore) ([]*MemoryNode, error) {
+func (d *MemoryDeduplicator) DeduplicateAgainstStore(ctx context.Context, newMemories []*MemoryNode, store VectorStore) ([]*MemoryNode, error) {
 	if len(newMemories) == 0 {
 		return nil, nil
 	}

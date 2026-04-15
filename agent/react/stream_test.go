@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
@@ -42,12 +43,11 @@ func TestRunModelStreamChunks(t *testing.T) {
 	})
 
 	a := &ReActAgent{
-		name:        "t",
-		chatModel:   &mockModel{name: "m", ch: ch},
-		memory:      memory.NewInMemoryMemory(),
+		Base:          agent.NewBase("", "t", "", "", nil, nil, []hook.StreamHook{sh}),
+		chatModel:     &mockModel{name: "m", ch: ch},
+		memory:        memory.NewInMemoryMemory(),
 		maxIterations: 3,
-		streamHooks: []hook.StreamHook{sh},
-		toolMap:     map[string]tool.Tool{},
+		toolMap:       map[string]tool.Tool{},
 	}
 	hist := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
 	msg, err := a.runModel(context.Background(), hist, nil, 0, false)

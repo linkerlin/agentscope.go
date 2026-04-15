@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
@@ -24,27 +23,14 @@ var ErrAgentClosed = errors.New("react agent: agent is closed")
 
 // ReActAgent implements the ReAct (Reasoning + Acting) pattern
 type ReActAgent struct {
-	agentID       string
-	name          string
-	description   string
-	sysPrompt     string
+	*agent.Base
+
 	chatModel     model.ChatModel
 	tools         []tool.Tool
 	toolkit       *toolkit.Toolkit
 	memory        memory.Memory
 	maxIterations int
-	hooks         []hook.Hook
-	streamHooks   []hook.StreamHook
 	toolMap       map[string]tool.Tool
-	meta          map[string]any
-
-	// graceful shutdown
-	mu       sync.RWMutex
-	closed   bool
-	callWg   sync.WaitGroup
-
-	// token usage tracking
-	usage atomic.Value // stores model.ChatUsage
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
@@ -171,21 +157,22 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 	}
 
 	a := &ReActAgent{
-		agentID:       b.agentID,
-		name:          b.name,
-		description:   b.description,
-		sysPrompt:     b.sysPrompt,
+		Base: agent.NewBase(
+			b.agentID,
+			b.name,
+			b.description,
+			b.sysPrompt,
+			cloneMeta(b.meta),
+			b.hooks,
+			b.streamHooks,
+		),
 		chatModel:     b.chatModel,
 		tools:         b.tools,
 		toolkit:       b.toolkit,
 		memory:        b.memory,
 		maxIterations: b.maxIterations,
-		hooks:         hook.SortByPriority(b.hooks),
-		streamHooks:   hook.SortStreamHooks(b.streamHooks),
 		toolMap:       toolMap,
-		meta:          cloneMeta(b.meta),
 	}
-	a.usage.Store(model.ChatUsage{})
 	return a, nil
 }
 
@@ -200,49 +187,25 @@ func cloneMeta(m map[string]any) map[string]any {
 	return out
 }
 
-func (a *ReActAgent) Name() string { return a.name }
+func (a *ReActAgent) Name() string { return a.Base.AgentName() }
 
 // Shutdown gracefully closes the agent and waits for ongoing calls to finish.
 func (a *ReActAgent) Shutdown(ctx context.Context) error {
-	a.mu.Lock()
-	a.closed = true
-	a.mu.Unlock()
-
-	done := make(chan struct{})
-	go func() {
-		a.callWg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return a.Base.Shutdown(ctx)
 }
 
 // IsClosed reports whether the agent has been shut down.
 func (a *ReActAgent) IsClosed() bool {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.closed
+	return a.Base.IsClosed()
 }
 
 // TotalUsage returns the accumulated token usage across all calls.
 func (a *ReActAgent) TotalUsage() model.ChatUsage {
-	v, _ := a.usage.Load().(model.ChatUsage)
-	return v
+	return a.Base.TotalUsage()
 }
 
 func (a *ReActAgent) addUsage(u model.ChatUsage) {
-	for {
-		old := a.TotalUsage()
-		newUsage := old.Add(u)
-		if a.usage.CompareAndSwap(old, newUsage) {
-			return
-		}
-	}
+	a.Base.AddUsage(u)
 }
 
 func extractUsage(msg *message.Msg) model.ChatUsage {
@@ -259,21 +222,21 @@ func extractUsage(msg *message.Msg) model.ChatUsage {
 
 // Call executes the ReAct loop and returns the final response
 func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse *message.Msg, err error) {
-	a.callWg.Add(1)
-	defer a.callWg.Done()
+	a.CallWg.Add(1)
+	defer a.CallWg.Done()
 
-	a.mu.RLock()
-	if a.closed {
-		a.mu.RUnlock()
+	a.Mu.RLock()
+	if a.Closed {
+		a.Mu.RUnlock()
 		return nil, ErrAgentClosed
 	}
-	a.mu.RUnlock()
+	a.Mu.RUnlock()
 
 	// Build initial message history
 	history, err := a.buildHistory(msg)
 	if err != nil {
 		_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
-			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.name},
+			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name},
 			Err:       err,
 		})
 		return nil, err
@@ -287,7 +250,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 
 	// PreCall event (turn-level)
 	if _, _, err := a.fireStreamEvent(ctx, &hook.PreReasoningEvent{
-		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: time.Now(), Agent: a.name},
+		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: time.Now(), Agent: a.Base.Name},
 		Messages:  append([]*message.Msg(nil), history...),
 		ModelName: a.chatModel.ModelName(),
 	}); err != nil {
@@ -297,12 +260,12 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 	defer func() {
 		if err != nil {
 			_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.name},
+				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name},
 				Err:       err,
 			})
 		} else {
 			_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventPostCall, Ts: time.Now(), Agent: a.name},
+				BaseEvent: hook.BaseEvent{Type: hook.EventPostCall, Ts: time.Now(), Agent: a.Base.Name},
 				Messages:  append([]*message.Msg(nil), history...),
 				Response:  finalResponse,
 			})
@@ -319,12 +282,12 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 		default:
 		}
 
-		a.mu.RLock()
-		if a.closed {
-			a.mu.RUnlock()
+		a.Mu.RLock()
+		if a.Closed {
+			a.Mu.RUnlock()
 			return nil, ErrAgentClosed
 		}
-		a.mu.RUnlock()
+		a.Mu.RUnlock()
 
 		// Fire before-model hooks（支持 InjectMessages 替换 history）
 		var hr *hook.HookResult
@@ -406,7 +369,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 				return finalResponse, nil
 			}
 			if _, _, err := a.fireStreamEvent(ctx, &hook.PreActingEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventPreActing, Ts: time.Now(), Agent: a.name, Iteration: i},
+				BaseEvent: hook.BaseEvent{Type: hook.EventPreActing, Ts: time.Now(), Agent: a.Base.Name, Iteration: i},
 				Messages:  append([]*message.Msg(nil), history...),
 				ToolName:  tc.Name,
 				ToolInput: tc.Input,
@@ -450,7 +413,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 			).Build()
 
 			if _, _, err := a.fireStreamEvent(ctx, &hook.PostActingEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventPostActing, Ts: time.Now(), Agent: a.name, Iteration: i},
+				BaseEvent: hook.BaseEvent{Type: hook.EventPostActing, Ts: time.Now(), Agent: a.Base.Name, Iteration: i},
 				Messages:  append([]*message.Msg(nil), history...),
 				ToolName:  tc.Name,
 				ToolInput: tc.Input,
@@ -531,10 +494,10 @@ func (a *ReActAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *
 func (a *ReActAgent) buildHistory(userMsg *message.Msg) ([]*message.Msg, error) {
 	var history []*message.Msg
 
-	if a.sysPrompt != "" {
+	if a.Base.SysPrompt != "" {
 		history = append(history, message.NewMsg().
 			Role(message.RoleSystem).
-			TextContent(a.sysPrompt).
+			TextContent(a.Base.SysPrompt).
 			Build())
 	}
 
@@ -588,32 +551,7 @@ func (a *ReActAgent) fireHooks(
 	toolName string,
 	toolInput map[string]any,
 ) ([]*message.Msg, *hook.HookResult, error) {
-	if len(a.hooks) == 0 {
-		return messages, nil, nil
-	}
-	msgs := messages
-	for _, h := range a.hooks {
-		hCtx := &hook.HookContext{
-			AgentName: a.name,
-			Point:     point,
-			Messages:  msgs,
-			Response:  response,
-			ToolName:  toolName,
-			ToolInput: toolInput,
-			Metadata:  make(map[string]any),
-		}
-		result, err := h.OnEvent(ctx, hCtx)
-		if err != nil {
-			return nil, nil, err
-		}
-		if result != nil && len(result.InjectMessages) > 0 {
-			msgs = result.InjectMessages
-		}
-		if result != nil && (result.Interrupt || result.Override != nil || result.StopAgent || result.GotoReasoning) {
-			return msgs, result, nil
-		}
-	}
-	return msgs, nil, nil
+	return a.Base.FireHooks(ctx, point, messages, response, toolName, toolInput)
 }
 
 // Ensure ReActAgent satisfies agent.Agent (compile-time check via blank import in agent package)

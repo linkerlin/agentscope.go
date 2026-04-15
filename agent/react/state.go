@@ -28,15 +28,15 @@ func (a *ReActAgent) SaveTo(store state.Store, key string) error {
 	if store == nil {
 		return errNilStore
 	}
-	id := a.agentID
+	id := a.Base.ID
 	if id == "" {
-		id = a.name
+		id = a.Base.Name
 	}
 	st := AgentState{
 		AgentID:       id,
-		Name:          a.name,
-		Description:   a.description,
-		SystemPrompt:  a.sysPrompt,
+		Name:          a.Base.Name,
+		Description:   a.Base.Description,
+		SystemPrompt:  a.Base.SysPrompt,
 		MaxIterations: a.maxIterations,
 		Metadata:      a.metadata(),
 	}
@@ -71,23 +71,23 @@ func (a *ReActAgent) LoadIfExists(store state.Store, key string) (bool, error) {
 }
 
 func (a *ReActAgent) applyAgentState(st AgentState) {
-	a.agentID = st.AgentID
-	a.name = st.Name
-	a.description = st.Description
-	a.sysPrompt = st.SystemPrompt
+	a.Base.ID = st.AgentID
+	a.Base.Name = st.Name
+	a.Base.Description = st.Description
+	a.Base.SysPrompt = st.SystemPrompt
 	if st.MaxIterations > 0 {
 		a.maxIterations = st.MaxIterations
 	}
 	if len(st.Metadata) > 0 {
-		a.meta = cloneAnyMap(st.Metadata)
+		a.Base.Meta = cloneAnyMap(st.Metadata)
 	}
 }
 
 func (a *ReActAgent) metadata() map[string]any {
-	if len(a.meta) == 0 {
+	if len(a.Base.Meta) == 0 {
 		return nil
 	}
-	return cloneAnyMap(a.meta)
+	return cloneAnyMap(a.Base.Meta)
 }
 
 func cloneAnyMap(m map[string]any) map[string]any {

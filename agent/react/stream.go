@@ -13,16 +13,7 @@ import (
 )
 
 func (a *ReActAgent) fireStreamEvent(ctx context.Context, ev hook.Event) (hook.Event, *hook.StreamHookResult, error) {
-	for _, h := range a.streamHooks {
-		r, err := h.OnStreamEvent(ctx, ev)
-		if err != nil {
-			return ev, nil, err
-		}
-		if r != nil && r.Interrupt {
-			return ev, r, hook.ErrInterrupted
-		}
-	}
-	return ev, nil, nil
+	return a.Base.FireStreamEvent(ctx, ev)
 }
 
 // runModel 执行一次模型调用：在注册 StreamHook 且本轮未声明工具时走 ChatStream 并派发 chunk；否则走 Chat（保证 tool call 正确）
@@ -38,7 +29,7 @@ func (a *ReActAgent) runModel(
 		BaseEvent: hook.BaseEvent{
 			Type:      hook.EventPreReasoning,
 			Ts:        now,
-			Agent:     a.name,
+			Agent:     a.Base.Name,
 			Iteration: iter,
 		},
 		Messages:  append([]*message.Msg(nil), history...),
@@ -51,19 +42,19 @@ func (a *ReActAgent) runModel(
 		chatOpts = preEv.ChatOpts
 	}
 
-	useStream := len(a.streamHooks) > 0 && !requestTools
+	useStream := a.Base.HasStreamHooks() && !requestTools
 
 	if !useStream {
 		msg, err := a.chatModel.Chat(ctx, history, chatOpts...)
 		if err != nil {
 			_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.name, Iteration: iter},
+				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 				Err:       err,
 			})
 			return nil, fmt.Errorf("react agent model call: %w", err)
 		}
 		_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
-			BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.name, Iteration: iter},
+			BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 			Messages:  append([]*message.Msg(nil), history...),
 			Response:  msg,
 		})
@@ -73,7 +64,7 @@ func (a *ReActAgent) runModel(
 	ch, err := a.chatModel.ChatStream(ctx, history, chatOpts...)
 	if err != nil {
 		_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
-			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.name, Iteration: iter},
+			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 			Err:       err,
 		})
 		return nil, fmt.Errorf("react agent model stream: %w", err)
@@ -93,7 +84,7 @@ func (a *ReActAgent) runModel(
 		if chunk.Delta != "" {
 			sb.WriteString(chunk.Delta)
 			if _, _, err := a.fireStreamEvent(ctx, &hook.ReasoningChunkEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventReasoningChunk, Ts: time.Now(), Agent: a.name, Iteration: iter},
+				BaseEvent: hook.BaseEvent{Type: hook.EventReasoningChunk, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 				Messages:  append([]*message.Msg(nil), history...),
 				Chunk:     chunk.Delta,
 			}); err != nil {
@@ -109,7 +100,7 @@ func (a *ReActAgent) runModel(
 		msg.Metadata["usage"] = *streamUsage
 	}
 	_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
-		BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.name, Iteration: iter},
+		BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 		Messages:  append([]*message.Msg(nil), history...),
 		Response:  msg,
 	})

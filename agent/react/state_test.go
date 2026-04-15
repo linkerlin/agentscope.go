@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/state"
 )
@@ -15,27 +16,23 @@ func TestReActAgentStateRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &ReActAgent{
-		agentID:       "aid",
-		name:          "n",
-		description:   "d",
-		sysPrompt:     "sys",
+		Base: agent.NewBase("aid", "n", "d", "sys", map[string]any{"k": 1}, nil, nil),
 		maxIterations: 7,
 		memory:        memory.NewInMemoryMemory(),
-		meta:          map[string]any{"k": 1},
 	}
 	if err := a.SaveTo(store, "run1"); err != nil {
 		t.Fatal(err)
 	}
-	b := &ReActAgent{memory: memory.NewInMemoryMemory()}
+	b := &ReActAgent{Base: agent.NewBase("", "", "", "", nil, nil, nil), memory: memory.NewInMemoryMemory()}
 	ok, err := b.LoadIfExists(store, "run1")
 	if err != nil || !ok {
 		t.Fatalf("load err=%v ok=%v", err, ok)
 	}
-	if b.name != "n" || b.sysPrompt != "sys" || b.maxIterations != 7 || b.agentID != "aid" {
-		t.Fatalf("fields %+v %+v %d %+v", b.name, b.sysPrompt, b.maxIterations, b.agentID)
+	if b.Base.Name != "n" || b.Base.SysPrompt != "sys" || b.maxIterations != 7 || b.Base.ID != "aid" {
+		t.Fatalf("fields %+v %+v %d %+v", b.Base.Name, b.Base.SysPrompt, b.maxIterations, b.Base.ID)
 	}
 	// JSON 数字默认解码为 float64
-	if v, ok := b.meta["k"].(float64); !ok || v != 1 {
-		t.Fatalf("meta %#v", b.meta)
+	if v, ok := b.Base.Meta["k"].(float64); !ok || v != 1 {
+		t.Fatalf("meta %#v", b.Base.Meta)
 	}
 }

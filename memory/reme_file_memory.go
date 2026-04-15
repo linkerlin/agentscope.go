@@ -39,6 +39,7 @@ type ReMeFileMemory struct {
 
 	summaryMu    sync.Mutex
 	summaryTasks []*asyncSummaryTask
+	summarySem   chan struct{} // 限制异步摘要并发数（默认 4）
 }
 
 // NewReMeFileMemory 创建工作目录结构并返回实例
@@ -76,6 +77,7 @@ func NewReMeFileMemory(cfg ReMeFileConfig, counter TokenCounter) (*ReMeFileMemor
 		tokenCounter:       counter,
 		config:             cfg,
 		fts:                ftsIndex,
+		summarySem:         make(chan struct{}, 4),
 	}
 	m.toolCompact = NewToolResultCompactor(m.toolResultPath, cfg.RecentMaxBytes, cfg.OldMaxBytes, cfg.ToolResultRetentionDays)
 	return m, nil
@@ -273,18 +275,21 @@ func (m *ReMeFileMemory) GetMemoryForPrompt(prepend bool) ([]*message.Msg, error
 }
 
 // AddAsyncSummaryTask 启动后台摘要任务（将待压缩消息写入 memory/YYYY-MM-DD.md）
+// 通过 summarySem 限制最大并发数，避免 goroutine 爆炸。
 func (m *ReMeFileMemory) AddAsyncSummaryTask(ctx context.Context, msgs []*message.Msg) {
 	if m.summarizer == nil || m.summarizer.Model == nil {
 		return
 	}
 	task := &asyncSummaryTask{done: make(chan struct{})}
-	go func() {
-		task.err = m.summarizer.SummarizeToDailyFile(ctx, msgs)
-		close(task.done)
-	}()
 	m.summaryMu.Lock()
 	m.summaryTasks = append(m.summaryTasks, task)
 	m.summaryMu.Unlock()
+	go func() {
+		m.summarySem <- struct{}{}
+		defer func() { <-m.summarySem }()
+		task.err = m.summarizer.SummarizeToDailyFile(ctx, msgs)
+		close(task.done)
+	}()
 }
 
 // FTSIndex 返回全文索引实例（可能为 nil）

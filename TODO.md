@@ -11,17 +11,6 @@
 
 ---
 
-## P2 - 中优先级
-
-### 4. 性能优化（并发、缓存）
-- **目标**：
-  - 为 `LocalVectorStore.Search` 引入读写锁优化或分片锁
-  - 为 Embedding 调用增加本地缓存（LRU），避免重复文本的重复嵌入
-  - 为异步摘要任务增加 goroutine 池或速率限制
-- **影响文件**：`vector_store_local.go`、`embedding/`、`reme_file_memory.go`。
-
----
-
 ## P3 - 低优先级
 
 ### 6. 与 AgentScope-Java 功能对齐验证

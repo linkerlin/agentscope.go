@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/model"
 )
 
 // ErrInterrupted 表示 StreamHook 请求中断当前执行
@@ -51,6 +52,7 @@ type PreReasoningEvent struct {
 	BaseEvent
 	Messages  []*message.Msg
 	ModelName string
+	ChatOpts  []model.ChatOption
 }
 
 // PostReasoningEvent 单次模型输出完成后（聚合后的 assistant 消息）
@@ -83,6 +85,7 @@ type PostActingEvent struct {
 	ToolInput map[string]any
 	Result    any
 	Err       error
+	ResultMsg *message.Msg
 }
 
 // ActingChunkEvent 工具执行过程的流式片段（可选，用于长耗时工具的进度）
@@ -98,9 +101,13 @@ type ErrorEvent struct {
 	Err error
 }
 
-// StreamHookResult 流式 Hook 可请求中断当前轮次（由 ReActAgent 解释）
+// StreamHookResult 流式 Hook 可请求中断、停止或重新推理当前轮次（由 ReActAgent 解释）
 type StreamHookResult struct {
-	Interrupt bool
+	Interrupt         bool
+	StopAgent         bool
+	GotoReasoning     bool
+	GotoReasoningMsgs []*message.Msg
+	Override          *message.Msg
 }
 
 // StreamHook 第二套可选接口：接收结构化事件（含流式 chunk），与经典 Hook 并存

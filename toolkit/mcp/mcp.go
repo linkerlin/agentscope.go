@@ -31,6 +31,33 @@ type Client interface {
 	Close() error
 }
 
+// ElicitRequest represents an MCP elicitation request.
+// Exact fields depend on the MCP protocol version; this is a minimal stable subset.
+type ElicitRequest struct {
+	Message string         `json:"message,omitempty"`
+	Data    map[string]any `json:"data,omitempty"`
+}
+
+// ElicitResult represents the result of an MCP elicitation.
+type ElicitResult struct {
+	Accepted bool           `json:"accepted,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
+}
+
+// ElicitationClient is an optional extension for MCP clients that support elicitation.
+type ElicitationClient interface {
+	Client
+	Elicit(ctx context.Context, req ElicitRequest) (ElicitResult, error)
+}
+
+// Elicit tries to invoke elicitation on a client if it implements ElicitationClient.
+func Elicit(ctx context.Context, c Client, req ElicitRequest) (ElicitResult, error) {
+	if ec, ok := c.(ElicitationClient); ok {
+		return ec.Elicit(ctx, req)
+	}
+	return ElicitResult{}, fmt.Errorf("mcp: client %T does not support elicitation", c)
+}
+
 // Manager 管理多个 MCP Client，并将工具适配为 tool.Tool
 type Manager struct {
 	mu      sync.RWMutex

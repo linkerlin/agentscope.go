@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/model"
 )
 
 // HookPoint defines when during agent execution a hook fires
@@ -15,6 +16,7 @@ const (
 	HookBeforeTool   HookPoint = "before_tool"
 	HookAfterTool    HookPoint = "after_tool"
 	HookBeforeFinish HookPoint = "before_finish"
+	HookPostCall     HookPoint = "post_call"
 )
 
 // HookContext contains execution state passed to hooks
@@ -26,13 +28,17 @@ type HookContext struct {
 	ToolName  string
 	ToolInput map[string]any
 	Metadata  map[string]any
+	ChatOpts  []model.ChatOption
 }
 
 // HookResult allows a hook to modify agent execution
 type HookResult struct {
-	Override       *message.Msg
-	Interrupt      bool
-	InjectMessages []*message.Msg
+	Override          *message.Msg
+	Interrupt         bool
+	InjectMessages    []*message.Msg
+	StopAgent         bool
+	GotoReasoning     bool
+	GotoReasoningMsgs []*message.Msg
 }
 
 // Hook is called at various points during agent execution

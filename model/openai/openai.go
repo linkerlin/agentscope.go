@@ -115,6 +115,9 @@ func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg,
 	if len(opts.Tools) > 0 {
 		req.Tools = toolSpecsToOpenAI(opts.Tools)
 	}
+	if opts.ToolChoice != nil {
+		req.ToolChoice = toolChoiceToOpenAI(opts.ToolChoice)
+	}
 
 	resp, err := m.client.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -123,7 +126,15 @@ func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg,
 	if len(resp.Choices) == 0 {
 		return nil, errors.New("openai chat: no choices returned")
 	}
-	return openAIChoiceToMsg(resp.Choices[0]), nil
+	msg := openAIChoiceToMsg(resp.Choices[0])
+	if resp.Usage.TotalTokens > 0 {
+		msg.Metadata["usage"] = model.ChatUsage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		}
+	}
+	return msg, nil
 }
 
 // ChatStream calls the OpenAI streaming API and returns a channel of StreamChunks
@@ -163,6 +174,9 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 	if len(opts.Tools) > 0 {
 		req.Tools = toolSpecsToOpenAI(opts.Tools)
 	}
+	if opts.ToolChoice != nil {
+		req.ToolChoice = toolChoiceToOpenAI(opts.ToolChoice)
+	}
 
 	stream, err := m.client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
@@ -173,20 +187,28 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 	go func() {
 		defer close(ch)
 		defer stream.Close()
+		var usage model.ChatUsage
 		for {
 			resp, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
-				ch <- &model.StreamChunk{Done: true}
+				ch <- &model.StreamChunk{Done: true, Usage: &usage}
 				return
 			}
 			if err != nil {
-				ch <- &model.StreamChunk{Done: true}
+				ch <- &model.StreamChunk{Done: true, Usage: &usage}
 				return
 			}
 			if len(resp.Choices) == 0 {
 				continue
 			}
 			delta := resp.Choices[0].Delta.Content
+			if resp.Usage.TotalTokens > 0 {
+				usage = model.ChatUsage{
+					PromptTokens:     resp.Usage.PromptTokens,
+					CompletionTokens: resp.Usage.CompletionTokens,
+					TotalTokens:      resp.Usage.TotalTokens,
+				}
+			}
 			ch <- &model.StreamChunk{Delta: delta}
 		}
 	}()
@@ -206,47 +228,117 @@ func applyOptions(options []model.ChatOption) *model.ChatOptions {
 func msgsToOpenAI(msgs []*message.Msg) []goopenai.ChatCompletionMessage {
 	out := make([]goopenai.ChatCompletionMessage, 0, len(msgs))
 	for _, m := range msgs {
-		role := string(m.Role)
-		toolCalls := m.GetToolUseCalls()
-		toolResults := m.GetToolResults()
-
-		if len(toolResults) > 0 {
-			// One message per tool result
-			for _, tr := range toolResults {
-				out = append(out, goopenai.ChatCompletionMessage{
-					Role:       goopenai.ChatMessageRoleTool,
-					Content:    contentBlocksToString(tr.Content),
-					ToolCallID: tr.ToolUseID,
-				})
-			}
-			continue
-		}
-
-		msg := goopenai.ChatCompletionMessage{
-			Role:    role,
-			Content: m.GetTextContent(),
-		}
-		if m.Name != "" {
-			msg.Name = m.Name
-		}
-
-		if len(toolCalls) > 0 {
-			msg.Content = ""
-			for _, tc := range toolCalls {
-				inputJSON, _ := json.Marshal(tc.Input)
-				msg.ToolCalls = append(msg.ToolCalls, goopenai.ToolCall{
-					ID:   tc.ID,
-					Type: goopenai.ToolTypeFunction,
-					Function: goopenai.FunctionCall{
-						Name:      tc.Name,
-						Arguments: string(inputJSON),
-					},
-				})
-			}
-		}
-		out = append(out, msg)
+		out = append(out, msgToOpenAI(m)...)
 	}
 	return out
+}
+
+func msgToOpenAI(m *message.Msg) []goopenai.ChatCompletionMessage {
+	role := string(m.Role)
+	toolCalls := m.GetToolUseCalls()
+	toolResults := m.GetToolResults()
+
+	if len(toolResults) > 0 {
+		// One message per tool result
+		out := make([]goopenai.ChatCompletionMessage, 0, len(toolResults))
+		for _, tr := range toolResults {
+			out = append(out, goopenai.ChatCompletionMessage{
+				Role:       goopenai.ChatMessageRoleTool,
+				Content:    contentBlocksToString(tr.Content),
+				ToolCallID: tr.ToolUseID,
+			})
+		}
+		return out
+	}
+
+	msg := goopenai.ChatCompletionMessage{
+		Role: role,
+	}
+	if m.Name != "" {
+		msg.Name = m.Name
+	}
+
+	if hasMediaContent(m.Content) {
+		msg.MultiContent = contentBlocksToOpenAIParts(m.Content)
+		msg.Content = ""
+	} else {
+		msg.Content = m.GetTextContent()
+	}
+
+	if len(toolCalls) > 0 {
+		msg.Content = ""
+		for _, tc := range toolCalls {
+			inputJSON, _ := json.Marshal(tc.Input)
+			msg.ToolCalls = append(msg.ToolCalls, goopenai.ToolCall{
+				ID:   tc.ID,
+				Type: goopenai.ToolTypeFunction,
+				Function: goopenai.FunctionCall{
+					Name:      tc.Name,
+					Arguments: string(inputJSON),
+				},
+			})
+		}
+	}
+	return []goopenai.ChatCompletionMessage{msg}
+}
+
+func hasMediaContent(blocks []message.ContentBlock) bool {
+	for _, b := range blocks {
+		switch b.(type) {
+		case *message.ImageBlock, *message.AudioBlock, *message.VideoBlock:
+			return true
+		}
+	}
+	return false
+}
+
+func contentBlocksToOpenAIParts(blocks []message.ContentBlock) []goopenai.ChatMessagePart {
+	parts := make([]goopenai.ChatMessagePart, 0, len(blocks))
+	for _, b := range blocks {
+		switch block := b.(type) {
+		case *message.TextBlock:
+			parts = append(parts, goopenai.ChatMessagePart{
+				Type: goopenai.ChatMessagePartTypeText,
+				Text: block.Text,
+			})
+		case *message.ImageBlock:
+			url := block.URL
+			if url == "" && block.Base64 != "" {
+				mime := block.MimeType
+				if mime == "" {
+					mime = "image/png"
+				}
+				url = fmt.Sprintf("data:%s;base64,%s", mime, block.Base64)
+			}
+			parts = append(parts, goopenai.ChatMessagePart{
+				Type: goopenai.ChatMessagePartTypeImageURL,
+				ImageURL: &goopenai.ChatMessageImageURL{
+					URL: url,
+				},
+			})
+		case *message.AudioBlock:
+			url := block.URL
+			if url == "" && block.Base64 != "" {
+				mime := block.MimeType
+				if mime == "" {
+					mime = "audio/wav"
+				}
+				url = fmt.Sprintf("data:%s;base64,%s", mime, block.Base64)
+			}
+			parts = append(parts, goopenai.ChatMessagePart{
+				Type: goopenai.ChatMessagePartTypeText,
+				Text: fmt.Sprintf("[Audio: %s]", url),
+			})
+		case *message.VideoBlock:
+			parts = append(parts, goopenai.ChatMessagePart{
+				Type: goopenai.ChatMessagePartTypeText,
+				Text: fmt.Sprintf("[Video: %s]", block.URL),
+			})
+		case *message.ThinkingBlock:
+			// skip thinking blocks when formatting for OpenAI API
+		}
+	}
+	return parts
 }
 
 func contentBlocksToString(blocks []message.ContentBlock) string {
@@ -288,4 +380,19 @@ func toolSpecsToOpenAI(specs []model.ToolSpec) []goopenai.Tool {
 		})
 	}
 	return tools
+}
+
+func toolChoiceToOpenAI(tc *model.ToolChoice) any {
+	if tc == nil {
+		return nil
+	}
+	if tc.Function != "" {
+		return goopenai.ToolChoice{
+			Type: goopenai.ToolTypeFunction,
+			Function: goopenai.ToolFunction{
+				Name: tc.Function,
+			},
+		}
+	}
+	return tc.Mode
 }

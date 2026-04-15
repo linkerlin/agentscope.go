@@ -92,7 +92,13 @@ func (e *ToolExecutor) executeParallel(ctx context.Context, reg *Registry, calls
 	return results, nil
 }
 
-func (e *ToolExecutor) executeOne(ctx context.Context, reg *Registry, c ToolCall) ToolResult {
+func (e *ToolExecutor) executeOne(ctx context.Context, reg *Registry, c ToolCall) (res ToolResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = ToolResult{ID: c.ID, Name: c.Name, Err: fmt.Errorf("tool panic recovered: %v", r)}
+		}
+	}()
+
 	t, ok := reg.Get(c.Name)
 	if !ok {
 		return ToolResult{ID: c.ID, Name: c.Name, Err: fmt.Errorf("tool not found: %s", c.Name)}
@@ -104,16 +110,16 @@ func (e *ToolExecutor) executeOne(ctx context.Context, reg *Registry, c ToolCall
 		defer cancel()
 	}
 	ro := retry.Options{MaxAttempts: e.cfg.MaxRetries, Backoff: 50 * time.Millisecond}
-	var res any
+	var result any
 	var err error
 	reErr := retry.Do(baseCtx, ro, func() error {
-		res, err = t.Execute(baseCtx, c.Input)
+		result, err = t.Execute(baseCtx, c.Input)
 		return err
 	})
 	if reErr != nil {
 		err = reErr
 	}
-	return ToolResult{ID: c.ID, Name: c.Name, Result: res, Err: err}
+	return ToolResult{ID: c.ID, Name: c.Name, Result: result, Err: err}
 }
 
 // ExecuteTool 执行单个工具（供 Agent 循环使用）

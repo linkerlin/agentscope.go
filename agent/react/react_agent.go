@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/linkerlin/agentscope.go/hook"
@@ -16,6 +18,9 @@ import (
 )
 
 const defaultMaxIterations = 10
+
+// ErrAgentClosed is returned when calling a shut-down agent.
+var ErrAgentClosed = errors.New("react agent: agent is closed")
 
 // ReActAgent implements the ReAct (Reasoning + Acting) pattern
 type ReActAgent struct {
@@ -32,6 +37,14 @@ type ReActAgent struct {
 	streamHooks   []hook.StreamHook
 	toolMap       map[string]tool.Tool
 	meta          map[string]any
+
+	// graceful shutdown
+	mu       sync.RWMutex
+	closed   bool
+	callWg   sync.WaitGroup
+
+	// token usage tracking
+	usage atomic.Value // stores model.ChatUsage
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
@@ -157,7 +170,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		}
 	}
 
-	return &ReActAgent{
+	a := &ReActAgent{
 		agentID:       b.agentID,
 		name:          b.name,
 		description:   b.description,
@@ -171,7 +184,9 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		streamHooks:   hook.SortStreamHooks(b.streamHooks),
 		toolMap:       toolMap,
 		meta:          cloneMeta(b.meta),
-	}, nil
+	}
+	a.usage.Store(model.ChatUsage{})
+	return a, nil
 }
 
 func cloneMeta(m map[string]any) map[string]any {
@@ -187,11 +202,80 @@ func cloneMeta(m map[string]any) map[string]any {
 
 func (a *ReActAgent) Name() string { return a.name }
 
+// Shutdown gracefully closes the agent and waits for ongoing calls to finish.
+func (a *ReActAgent) Shutdown(ctx context.Context) error {
+	a.mu.Lock()
+	a.closed = true
+	a.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		a.callWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// IsClosed reports whether the agent has been shut down.
+func (a *ReActAgent) IsClosed() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.closed
+}
+
+// TotalUsage returns the accumulated token usage across all calls.
+func (a *ReActAgent) TotalUsage() model.ChatUsage {
+	v, _ := a.usage.Load().(model.ChatUsage)
+	return v
+}
+
+func (a *ReActAgent) addUsage(u model.ChatUsage) {
+	for {
+		old := a.TotalUsage()
+		newUsage := old.Add(u)
+		if a.usage.CompareAndSwap(old, newUsage) {
+			return
+		}
+	}
+}
+
+func extractUsage(msg *message.Msg) model.ChatUsage {
+	if msg == nil || len(msg.Metadata) == 0 {
+		return model.ChatUsage{}
+	}
+	if v, ok := msg.Metadata["usage"]; ok {
+		if u, ok := v.(model.ChatUsage); ok {
+			return u
+		}
+	}
+	return model.ChatUsage{}
+}
+
 // Call executes the ReAct loop and returns the final response
-func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse *message.Msg, err error) {
+	a.callWg.Add(1)
+	defer a.callWg.Done()
+
+	a.mu.RLock()
+	if a.closed {
+		a.mu.RUnlock()
+		return nil, ErrAgentClosed
+	}
+	a.mu.RUnlock()
+
 	// Build initial message history
 	history, err := a.buildHistory(msg)
 	if err != nil {
+		_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
+			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.name},
+			Err:       err,
+		})
 		return nil, err
 	}
 
@@ -201,16 +285,55 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, 
 		chatOpts = append(chatOpts, model.WithTools(toolSpecs))
 	}
 
-	var finalResponse *message.Msg
+	// PreCall event (turn-level)
+	if _, _, err := a.fireStreamEvent(ctx, &hook.PreReasoningEvent{
+		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: time.Now(), Agent: a.name},
+		Messages:  append([]*message.Msg(nil), history...),
+		ModelName: a.chatModel.ModelName(),
+	}); err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if err != nil {
+			_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
+				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.name},
+				Err:       err,
+			})
+		} else {
+			_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
+				BaseEvent: hook.BaseEvent{Type: hook.EventPostCall, Ts: time.Now(), Agent: a.name},
+				Messages:  append([]*message.Msg(nil), history...),
+				Response:  finalResponse,
+			})
+		}
+		// PostCall classic hook
+		_, _, _ = a.fireHooks(ctx, hook.HookPostCall, history, finalResponse, "", nil)
+	}()
 
 	for i := 0; i < a.maxIterations; i++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		a.mu.RLock()
+		if a.closed {
+			a.mu.RUnlock()
+			return nil, ErrAgentClosed
+		}
+		a.mu.RUnlock()
+
 		// Fire before-model hooks（支持 InjectMessages 替换 history）
-		history, hr, err := a.fireHooks(ctx, hook.HookBeforeModel, history, nil, "", nil)
+		var hr *hook.HookResult
+		history, hr, err = a.fireHooks(ctx, hook.HookBeforeModel, history, nil, "", nil)
 		if err != nil {
 			return nil, err
 		}
 		if hr != nil && hr.Interrupt {
-			return hr.Override, nil
+			finalResponse = hr.Override
+			return finalResponse, nil
 		}
 		if hr != nil && hr.Override != nil {
 			finalResponse = hr.Override
@@ -218,21 +341,36 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, 
 		}
 
 		// Call the model（有工具时 requestTools=true 走 Chat；无工具且注册了 StreamHook 时走 ChatStream）
-		response, err := a.runModel(ctx, history, chatOpts, i, len(toolSpecs) > 0)
+		var response *message.Msg
+		response, err = a.runModel(ctx, history, chatOpts, i, len(toolSpecs) > 0)
 		if err != nil {
 			if errors.Is(err, hook.ErrInterrupted) {
 				return nil, err
 			}
 			return nil, err
 		}
+		a.addUsage(extractUsage(response))
 
 		// Fire after-model hooks
 		_, hr, err = a.fireHooks(ctx, hook.HookAfterModel, history, response, "", nil)
 		if err != nil {
 			return nil, err
 		}
+		if hr != nil && hr.StopAgent {
+			finalResponse = hr.Override
+			if finalResponse == nil {
+				finalResponse = response
+			}
+			return finalResponse, nil
+		}
+		if hr != nil && hr.GotoReasoning {
+			history = append(history, response)
+			history = append(history, hr.GotoReasoningMsgs...)
+			continue
+		}
 		if hr != nil && hr.Interrupt {
-			return hr.Override, nil
+			finalResponse = hr.Override
+			return finalResponse, nil
 		}
 		if hr != nil && hr.Override != nil {
 			response = hr.Override
@@ -263,9 +401,10 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, 
 				return nil, err
 			}
 			if hr != nil && hr.Interrupt {
-				return hr.Override, nil
+				finalResponse = hr.Override
+				return finalResponse, nil
 			}
-			if err := a.fireStreamEvent(ctx, &hook.PreActingEvent{
+			if _, _, err := a.fireStreamEvent(ctx, &hook.PreActingEvent{
 				BaseEvent: hook.BaseEvent{Type: hook.EventPreActing, Ts: time.Now(), Agent: a.name, Iteration: i},
 				Messages:  append([]*message.Msg(nil), history...),
 				ToolName:  tc.Name,
@@ -279,13 +418,27 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, 
 
 			result, toolErr := a.executeTool(ctx, tc.Name, tc.Input)
 
-			if err := a.fireStreamEvent(ctx, &hook.PostActingEvent{
+			var resultText string
+			if toolErr != nil {
+				resultText = fmt.Sprintf("error: %s", toolErr.Error())
+			} else {
+				resultJSON, _ := json.Marshal(result)
+				resultText = string(resultJSON)
+			}
+			singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
+				message.NewToolResultBlock(tc.ID, []message.ContentBlock{
+					message.NewTextBlock(resultText),
+				}, toolErr != nil),
+			).Build()
+
+			if _, _, err := a.fireStreamEvent(ctx, &hook.PostActingEvent{
 				BaseEvent: hook.BaseEvent{Type: hook.EventPostActing, Ts: time.Now(), Agent: a.name, Iteration: i},
 				Messages:  append([]*message.Msg(nil), history...),
 				ToolName:  tc.Name,
 				ToolInput: tc.Input,
 				Result:    result,
 				Err:       toolErr,
+				ResultMsg: singleResultMsg,
 			}); err != nil {
 				if errors.Is(err, hook.ErrInterrupted) {
 					return nil, err
@@ -296,31 +449,29 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, 
 			// Fire after-tool hook
 			_, afterHr, afterErr := a.fireHooks(ctx, hook.HookAfterTool, history, nil, tc.Name, tc.Input)
 			if afterErr != nil {
-				return nil, afterErr
+				err = afterErr
+				return nil, err
+			}
+			if afterHr != nil && afterHr.StopAgent {
+				finalResponse = afterHr.Override
+				if finalResponse == nil {
+					finalResponse = singleResultMsg
+				}
+				return finalResponse, nil
 			}
 			if afterHr != nil && afterHr.Interrupt {
-				return afterHr.Override, nil
+				finalResponse = afterHr.Override
+				return finalResponse, nil
 			}
 
-			var resultText string
-			if toolErr != nil {
-				resultText = fmt.Sprintf("error: %s", toolErr.Error())
-				toolResultMsg.Content(message.NewToolResultBlock(tc.ID, []message.ContentBlock{
-					message.NewTextBlock(resultText),
-				}, true))
-			} else {
-				resultJSON, _ := json.Marshal(result)
-				resultText = string(resultJSON)
-				toolResultMsg.Content(message.NewToolResultBlock(tc.ID, []message.ContentBlock{
-					message.NewTextBlock(resultText),
-				}, false))
-			}
+			toolResultMsg.Content(singleResultMsg.Content...)
 		}
 		history = append(history, toolResultMsg.Build())
 	}
 
 	if finalResponse == nil {
-		return nil, errors.New("react agent: max iterations reached without final answer")
+		err = errors.New("react agent: max iterations reached without final answer")
+		return nil, err
 	}
 
 	// Persist to memory
@@ -431,7 +582,7 @@ func (a *ReActAgent) fireHooks(
 		if result != nil && len(result.InjectMessages) > 0 {
 			msgs = result.InjectMessages
 		}
-		if result != nil && (result.Interrupt || result.Override != nil) {
+		if result != nil && (result.Interrupt || result.Override != nil || result.StopAgent || result.GotoReasoning) {
 			return msgs, result, nil
 		}
 	}

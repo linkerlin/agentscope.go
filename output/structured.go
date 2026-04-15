@@ -13,10 +13,12 @@ import (
 
 // StructuredRunner 使用 ChatModel 生成符合 schema 的 JSON 并解析到 target
 type StructuredRunner struct {
-	Model model.ChatModel
+	Model       model.ChatModel
+	MaxRetries  int // 默认 0 表示不自动纠正；>0 时启用 SelfCorrectingParser
 }
 
 // Run 单次调用：将 schema 注入 system 提示，解析助手回复中的 JSON
+// 若 MaxRetries > 0 且解析失败，会自动将错误反馈给模型要求修正。
 func (r *StructuredRunner) Run(ctx context.Context, userText string, schema *JSONSchema, target any) error {
 	if r.Model == nil {
 		return errors.New("output: nil model")
@@ -34,7 +36,12 @@ func (r *StructuredRunner) Run(ctx context.Context, userText string, schema *JSO
 	if err != nil {
 		return err
 	}
-	return ParseJSONFromAssistant(resp.GetTextContent(), target)
+	raw := resp.GetTextContent()
+	if r.MaxRetries > 0 {
+		parser := &SelfCorrectingParser{Model: r.Model, MaxRetries: r.MaxRetries}
+		return parser.ParseWithCorrection(ctx, raw, schema, target)
+	}
+	return ParseJSONFromAssistant(raw, target)
 }
 
 // ParseJSONFromAssistant 从助手文本中提取 JSON（去除可选 ```json 围栏）

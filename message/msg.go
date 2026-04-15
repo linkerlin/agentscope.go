@@ -9,11 +9,11 @@ import (
 
 // Msg represents a message in the agent conversation
 type Msg struct {
-	ID       string
-	Role     MsgRole
-	Name     string
-	Content  []ContentBlock
-	Metadata map[string]any
+	ID        string
+	Role      MsgRole
+	Name      string
+	Content   []ContentBlock
+	Metadata  map[string]any
 	CreatedAt time.Time
 }
 
@@ -59,8 +59,8 @@ type MsgBuilder struct {
 func NewMsg() *MsgBuilder {
 	return &MsgBuilder{
 		msg: &Msg{
-			ID:       uuid.New().String(),
-			Metadata: make(map[string]any),
+			ID:        uuid.New().String(),
+			Metadata:  make(map[string]any),
 			CreatedAt: time.Now(),
 		},
 	}
@@ -91,6 +91,7 @@ func (b *MsgBuilder) Metadata(key string, value any) *MsgBuilder {
 	return b
 }
 
+// Build returns the constructed Msg
 func (b *MsgBuilder) Build() *Msg {
 	return b.msg
 }

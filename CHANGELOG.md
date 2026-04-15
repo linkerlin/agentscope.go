@@ -35,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Resolved Windows temp-directory cleanup failures in memory tests by ensuring `ReMeFileMemory.Close()` / `ReMeVectorMemory.Close()` is always deferred in tests, preventing open SQLite handles from locking `reme.db`.
 
+### Benchmarks (baseline on Intel i9-13900HX)
+
+| Benchmark | ops/s | ns/op |
+|-----------|-------|-------|
+| `BenchmarkEmbeddingCacheHit` | ~2.7M | 454 |
+| `BenchmarkEmbeddingCacheMiss` | ~16K | 60,171 |
+| `BenchmarkLocalVectorStoreSearch` (50 docs) | ~71K | 14,096 |
+| `BenchmarkFTSIndexSearch` (100 docs) | ~1.6K | 623,041 |
+| `BenchmarkRankMemoryNodesHybrid` (20 docs) | ~1K | 990,777 |
+| `BenchmarkReMeFileMemoryAdd` | ~2.4K | 411,857 |
+| `BenchmarkWindowMemoryAdd` | ~147K | 6,777 |
+
 ## [0.1.0] - 2026-04-14
 
 ### Added

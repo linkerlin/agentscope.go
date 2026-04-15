@@ -16,12 +16,7 @@
 ### 6. 与 AgentScope-Java 功能对齐验证
 - **目标**：对照 Java 版 AgentScope 的记忆接口与行为，验证 Go 版的一致性，编写跨语言对齐测试用例。
 
-### 7. 配置系统深度整合
-- **现状**：`config.ReMeMemoryConfig` 已定义，但尚未与 `ReMeVectorMemory` / `MemoryOrchestrator` 的构造函数打通。
-- **目标**：实现 `config.BuildReMeVectorMemory(cfg config.ReMeMemoryConfig)` 工厂函数，一键从 YAML/JSON 配置初始化完整记忆系统。
-- **影响文件**：`config/reme.go`。
-
-### 8. 发布准备
+### 7. 发布准备
 - 完善 API 文档（godoc）
 - 编写 CHANGELOG
 - 发布前性能基准测试

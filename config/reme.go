@@ -5,6 +5,7 @@ type ReMeMemoryConfig struct {
 	Enabled    bool   `json:"enabled" yaml:"enabled"`
 	Type       string `json:"type" yaml:"type"`
 	WorkingDir string `json:"working_dir" yaml:"working_dir"`
+	Language   string `json:"language" yaml:"language"`
 
 	MaxInputLength       int     `json:"max_input_length" yaml:"max_input_length"`
 	CompactRatio         float64 `json:"compact_ratio" yaml:"compact_ratio"`
@@ -15,9 +16,16 @@ type ReMeMemoryConfig struct {
 	OldMaxBytes             int `json:"old_max_bytes" yaml:"old_max_bytes"`
 
 	VectorStore struct {
-		Backend   string `json:"backend" yaml:"backend"`
-		Dimension int    `json:"dimension" yaml:"dimension"`
-		DBPath    string `json:"db_path" yaml:"db_path"`
+		Backend    string `json:"backend" yaml:"backend"`
+		Dimension  int    `json:"dimension" yaml:"dimension"`
+		DBPath     string `json:"db_path" yaml:"db_path"`
+		Host       string `json:"host" yaml:"host"`
+		Port       int    `json:"port" yaml:"port"`
+		Collection string `json:"collection" yaml:"collection"`
+		BaseURL    string `json:"base_url" yaml:"base_url"`
+		Index      string `json:"index" yaml:"index"`
+		ConnStr    string `json:"conn_str" yaml:"conn_str"`
+		Table      string `json:"table" yaml:"table"`
 	} `json:"vector_store" yaml:"vector_store"`
 
 	Embedding struct {

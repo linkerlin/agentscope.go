@@ -275,6 +275,7 @@ agentscope.go/memory/
 | `ProceduralSummarizer` | ✅ 已实现 | 任务经验自动提取 |
 | `ToolSummarizer` | ✅ 已实现 | 工具使用指南生成 |
 | `MemoryOrchestrator` | ✅ 已实现 | 编排 Summarize + Retrieve |
+| `BuildReMeVectorMemory` | ✅ 已实现 | 配置到完整记忆系统工厂函数 |
 | `MemoryHandler` | ✅ 已实现 | 向量库 CRUD + 草稿检索 |
 | `ProfileHandler` | ✅ 已实现 | 本地用户画像管理 |
 | `HistoryHandler` | ✅ 已实现 | 历史记录节点读写 |
@@ -284,7 +285,7 @@ agentscope.go/memory/
 | 模块 | 优先级 | 说明 |
 |-----|-------|------|
 | VectorStore 快照 | P1 | 会话级持久化（已部分实现） |
-| 配置系统整合 | P1 | 统一配置管理（config.ReMeMemoryConfig 已存在） |
+
 
 
 

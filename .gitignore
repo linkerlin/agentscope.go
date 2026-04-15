@@ -3,3 +3,6 @@
 *.db
 *.db-journal
 *.db-wal
+
+# Build artifacts
+*.exe

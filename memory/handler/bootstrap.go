@@ -1,3 +1,5 @@
+// Package handler provides high-level constructors and orchestrators that wire
+// together ReMe memory components (vector stores, summarizers, compactor, etc.).
 package handler
 
 import (

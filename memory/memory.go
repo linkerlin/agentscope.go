@@ -1,3 +1,5 @@
+// Package memory provides conversation storage, long-term memory management,
+// vector stores, full-text search, and ReMe-specific memory orchestration.
 package memory
 
 import "github.com/linkerlin/agentscope.go/message"

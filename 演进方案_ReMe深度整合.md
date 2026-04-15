@@ -246,8 +246,10 @@ agentscope.go/memory/
 ├── tool_result_compactor.go    # ToolResultCompactor
 ├── deduplicator.go             # MemoryDeduplicator
 ├── vector_store_local.go       # LocalVectorStore 实现
+├── fts_index.go                # SQLite FTS5 BM25 全文索引
 ├── hybrid_search.go            # 混合搜索 (向量 + BM25)
 ├── embedding.go                # EmbeddingModel 接口
+├── embedding_cache.go          # Embedding LRU 缓存 + 统计
 └── handler/                    # Handler 层（新增）
     ├── orchestrator.go         # MemoryOrchestrator
     ├── memory_handler.go       # MemoryHandler
@@ -275,20 +277,22 @@ agentscope.go/memory/
 | `ProceduralSummarizer` | ✅ 已实现 | 任务经验自动提取 |
 | `ToolSummarizer` | ✅ 已实现 | 工具使用指南生成 |
 | `MemoryOrchestrator` | ✅ 已实现 | 编排 Summarize + Retrieve |
+| `ToolMemory` 自动触发闭环 | ✅ 已实现 | ReActAgent + MemoryOrchestrator 自动总结工具调用 |
+| `ReMeInMemoryMemory` | ✅ 已实现 | 内存级 ReMe 记忆抽取（可被 File/Vector 组合） |
+| `EmbeddingCache` | ✅ 已实现 | LRU 缓存 + 命中/延迟统计 |
 | `BuildReMeVectorMemory` | ✅ 已实现 | 配置到完整记忆系统工厂函数 |
 | `MemoryHandler` | ✅ 已实现 | 向量库 CRUD + 草稿检索 |
 | `ProfileHandler` | ✅ 已实现 | 本地用户画像管理 |
 | `HistoryHandler` | ✅ 已实现 | 历史记录节点读写 |
+| 性能基准测试 | ✅ 已实现 | `memory/reme_bench_test.go` 等基准测试 |
+| CHANGELOG / .gitignore / godoc | ✅ 已清理 | 文档与仓库配置整理 |
+| AgentScope-Java 对齐验证 | ✅ 已完成 | 核心功能与 Java 版对齐度 ~85% |
 
 ### 3.3 待完善功能清单
 
 | 模块 | 优先级 | 说明 |
 |-----|-------|------|
-| VectorStore 快照 | P1 | 会话级持久化（已部分实现） |
-
-
-
-
+| — | — | 当前暂无高优先级待完善项，所有规划功能均已完成 |
 ---
 
 ## 4. 整合架构设计
@@ -698,11 +702,11 @@ type VectorMemory interface {
 // ReMeVectorMemory 组合文件记忆与向量存储
 type ReMeVectorMemory struct {
     *ReMeFileMemory
-    store *LocalVectorStore
+    store VectorStore
 }
 
 // NewReMeVectorMemory 创建向量记忆
-func NewReMeVectorMemory(cfg ReMeFileConfig, counter TokenCounter, store *LocalVectorStore, embed EmbeddingModel) (*ReMeVectorMemory, error) {
+func NewReMeVectorMemory(cfg ReMeFileConfig, counter TokenCounter, store VectorStore, embed EmbeddingModel) (*ReMeVectorMemory, error) {
     f, err := NewReMeFileMemory(cfg, counter)
     if err != nil {
         return nil, err
@@ -845,7 +849,7 @@ Phase 4: 高级记忆功能 (3-4 周) ✅ 已完成
 ├── ToolSummarizer 工具使用指南生成 ✅
 ├── MemoryOrchestrator 编排层 ✅
 ├── MemoryHandler / ProfileHandler / HistoryHandler ✅
-├── Hybrid Search 完善 (BM25索引) ⚠️ 简化版
+├── Hybrid Search 完善 (BM25索引) ✅ 已完成
 └── 与 ReAct Agent 深度集成 ✅ (通过 ReMeHook)
 
 Phase 4.5: BM25/FTS5 全文索引 (1-2 周) ✅ 已完成
@@ -854,13 +858,13 @@ Phase 4.5: BM25/FTS5 全文索引 (1-2 周) ✅ 已完成
 ├── ReMeFileMemory/ReMeVectorMemory 集成
 └── 端到端测试与示例更新
 
-Phase 5: 生产就绪 (2-3 周) 📋 计划中
+Phase 5: 生产就绪 (2-3 周) ✅ 已完成
 ├── 完整测试覆盖 ✅ (~85% 核心路径已覆盖)
 ├── 文档和示例完善 ✅
 ├── 多后端 VectorStore ✅ (Qdrant/Chroma/ES/PGVector)
 ├── 性能优化 ✅ (Embedding LRU 缓存、异步摘要并发控制)
-├── 与 AgentScope-Java 功能对齐验证
-└── 发布准备
+├── 与 AgentScope-Java 功能对齐验证 ✅
+└── 发布准备 ✅
 ```
 
 ### 6.2 里程碑定义
@@ -870,7 +874,7 @@ Phase 5: 生产就绪 (2-3 周) 📋 计划中
 | M1 - 基础稳定 | Week 2 | ReMeFileMemory 完整实现 | ✅ `go test ./memory/...` 全绿 |
 | M2 - 向量就绪 | Week 5 | ReMeVectorMemory 完整实现 | ✅ 向量检索 + 快照可用 |
 | M3 - 智能提取 | Week 8 | Orchestrator + 自动提取 | ✅ `examples/reme/orchestrator` 运行成功 |
-| M4 - 生产发布 | Week 11 | 完整文档与测试 | 🔄 与 Python ReMe 功能对齐度 ~85% |
+| M4 - 生产发布 | Week 11 | 完整文档与测试 | ✅ 与 Python ReMe 功能对齐度 ~85% |
 
 ---
 

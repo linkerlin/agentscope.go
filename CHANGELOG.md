@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Model Backends**:
   - **Anthropic** (`model/anthropic/`): native HTTP client with SSE streaming support.
   - **Gemini** (`model/gemini/`): native HTTP client with SSE streaming support.
+- **Multi-Agent Orchestration**:
+  - **Pipeline** (`pipeline/`): sequential agent chaining where output of step N becomes input of step N+1.
+  - **MsgHub** (`msghub/`): lightweight message hub for registering and broadcasting messages to multiple agents concurrently.
+  - **Workflow** (`workflow/`): advanced orchestration primitives:
+    - `Parallel` — concurrent execution with configurable result joining.
+    - `Condition` — branch selection based on an evaluator function.
+    - `Loop` — repeated execution with a max-iteration safeguard.
+- **A2A Protocol Stack**:
+  - Server-side SSE streaming via `/task/sendSubscribe`.
+  - `HTTPClient` implementing the `Client` interface with `Send` and `SendSubscribe`.
 - **AgentBase Lifecycle Unification** (`agent/base.go`):
   - `Base` struct centralizes shared lifecycle, hooks, state management, and usage tracking.
   - `ReActAgent` now embeds `Base` and uses `Call()` / `Observe()` wrappers.

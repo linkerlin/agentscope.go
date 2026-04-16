@@ -64,12 +64,15 @@ func main() {
 |------|------|
 | `message` | `Msg` 类型，支持多模态内容块（文本、图片、音频、视频、工具调用/结果、思考过程） |
 | `model` | `ChatModel` 接口，支持流式响应 |
-| `agent` | `Agent` 基础接口 |
 | `agent` | `Agent` 基础接口与 `Base` 统一生命周期（Hook、流式事件、Usage 统计） |
 | `agent/react` | ReAct Agent 实现，内嵌 `agent.Base` |
 | `memory` | `Memory` 接口 + 内存实现 + ReMe 长期记忆 |
 | `tool` | `Tool` 接口 + `FunctionTool` 适配器 + `tool.Response` 规范多媒体结果 |
 | `formatter` | 独立的模型请求/响应格式化抽象层（OpenAI / Anthropic / Gemini / DashScope / Ollama） |
+| `pipeline` | 顺序多 Agent 编排（Pipeline） |
+| `msghub` | 广播式多 Agent 消息调度（Hub） |
+| `workflow` | 高级多 Agent 编排：并行（Parallel）、条件（Condition）、循环（Loop） |
+| `a2a` | A2A 协议最小实现：AgentCard、任务发送、流式订阅 |
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
@@ -218,6 +221,47 @@ chatModel, _ := ollama.NewBuilder().
     Build()
 ```
 
+## 多 Agent 编排
+
+### 顺序执行（Pipeline）
+
+```go
+import "github.com/linkerlin/agentscope.go/pipeline"
+
+pipe := pipeline.New("ResearchPipe", plannerAgent, writerAgent)
+resp, _ := pipe.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("Go 并发模式").Build())
+```
+
+### 广播调度（MsgHub）
+
+```go
+import "github.com/linkerlin/agentscope.go/msghub"
+
+hub := msghub.New()
+hub.Register("coder", coderAgent)
+hub.Register("reviewer", reviewerAgent)
+results := hub.Broadcast(ctx, msg) // map[string]*message.Msg
+```
+
+### 并行 / 条件 / 循环（Workflow）
+
+```go
+import "github.com/linkerlin/agentscope.go/workflow"
+
+// 并行：让两个 Agent 同时处理，合并结果
+par := workflow.NewParallel("DualCheck", nil, agentA, agentB)
+
+// 条件：根据输入内容决定走哪个分支
+cond := workflow.NewCondition("Router",
+    func(m *message.Msg) bool { return strings.Contains(m.GetTextContent(), "urgent") },
+    urgentAgent, normalAgent)
+
+// 循环：反复优化直到满足质量条件
+loop := workflow.NewLoop("Refiner", editorAgent,
+    func(m *message.Msg) bool { return !strings.Contains(m.GetTextContent(), "FINAL") },
+    5)
+```
+
 ## 示例
 
 - [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
@@ -225,6 +269,8 @@ chatModel, _ := ollama.NewBuilder().
 - [`examples/anthropic`](examples/anthropic/main.go) —— 使用 Claude 后端的 Agent
 - [`examples/gemini`](examples/gemini/main.go) —— 使用 Gemini 后端的 Agent
 - [`examples/pipeline`](examples/pipeline/main.go) —— 多 Agent 顺序编排（Pipeline）
+- [`examples/msghub`](examples/msghub/main.go) —— 广播式多 Agent 消息调度
+- [`examples/workflow`](examples/workflow/main.go) —— 并行 + 条件 + 循环工作流
 - [`examples/reme/file`](examples/reme/file/main.go) —— ReMe 文件型记忆（ReMeLight）
 - [`examples/reme/vector`](examples/reme/vector/main.go) —— ReMe 向量记忆检索
 - [`examples/reme/orchestrator`](examples/reme/orchestrator/main.go) —— ReMe Orchestrator 端到端（提取 + 检索 + Profile）

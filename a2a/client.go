@@ -15,6 +15,7 @@ type Message struct {
 // Client A2A 客户端抽象
 type Client interface {
 	Send(ctx context.Context, msg *Message) (*Message, error)
+	SendSubscribe(ctx context.Context, msg *Message) (<-chan *Message, error)
 	Close() error
 }
 
@@ -22,6 +23,10 @@ type Client interface {
 type NoopClient struct{}
 
 func (NoopClient) Send(ctx context.Context, msg *Message) (*Message, error) {
+	return nil, errors.New("a2a: noop client")
+}
+
+func (NoopClient) SendSubscribe(ctx context.Context, msg *Message) (<-chan *Message, error) {
 	return nil, errors.New("a2a: noop client")
 }
 

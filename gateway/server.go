@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
 )
@@ -22,15 +25,52 @@ type streamEvent struct {
 	Done  bool   `json:"done"`
 }
 
-// Server exposes an agent over HTTP with non-streaming and SSE streaming endpoints.
+// wsSession wraps a WebSocket connection with safe concurrent writes.
+type wsSession struct {
+	id       string
+	room     string
+	conn     *websocket.Conn
+	writeMu  sync.Mutex
+	lastPing time.Time
+}
+
+func (s *wsSession) writeJSON(v interface{}) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.conn.WriteJSON(v)
+}
+
+func (s *wsSession) writeControl(messageType int, data []byte, deadline time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.conn.WriteControl(messageType, data, deadline)
+}
+
+func (s *wsSession) close() {
+	s.writeMu.Lock()
+	_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	s.writeMu.Unlock()
+	s.conn.Close()
+}
+
+// Server exposes an agent over HTTP with REST, SSE, and WebSocket endpoints.
+// It also supports session-based connection tracking and room broadcasting.
 type Server struct {
-	agent agent.Agent
-	mux   *http.ServeMux
+	agent    agent.Agent
+	mux      *http.ServeMux
+	sessions map[string]*wsSession
+	rooms    map[string]map[string]*wsSession
+	mu       sync.RWMutex
 }
 
 // NewServer creates a gateway HTTP server for the given agent.
 func NewServer(a agent.Agent) *Server {
-	s := &Server{agent: a, mux: http.NewServeMux()}
+	s := &Server{
+		agent:    a,
+		mux:      http.NewServeMux(),
+		sessions: make(map[string]*wsSession),
+		rooms:    make(map[string]map[string]*wsSession),
+	}
 	s.mux.HandleFunc("/chat", s.handleChat)
 	s.mux.HandleFunc("/chat/stream", s.handleChatStream)
 	s.mux.HandleFunc("/chat/ws", s.handleChatWS)
@@ -40,6 +80,52 @@ func NewServer(a agent.Agent) *Server {
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
+}
+
+// registerSession adds a WebSocket session to the server.
+func (s *Server) registerSession(ws *wsSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[ws.id] = ws
+	if ws.room != "" {
+		if s.rooms[ws.room] == nil {
+			s.rooms[ws.room] = make(map[string]*wsSession)
+		}
+		s.rooms[ws.room][ws.id] = ws
+	}
+}
+
+// unregisterSession removes a WebSocket session.
+func (s *Server) unregisterSession(ws *wsSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, ws.id)
+	if ws.room != "" && s.rooms[ws.room] != nil {
+		delete(s.rooms[ws.room], ws.id)
+		if len(s.rooms[ws.room]) == 0 {
+			delete(s.rooms, ws.room)
+		}
+	}
+}
+
+// BroadcastToRoom sends a JSON message to all sessions in a room.
+func (s *Server) BroadcastToRoom(room string, v interface{}) {
+	s.mu.RLock()
+	members := make(map[string]*wsSession, len(s.rooms[room]))
+	for k, v := range s.rooms[room] {
+		members[k] = v
+	}
+	s.mu.RUnlock()
+	for _, sess := range members {
+		_ = sess.writeJSON(v)
+	}
+}
+
+// SessionCount returns the number of active WebSocket sessions.
+func (s *Server) SessionCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.sessions)
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -18,6 +19,11 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	heartbeatInterval = 30 * time.Second
+	heartbeatTimeout  = 10 * time.Second
+)
+
 func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -27,8 +33,43 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
 
+	sessionID := r.URL.Query().Get("session")
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	}
+	room := r.URL.Query().Get("room")
+
+	ws := &wsSession{
+		id:       sessionID,
+		room:     room,
+		conn:     conn,
+		lastPing: time.Now(),
+	}
+	s.registerSession(ws)
+	defer func() {
+		s.unregisterSession(ws)
+		ws.close()
+	}()
+
+	// Heartbeat goroutine
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := ws.writeControl(websocket.PingMessage, []byte{}, time.Now().Add(heartbeatTimeout)); err != nil {
+					return
+				}
+			case <-stopHeartbeat:
+				return
+			}
+		}
+	}()
+
+	// Message read loop
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -36,18 +77,18 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 		}
 		var req chatRequest
 		if err := json.Unmarshal(data, &req); err != nil {
-			_ = writeWSError(conn, fmt.Sprintf("parse error: %v", err))
+			_ = ws.writeJSON(map[string]string{"error": fmt.Sprintf("parse error: %v", err)})
 			continue
 		}
 		if req.Text == "" {
-			_ = writeWSError(conn, "text is required")
+			_ = ws.writeJSON(map[string]string{"error": "text is required"})
 			continue
 		}
 
 		msg := message.NewMsg().Role(message.RoleUser).TextContent(req.Text).Build()
 		ch, err := s.agent.CallStream(r.Context(), msg)
 		if err != nil {
-			_ = writeWSError(conn, fmt.Sprintf("stream error: %v", err))
+			_ = ws.writeJSON(map[string]string{"error": fmt.Sprintf("stream error: %v", err)})
 			continue
 		}
 
@@ -56,16 +97,13 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			ev := streamEvent{Delta: chunk.GetTextContent()}
-			if err := conn.WriteJSON(ev); err != nil {
+			if err := ws.writeJSON(ev); err != nil {
 				break
 			}
 		}
-		if err := conn.WriteJSON(streamEvent{Done: true}); err != nil {
+		if err := ws.writeJSON(streamEvent{Done: true}); err != nil {
 			break
 		}
 	}
-}
-
-func writeWSError(conn *websocket.Conn, text string) error {
-	return conn.WriteJSON(map[string]string{"error": text})
+	close(stopHeartbeat)
 }

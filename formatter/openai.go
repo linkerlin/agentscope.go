@@ -18,8 +18,13 @@ func NewOpenAIFormatter() *OpenAIFormatter {
 	return &OpenAIFormatter{}
 }
 
-// FormatMessages converts agent Msgs to OpenAI ChatCompletionMessages.
-func (f *OpenAIFormatter) FormatMessages(msgs []*message.Msg) []goopenai.ChatCompletionMessage {
+// FormatMessages implements the Formatter interface.
+func (f *OpenAIFormatter) FormatMessages(msgs []*message.Msg) (any, error) {
+	return f.FormatMessagesTyped(msgs), nil
+}
+
+// FormatMessagesTyped converts agent Msgs to strongly-typed OpenAI ChatCompletionMessages.
+func (f *OpenAIFormatter) FormatMessagesTyped(msgs []*message.Msg) []goopenai.ChatCompletionMessage {
 	out := make([]goopenai.ChatCompletionMessage, 0, len(msgs))
 	for _, m := range msgs {
 		out = append(out, f.formatMsg(m)...)
@@ -78,7 +83,7 @@ func (f *OpenAIFormatter) formatMsg(m *message.Msg) []goopenai.ChatCompletionMes
 func hasMediaContent(blocks []message.ContentBlock) bool {
 	for _, b := range blocks {
 		switch b.(type) {
-		case *message.ImageBlock, *message.AudioBlock, *message.VideoBlock:
+		case *message.ImageBlock, *message.AudioBlock, *message.VideoBlock, *message.DataBlock:
 			return true
 		}
 	}
@@ -127,6 +132,45 @@ func (f *OpenAIFormatter) contentBlocksToParts(blocks []message.ContentBlock) []
 				Type: goopenai.ChatMessagePartTypeText,
 				Text: fmt.Sprintf("[Video: %s]", block.URL),
 			})
+		case *message.DataBlock:
+			if block.Source == nil {
+				continue
+			}
+			switch block.BlockType() {
+			case message.TypeImage:
+				url := block.Source.URL
+				if url == "" && block.Source.Data != "" {
+					mime := block.Source.MediaType
+					if mime == "" {
+						mime = "image/png"
+					}
+					url = fmt.Sprintf("data:%s;base64,%s", mime, block.Source.Data)
+				}
+				parts = append(parts, goopenai.ChatMessagePart{
+					Type: goopenai.ChatMessagePartTypeImageURL,
+					ImageURL: &goopenai.ChatMessageImageURL{
+						URL: url,
+					},
+				})
+			case message.TypeAudio:
+				url := block.Source.URL
+				if url == "" && block.Source.Data != "" {
+					mime := block.Source.MediaType
+					if mime == "" {
+						mime = "audio/wav"
+					}
+					url = fmt.Sprintf("data:%s;base64,%s", mime, block.Source.Data)
+				}
+				parts = append(parts, goopenai.ChatMessagePart{
+					Type: goopenai.ChatMessagePartTypeText,
+					Text: fmt.Sprintf("[Audio: %s]", url),
+				})
+			case message.TypeVideo:
+				parts = append(parts, goopenai.ChatMessagePart{
+					Type: goopenai.ChatMessagePartTypeText,
+					Text: fmt.Sprintf("[Video: %s]", block.Source.URL),
+				})
+			}
 		case *message.ThinkingBlock:
 			// skip thinking blocks when formatting for OpenAI API
 		}
@@ -134,8 +178,13 @@ func (f *OpenAIFormatter) contentBlocksToParts(blocks []message.ContentBlock) []
 	return parts
 }
 
-// FormatTools converts tool specs to OpenAI Tool definitions.
-func (f *OpenAIFormatter) FormatTools(specs []model.ToolSpec) []goopenai.Tool {
+// FormatTools implements the Formatter interface.
+func (f *OpenAIFormatter) FormatTools(specs []model.ToolSpec) (any, error) {
+	return f.FormatToolsTyped(specs), nil
+}
+
+// FormatToolsTyped converts tool specs to strongly-typed OpenAI Tool definitions.
+func (f *OpenAIFormatter) FormatToolsTyped(specs []model.ToolSpec) []goopenai.Tool {
 	tools := make([]goopenai.Tool, 0, len(specs))
 	for _, s := range specs {
 		tools = append(tools, goopenai.Tool{
@@ -150,10 +199,10 @@ func (f *OpenAIFormatter) FormatTools(specs []model.ToolSpec) []goopenai.Tool {
 	return tools
 }
 
-// FormatToolChoice converts a model ToolChoice to an OpenAI-compatible value.
-func (f *OpenAIFormatter) FormatToolChoice(tc *model.ToolChoice) any {
+// FormatToolChoice implements the Formatter interface.
+func (f *OpenAIFormatter) FormatToolChoice(tc *model.ToolChoice) (any, error) {
 	if tc == nil {
-		return nil
+		return nil, nil
 	}
 	if tc.Function != "" {
 		return goopenai.ToolChoice{
@@ -161,9 +210,9 @@ func (f *OpenAIFormatter) FormatToolChoice(tc *model.ToolChoice) any {
 			Function: goopenai.ToolFunction{
 				Name: tc.Function,
 			},
-		}
+		}, nil
 	}
-	return tc.Mode
+	return tc.Mode, nil
 }
 
 // ParseChoice converts an OpenAI ChatCompletionChoice into a standard *message.Msg.

@@ -17,7 +17,7 @@ func (panicTool) Description() string { return "always panics" }
 func (panicTool) Spec() model.ToolSpec {
 	return model.ToolSpec{Name: "panic", Description: "always panics"}
 }
-func (panicTool) Execute(ctx context.Context, input map[string]any) (any, error) {
+func (panicTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	panic("intentional panic")
 }
 
@@ -28,12 +28,12 @@ func (slowTool) Description() string { return "slow tool" }
 func (slowTool) Spec() model.ToolSpec {
 	return model.ToolSpec{Name: "slow", Description: "slow tool"}
 }
-func (slowTool) Execute(ctx context.Context, input map[string]any) (any, error) {
+func (slowTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(5 * time.Second):
-		return "done", nil
+		return tool.NewTextResponse("done"), nil
 	}
 }
 
@@ -44,7 +44,7 @@ func (failTool) Description() string { return "always fails" }
 func (failTool) Spec() model.ToolSpec {
 	return model.ToolSpec{Name: "fail", Description: "always fails"}
 }
-func (failTool) Execute(ctx context.Context, input map[string]any) (any, error) {
+func (failTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	return nil, errors.New("fail")
 }
 

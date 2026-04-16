@@ -11,7 +11,7 @@ type Tool interface {
 	Name() string
 	Description() string
 	Spec() model.ToolSpec
-	Execute(ctx context.Context, input map[string]any) (any, error)
+	Execute(ctx context.Context, input map[string]any) (*Response, error)
 }
 
 // FunctionTool wraps a Go function as a Tool
@@ -19,14 +19,14 @@ type FunctionTool struct {
 	name        string
 	description string
 	parameters  map[string]any
-	fn          func(ctx context.Context, input map[string]any) (any, error)
+	fn          func(ctx context.Context, input map[string]any) (*Response, error)
 }
 
-// NewFunctionTool creates a Tool from a Go function
+// NewFunctionTool creates a Tool from a Go function that returns *Response.
 func NewFunctionTool(
 	name, description string,
 	parameters map[string]any,
-	fn func(ctx context.Context, input map[string]any) (any, error),
+	fn func(ctx context.Context, input map[string]any) (*Response, error),
 ) *FunctionTool {
 	return &FunctionTool{
 		name:        name,
@@ -47,6 +47,6 @@ func (f *FunctionTool) Spec() model.ToolSpec {
 	}
 }
 
-func (f *FunctionTool) Execute(ctx context.Context, input map[string]any) (any, error) {
+func (f *FunctionTool) Execute(ctx context.Context, input map[string]any) (*Response, error) {
 	return f.fn(ctx, input)
 }

@@ -60,6 +60,6 @@ func (tk *Toolkit) Execute(ctx context.Context, calls []ToolCall) ([]ToolResult,
 }
 
 // ExecuteTool 执行单个工具名
-func (tk *Toolkit) ExecuteTool(ctx context.Context, name string, input map[string]any) (any, error) {
+func (tk *Toolkit) ExecuteTool(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
 	return tk.Executor.ExecuteTool(ctx, tk.Registry, name, input)
 }

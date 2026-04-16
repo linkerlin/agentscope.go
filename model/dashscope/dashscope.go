@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/formatter"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 	oai "github.com/linkerlin/agentscope.go/model/openai"
@@ -24,6 +25,7 @@ type DashScopeChatModelBuilder struct {
 	baseURL          string
 	retryMaxAttempts int
 	retryBackoff     time.Duration
+	fmt              *formatter.OpenAIFormatter
 }
 
 // Builder returns a new DashScopeChatModelBuilder
@@ -56,16 +58,25 @@ func (b *DashScopeChatModelBuilder) Retry(maxAttempts int, backoff time.Duration
 	return b
 }
 
+// Formatter sets a custom formatter (defaults to formatter.NewDashScopeFormatter())
+func (b *DashScopeChatModelBuilder) Formatter(f *formatter.OpenAIFormatter) *DashScopeChatModelBuilder {
+	b.fmt = f
+	return b
+}
+
 func (b *DashScopeChatModelBuilder) Build() (*DashScopeChatModel, error) {
 	if b.apiKey == "" {
 		return nil, errors.New("dashscope: API key is required")
 	}
-	inner, err := oai.Builder().
+	ob := oai.Builder().
 		APIKey(b.apiKey).
 		ModelName(b.modelName).
 		BaseURL(b.baseURL).
-		Retry(b.retryMaxAttempts, b.retryBackoff).
-		Build()
+		Retry(b.retryMaxAttempts, b.retryBackoff)
+	if b.fmt != nil {
+		ob.Formatter(b.fmt)
+	}
+	inner, err := ob.Build()
 	if err != nil {
 		return nil, err
 	}

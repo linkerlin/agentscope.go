@@ -12,7 +12,7 @@ import (
 func TestMsgToOpenAI_TextOnly(t *testing.T) {
 	f := formatter.NewOpenAIFormatter()
 	msg := message.NewMsg().Role(message.RoleUser).TextContent("hello").Build()
-	out := f.FormatMessages([]*message.Msg{msg})
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
 	if len(out) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(out))
 	}
@@ -27,7 +27,7 @@ func TestMsgToOpenAI_ImageBlock_MultiContent(t *testing.T) {
 		TextContent("describe").
 		Content(message.NewImageBlock("http://example.com/img.png", "", "image/png")).
 		Build()
-	out := f.FormatMessages([]*message.Msg{msg})
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
 	if len(out) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(out))
 	}
@@ -60,7 +60,7 @@ func TestMsgToOpenAI_ImageBlock_Base64(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).
 		Content(message.NewImageBlock("", "iVBORw0KGgo=", "image/png")).
 		Build()
-	out := f.FormatMessages([]*message.Msg{msg})
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
 	if len(out) != 1 || len(out[0].MultiContent) == 0 {
 		t.Fatal("expected MultiContent")
 	}
@@ -78,7 +78,7 @@ func TestMsgToOpenAI_VideoBlock_FallbackToText(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).
 		Content(message.NewVideoBlock("http://example.com/vid.mp4")).
 		Build()
-	out := f.FormatMessages([]*message.Msg{msg})
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
 	if len(out) != 1 || len(out[0].MultiContent) == 0 {
 		t.Fatal("expected MultiContent")
 	}
@@ -96,7 +96,7 @@ func TestMsgToOpenAI_AudioBlock_FallbackToText(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).
 		Content(message.NewAudioBlock("http://example.com/audio.mp3", "", "audio/mp3")).
 		Build()
-	out := f.FormatMessages([]*message.Msg{msg})
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
 	if len(out) != 1 || len(out[0].MultiContent) == 0 {
 		t.Fatal("expected MultiContent")
 	}
@@ -115,7 +115,7 @@ func TestMsgToOpenAI_ToolResults(t *testing.T) {
 		message.NewToolResultBlock("call_1", []message.ContentBlock{message.NewTextBlock("ok")}, false),
 		message.NewToolResultBlock("call_2", []message.ContentBlock{message.NewTextBlock("done")}, false),
 	).Build()
-	out := f.FormatMessages([]*message.Msg{msg})
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
 	if len(out) != 2 {
 		t.Fatalf("expected 2 tool messages, got %d", len(out))
 	}

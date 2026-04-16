@@ -17,6 +17,12 @@ const (
 	HookAfterTool    HookPoint = "after_tool"
 	HookBeforeFinish HookPoint = "before_finish"
 	HookPostCall     HookPoint = "post_call"
+
+	// 高层生命周期 Hook（对齐 Python 版 AgentBase）
+	HookPreReply    HookPoint = "pre_reply"
+	HookPostReply   HookPoint = "post_reply"
+	HookPreObserve  HookPoint = "pre_observe"
+	HookPostObserve HookPoint = "post_observe"
 )
 
 // HookContext contains execution state passed to hooks

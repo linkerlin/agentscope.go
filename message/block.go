@@ -26,6 +26,36 @@ type TextBlock struct {
 func NewTextBlock(text string) *TextBlock { return &TextBlock{Text: text} }
 func (b *TextBlock) BlockType() BlockType { return TypeText }
 
+// SourceType identifies the type of media source
+type SourceType string
+
+const (
+	SourceTypeBase64 SourceType = "base64"
+	SourceTypeURL    SourceType = "url"
+)
+
+// Source represents a media source (base64 or URL), aligned with Python
+// Base64Source and URLSource for cross-language serialization.
+type Source struct {
+	Type      SourceType `json:"type"`
+	MediaType string     `json:"media_type,omitempty"`
+	Data      string     `json:"data,omitempty"`
+	URL       string     `json:"url,omitempty"`
+}
+
+// DataBlock is a unified multimedia block for image, audio, or video.
+type DataBlock struct {
+	BlockType_ BlockType `json:"-"`
+	Source     *Source   `json:"source"`
+}
+
+// NewDataBlock creates a unified multimedia block.
+func NewDataBlock(blockType BlockType, source *Source) *DataBlock {
+	return &DataBlock{BlockType_: blockType, Source: source}
+}
+
+func (b *DataBlock) BlockType() BlockType { return b.BlockType_ }
+
 // ImageBlock holds image content (URL or base64)
 type ImageBlock struct {
 	URL      string
@@ -60,9 +90,10 @@ func (b *VideoBlock) BlockType() BlockType { return TypeVideo }
 
 // ToolUseBlock represents a tool invocation request
 type ToolUseBlock struct {
-	ID    string
-	Name  string
-	Input map[string]any
+	ID       string
+	Name     string
+	Input    map[string]any
+	RawInput string // raw string input for streaming JSON accumulation
 }
 
 func NewToolUseBlock(id, name string, input map[string]any) *ToolUseBlock {
@@ -72,9 +103,12 @@ func (b *ToolUseBlock) BlockType() BlockType { return TypeToolUse }
 
 // ToolResultBlock holds the result of a tool invocation
 type ToolResultBlock struct {
+	ID        string
+	Name      string
 	ToolUseID string
 	Content   []ContentBlock
 	IsError   bool
+	State     string // execution state aligned with Python 2.0
 }
 
 func NewToolResultBlock(toolUseID string, content []ContentBlock, isError bool) *ToolResultBlock {

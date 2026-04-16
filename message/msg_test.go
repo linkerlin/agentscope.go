@@ -62,13 +62,14 @@ func TestBlockTypes(t *testing.T) {
 		NewImageBlock("url", "", "image/png"),
 		NewAudioBlock("url", "", "audio/mp3"),
 		NewVideoBlock("url"),
+		NewDataBlock(TypeImage, &Source{Type: SourceTypeURL, URL: "http://x"}),
 		NewToolUseBlock("id", "tool", nil),
 		NewToolResultBlock("id", nil, false),
 		NewThinkingBlock("thoughts", "sig"),
 	}
 
 	expected := []BlockType{
-		TypeText, TypeImage, TypeAudio, TypeVideo, TypeToolUse, TypeToolResult, TypeThinking,
+		TypeText, TypeImage, TypeAudio, TypeVideo, TypeImage, TypeToolUse, TypeToolResult, TypeThinking,
 	}
 
 	for i, b := range blocks {

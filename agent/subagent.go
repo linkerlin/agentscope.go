@@ -62,7 +62,7 @@ func (s *SubagentTool) Spec() model.ToolSpec {
 	return model.ToolSpec{Name: s.name, Description: s.description, Parameters: s.parameters}
 }
 
-func (s *SubagentTool) Execute(ctx context.Context, input map[string]any) (any, error) {
+func (s *SubagentTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	d := SubagentDepth(ctx)
 	if d >= s.maxDepth {
 		return nil, fmt.Errorf("subagent: max depth %d exceeded", s.maxDepth)
@@ -77,7 +77,7 @@ func (s *SubagentTool) Execute(ctx context.Context, input map[string]any) (any, 
 	if err != nil {
 		return nil, err
 	}
-	return out.GetTextContent(), nil
+	return tool.NewTextResponse(out.GetTextContent()), nil
 }
 
 var _ tool.Tool = (*SubagentTool)(nil)

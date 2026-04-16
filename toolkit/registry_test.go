@@ -9,8 +9,8 @@ import (
 
 func TestRegistryToolSpecs(t *testing.T) {
 	r := NewRegistry()
-	_ = r.Register(tool.NewFunctionTool("a", "d", map[string]any{}, func(ctx context.Context, input map[string]any) (any, error) {
-		return 1, nil
+	_ = r.Register(tool.NewFunctionTool("a", "d", map[string]any{}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return tool.NewTextResponse(1), nil
 	}))
 	specs := r.ToolSpecs()
 	if len(specs) != 1 || specs[0].Name != "a" {
@@ -20,8 +20,8 @@ func TestRegistryToolSpecs(t *testing.T) {
 
 func TestGroupActive(t *testing.T) {
 	tk := NewToolkit()
-	_ = tk.Register(tool.NewFunctionTool("x", "", map[string]any{}, func(ctx context.Context, input map[string]any) (any, error) {
-		return nil, nil
+	_ = tk.Register(tool.NewFunctionTool("x", "", map[string]any{}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return tool.NewTextResponse(""), nil
 	}))
 	_ = tk.Groups.CreateGroup("g1", "")
 	_ = tk.Groups.AddTool("g1", "x")
@@ -33,8 +33,8 @@ func TestGroupActive(t *testing.T) {
 
 func TestExecutorParallel(t *testing.T) {
 	reg := NewRegistry()
-	_ = reg.Register(tool.NewFunctionTool("p", "", map[string]any{}, func(ctx context.Context, input map[string]any) (any, error) {
-		return "ok", nil
+	_ = reg.Register(tool.NewFunctionTool("p", "", map[string]any{}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return tool.NewTextResponse("ok"), nil
 	}))
 	ex := NewToolExecutor(ExecutionConfig{Parallel: true, MaxParallel: 4, MaxRetries: 1})
 	res, err := ex.Execute(context.Background(), reg, []ToolCall{{Name: "p"}, {Name: "p"}})

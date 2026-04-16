@@ -58,7 +58,7 @@ func hasAnyMedia(messages []*message.Msg) bool {
 	for _, msg := range messages {
 		for _, block := range msg.Content {
 			switch block.(type) {
-			case *message.ImageBlock, *message.AudioBlock, *message.VideoBlock:
+			case *message.ImageBlock, *message.AudioBlock, *message.VideoBlock, *message.DataBlock:
 				return true
 			}
 		}

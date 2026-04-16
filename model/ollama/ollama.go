@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/formatter"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 	oai "github.com/linkerlin/agentscope.go/model/openai"
@@ -24,6 +25,7 @@ type Builder struct {
 	apiKey           string
 	retryMaxAttempts int
 	retryBackoff     time.Duration
+	fmt              *formatter.OpenAIFormatter
 }
 
 // NewBuilder 创建构建器，默认模型 llama3.2
@@ -58,12 +60,21 @@ func (b *Builder) Retry(maxAttempts int, backoff time.Duration) *Builder {
 	return b
 }
 
+// Formatter sets a custom formatter (defaults to formatter.NewOllamaFormatter())
+func (b *Builder) Formatter(f *formatter.OpenAIFormatter) *Builder {
+	b.fmt = f
+	return b
+}
+
 // Build 构建模型
 func (b *Builder) Build() (*ChatModel, error) {
 	if b.apiKey == "" {
 		b.apiKey = "ollama"
 	}
 	ob := oai.Builder().APIKey(b.apiKey).ModelName(b.modelName).BaseURL(b.baseURL).Retry(b.retryMaxAttempts, b.retryBackoff)
+	if b.fmt != nil {
+		ob.Formatter(b.fmt)
+	}
 	inner, err := ob.Build()
 	if err != nil {
 		return nil, err

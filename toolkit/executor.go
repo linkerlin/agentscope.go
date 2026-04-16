@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/agentscope.go/retry"
+	"github.com/linkerlin/agentscope.go/tool"
 )
 
 // ToolCall 单次工具调用描述（对齐模型 tool_use id）
@@ -18,10 +19,10 @@ type ToolCall struct {
 
 // ToolResult 单次执行结果
 type ToolResult struct {
-	ID     string
-	Name   string
-	Result any
-	Err    error
+	ID       string
+	Name     string
+	Response *tool.Response
+	Err      error
 }
 
 // ExecutionConfig 执行策略
@@ -110,20 +111,20 @@ func (e *ToolExecutor) executeOne(ctx context.Context, reg *Registry, c ToolCall
 		defer cancel()
 	}
 	ro := retry.Options{MaxAttempts: e.cfg.MaxRetries, Backoff: 50 * time.Millisecond}
-	var result any
+	var resp *tool.Response
 	var err error
 	reErr := retry.Do(baseCtx, ro, func() error {
-		result, err = t.Execute(baseCtx, c.Input)
+		resp, err = t.Execute(baseCtx, c.Input)
 		return err
 	})
 	if reErr != nil {
 		err = reErr
 	}
-	return ToolResult{ID: c.ID, Name: c.Name, Result: result, Err: err}
+	return ToolResult{ID: c.ID, Name: c.Name, Response: resp, Err: err}
 }
 
 // ExecuteTool 执行单个工具（供 Agent 循环使用）
-func (e *ToolExecutor) ExecuteTool(ctx context.Context, reg *Registry, name string, input map[string]any) (any, error) {
+func (e *ToolExecutor) ExecuteTool(ctx context.Context, reg *Registry, name string, input map[string]any) (*tool.Response, error) {
 	r := e.executeOne(ctx, reg, ToolCall{Name: name, Input: input})
-	return r.Result, r.Err
+	return r.Response, r.Err
 }

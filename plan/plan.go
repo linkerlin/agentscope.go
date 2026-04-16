@@ -156,13 +156,13 @@ func (nb *PlanNotebook) AsTool() tool.Tool {
 		"plan_notebook",
 		"Manage task plans: create plans, add steps, update step status",
 		params,
-		func(ctx context.Context, input map[string]any) (any, error) {
+		func(ctx context.Context, input map[string]any) (*tool.Response, error) {
 			action, _ := input["action"].(string)
 			switch action {
 			case "create_plan":
 				name, _ := input["plan_name"].(string)
 				p := nb.CreatePlan(name)
-				return map[string]any{"plan_id": p.ID, "name": p.Name}, nil
+				return tool.NewTextResponse(map[string]any{"plan_id": p.ID, "name": p.Name}), nil
 
 			case "add_step":
 				planID, _ := input["plan_id"].(string)
@@ -171,7 +171,7 @@ func (nb *PlanNotebook) AsTool() tool.Tool {
 				if err != nil {
 					return nil, err
 				}
-				return map[string]any{"step_id": step.ID, "description": step.Description}, nil
+				return tool.NewTextResponse(map[string]any{"step_id": step.ID, "description": step.Description}), nil
 
 			case "update_step":
 				planID, _ := input["plan_id"].(string)
@@ -186,7 +186,7 @@ func (nb *PlanNotebook) AsTool() tool.Tool {
 				if err != nil {
 					return nil, err
 				}
-				return formatPlan(p), nil
+				return tool.NewTextResponse(formatPlan(p)), nil
 
 			case "list_plans":
 				plans := nb.ListPlans()
@@ -194,7 +194,7 @@ func (nb *PlanNotebook) AsTool() tool.Tool {
 				for _, p := range plans {
 					result = append(result, map[string]any{"plan_id": p.ID, "name": p.Name, "step_count": len(p.Steps)})
 				}
-				return result, nil
+				return tool.NewTextResponse(result), nil
 
 			default:
 				return nil, errors.New("unknown action: " + action)

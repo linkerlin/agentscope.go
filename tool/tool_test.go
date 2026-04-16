@@ -12,9 +12,9 @@ func TestFunctionTool(t *testing.T) {
 			"x": map[string]any{"type": "number"},
 		},
 	}
-	tool := NewFunctionTool("add_one", "Adds one to x", params, func(ctx context.Context, input map[string]any) (any, error) {
+	tool := NewFunctionTool("add_one", "Adds one to x", params, func(ctx context.Context, input map[string]any) (*Response, error) {
 		x, _ := input["x"].(float64)
-		return x + 1, nil
+		return NewTextResponse(x + 1), nil
 	})
 
 	if tool.Name() != "add_one" {
@@ -33,7 +33,7 @@ func TestFunctionTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.(float64) != 6 {
-		t.Errorf("expected 6, got %v", result)
+	if result.GetTextContent() != "6" {
+		t.Errorf("expected 6, got %v", result.GetTextContent())
 	}
 }

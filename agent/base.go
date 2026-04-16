@@ -148,3 +148,61 @@ func (b *Base) FireStreamEvent(ctx context.Context, ev hook.Event) (hook.Event, 
 	}
 	return ev, nil, nil
 }
+
+// Call wraps the full agent reply lifecycle: pre_reply -> reply -> post_reply.
+// It fires PreReply hooks, allows them to modify the input message, then invokes
+// reply with the potentially modified message. After reply returns, it fires
+// PostReply hooks.
+func (b *Base) Call(ctx context.Context, msg *message.Msg, reply func(context.Context, *message.Msg) (*message.Msg, error)) (*message.Msg, error) {
+	messages := []*message.Msg{msg}
+
+	// PreReply
+	msgs, hr, err := b.FireHooks(ctx, hook.HookPreReply, messages, nil, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	if hr != nil && (hr.Interrupt || hr.Override != nil) {
+		return hr.Override, nil
+	}
+	input := msg
+	if len(msgs) > 0 {
+		input = msgs[0]
+	}
+
+	resp, err := reply(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	// PostReply
+	if resp != nil {
+		b.FireHooks(ctx, hook.HookPostReply, append(msgs, resp), resp, "", nil)
+	}
+	return resp, nil
+}
+
+// Observe wraps the full agent observe lifecycle: pre_observe -> observe -> post_observe.
+func (b *Base) Observe(ctx context.Context, msg *message.Msg, observe func(context.Context, *message.Msg) error) error {
+	messages := []*message.Msg{msg}
+
+	// PreObserve
+	msgs, hr, err := b.FireHooks(ctx, hook.HookPreObserve, messages, nil, "", nil)
+	if err != nil {
+		return err
+	}
+	if hr != nil && hr.Interrupt {
+		return nil
+	}
+	input := msg
+	if len(msgs) > 0 {
+		input = msgs[0]
+	}
+
+	if err := observe(ctx, input); err != nil {
+		return err
+	}
+
+	// PostObserve
+	b.FireHooks(ctx, hook.HookPostObserve, msgs, nil, "", nil)
+	return nil
+}

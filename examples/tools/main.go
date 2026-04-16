@@ -42,25 +42,27 @@ func main() {
 			},
 			"required": []string{"operation", "a", "b"},
 		},
-		func(ctx context.Context, input map[string]any) (any, error) {
+		func(ctx context.Context, input map[string]any) (*tool.Response, error) {
 			op, _ := input["operation"].(string)
 			a, _ := input["a"].(float64)
 			b, _ := input["b"].(float64)
+			var result any
 			switch op {
 			case "add":
-				return a + b, nil
+				result = a + b
 			case "subtract":
-				return a - b, nil
+				result = a - b
 			case "multiply":
-				return a * b, nil
+				result = a * b
 			case "divide":
 				if b == 0 {
 					return nil, fmt.Errorf("division by zero")
 				}
-				return a / b, nil
+				result = a / b
 			default:
 				return nil, fmt.Errorf("unknown operation: %s", op)
 			}
+			return tool.NewTextResponse(result), nil
 		},
 	)
 

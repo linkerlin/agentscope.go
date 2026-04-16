@@ -127,6 +127,10 @@ func (t *toolAdapter) Spec() model.ToolSpec {
 	}
 }
 
-func (t *toolAdapter) Execute(ctx context.Context, input map[string]any) (any, error) {
-	return t.client.CallTool(ctx, t.info.Name, input)
+func (t *toolAdapter) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
+	result, err := t.client.CallTool(ctx, t.info.Name, input)
+	if err != nil {
+		return nil, err
+	}
+	return tool.NewTextResponse(result), nil
 }

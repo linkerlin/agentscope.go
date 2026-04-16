@@ -117,7 +117,7 @@ func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg,
 	opts := applyOptions(options)
 	req := goopenai.ChatCompletionRequest{
 		Model:    m.modelName,
-		Messages: m.formatter.FormatMessages(messages),
+		Messages: m.formatter.FormatMessagesTyped(messages),
 	}
 	if opts.MaxTokens > 0 {
 		req.MaxTokens = opts.MaxTokens
@@ -126,10 +126,10 @@ func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg,
 		req.Temperature = float32(opts.Temperature)
 	}
 	if len(opts.Tools) > 0 {
-		req.Tools = m.formatter.FormatTools(opts.Tools)
+		req.Tools = m.formatter.FormatToolsTyped(opts.Tools)
 	}
 	if opts.ToolChoice != nil {
-		req.ToolChoice = m.formatter.FormatToolChoice(opts.ToolChoice)
+		req.ToolChoice, _ = m.formatter.FormatToolChoice(opts.ToolChoice)
 	}
 
 	resp, err := m.client.CreateChatCompletion(ctx, req)
@@ -175,7 +175,7 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 	opts := applyOptions(options)
 	req := goopenai.ChatCompletionRequest{
 		Model:    m.modelName,
-		Messages: m.formatter.FormatMessages(messages),
+		Messages: m.formatter.FormatMessagesTyped(messages),
 		Stream:   true,
 	}
 	if opts.MaxTokens > 0 {
@@ -185,10 +185,10 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 		req.Temperature = float32(opts.Temperature)
 	}
 	if len(opts.Tools) > 0 {
-		req.Tools = m.formatter.FormatTools(opts.Tools)
+		req.Tools = m.formatter.FormatToolsTyped(opts.Tools)
 	}
 	if opts.ToolChoice != nil {
-		req.ToolChoice = m.formatter.FormatToolChoice(opts.ToolChoice)
+		req.ToolChoice, _ = m.formatter.FormatToolChoice(opts.ToolChoice)
 	}
 
 	stream, err := m.client.CreateChatCompletionStream(ctx, req)

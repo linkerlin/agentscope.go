@@ -5,17 +5,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/hook"
+	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 )
 
 // mockChatModel is a simple model for testing
 type mockChatModel struct {
-	name  string
-	usage model.ChatUsage
+	name         string
+	usage        model.ChatUsage
+	lastMessages []*message.Msg
 }
 
 func (m *mockChatModel) Chat(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
+	m.lastMessages = messages
 	msg := message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build()
 	if m.usage.TotalTokens > 0 {
 		msg.Metadata["usage"] = m.usage
@@ -36,6 +40,37 @@ func (m *mockChatModel) ChatStream(ctx context.Context, messages []*message.Msg,
 }
 
 func (m *mockChatModel) ModelName() string { return m.name }
+
+// mockReMeMemory wraps InMemoryMemory and tracks PreReasoningPrepare.
+type mockReMeMemory struct {
+	*memory.InMemoryMemory
+	prepareCalled  bool
+	prepareHistory []*message.Msg
+}
+
+func newMockReMeMemory() *mockReMeMemory {
+	return &mockReMeMemory{InMemoryMemory: memory.NewInMemoryMemory()}
+}
+
+func (m *mockReMeMemory) PreReasoningPrepare(ctx context.Context, history []*message.Msg) ([]*message.Msg, *memory.CompactSummary, error) {
+	m.prepareCalled = true
+	m.prepareHistory = append([]*message.Msg(nil), history...)
+	out := append([]*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent("[compressed]").Build(),
+	}, history...)
+	return out, &memory.CompactSummary{Raw: "[compressed]"}, nil
+}
+
+// preReplyHook injects a marker message during pre_reply.
+type preReplyHook struct{}
+
+func (h *preReplyHook) OnEvent(ctx context.Context, hCtx *hook.HookContext) (*hook.HookResult, error) {
+	if hCtx.Point == hook.HookPreReply {
+		modified := append([]*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("[pre_reply]").Build()}, hCtx.Messages...)
+		return &hook.HookResult{InjectMessages: modified}, nil
+	}
+	return nil, nil
+}
 
 func TestReActAgent_Shutdown(t *testing.T) {
 	agent, err := Builder().
@@ -144,5 +179,84 @@ func TestReActAgent_ContextCancellation(t *testing.T) {
 	_, err = agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
+	}
+}
+
+
+func TestReActAgent_Observe(t *testing.T) {
+	mem := memory.NewInMemoryMemory()
+	agent, err := Builder().
+		Name("Test").
+		Model(&mockChatModel{name: "mock"}).
+		Memory(mem).
+		Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	msg := message.NewMsg().Role(message.RoleUser).TextContent("observe me").Build()
+	if err := agent.Observe(context.Background(), msg); err != nil {
+		t.Fatalf("observe failed: %v", err)
+	}
+
+	all, err := mem.GetAll()
+	if err != nil {
+		t.Fatalf("get all failed: %v", err)
+	}
+	if len(all) != 1 || all[0].GetTextContent() != "observe me" {
+		t.Fatalf("expected 1 message with 'observe me', got %v", all)
+	}
+}
+
+func TestReActAgent_BuildHistory_AutoPreReasoningPrepare(t *testing.T) {
+	mockMem := newMockReMeMemory()
+	m := &mockChatModel{name: "mock"}
+	agent, err := Builder().
+		Name("Test").
+		Model(m).
+		Memory(mockMem).
+		SysPrompt("you are helpful").
+		Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	_, err = agent.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+
+	if !mockMem.prepareCalled {
+		t.Fatal("expected PreReasoningPrepare to be called")
+	}
+	if len(m.lastMessages) == 0 {
+		t.Fatal("expected model to receive messages")
+	}
+	if m.lastMessages[0].GetTextContent() != "[compressed]" {
+		t.Fatalf("expected first message to be [compressed], got %s", m.lastMessages[0].GetTextContent())
+	}
+}
+
+func TestReActAgent_PreReplyHook(t *testing.T) {
+	m := &mockChatModel{name: "mock"}
+	agent, err := Builder().
+		Name("Test").
+		Model(m).
+		Hooks(&preReplyHook{}).
+		Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	_, err = agent.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+
+	if len(m.lastMessages) == 0 {
+		t.Fatal("expected model to receive messages")
+	}
+	if m.lastMessages[0].GetTextContent() != "[pre_reply]" {
+		t.Fatalf("expected first message to be [pre_reply], got %s", m.lastMessages[0].GetTextContent())
 	}
 }

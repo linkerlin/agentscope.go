@@ -2,7 +2,6 @@ package react
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -221,7 +220,12 @@ func extractUsage(msg *message.Msg) model.ChatUsage {
 }
 
 // Call executes the ReAct loop and returns the final response
-func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse *message.Msg, err error) {
+func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return a.Base.Call(ctx, msg, a.replyInternal)
+}
+
+// replyInternal is the core ReAct logic executed inside Base.Call lifecycle.
+func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (finalResponse *message.Msg, err error) {
 	a.CallWg.Add(1)
 	defer a.CallWg.Done()
 
@@ -233,7 +237,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 	a.Mu.RUnlock()
 
 	// Build initial message history
-	history, err := a.buildHistory(msg)
+	history, err := a.buildHistory(ctx, msg)
 	if err != nil {
 		_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
 			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name},
@@ -381,25 +385,32 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 			}
 
 			tcStart := time.Now()
-			result, toolErr := a.executeTool(ctx, tc.Name, tc.Input)
+			resp, toolErr := a.executeTool(ctx, tc.Name, tc.Input)
 			tcElapsed := time.Since(tcStart).Seconds()
 
-			var resultText string
+			var contentBlocks []message.ContentBlock
 			if toolErr != nil {
-				resultText = fmt.Sprintf("error: %s", toolErr.Error())
+				contentBlocks = []message.ContentBlock{message.NewTextBlock(fmt.Sprintf("error: %s", toolErr.Error()))}
+			} else if resp != nil && len(resp.Content) > 0 {
+				contentBlocks = resp.Content
 			} else {
-				resultJSON, _ := json.Marshal(result)
-				resultText = string(resultJSON)
+				contentBlocks = []message.ContentBlock{message.NewTextBlock("")}
 			}
 
 			// 收集 ToolCallResult 用于 ToolMemory 总结
 			if tcrCollector, ok := a.memory.(interface {
 				AddToolCallResult(ctx context.Context, result memory.ToolCallResult) error
 			}); ok {
+				outputText := ""
+				for _, b := range contentBlocks {
+					if tb, ok := b.(*message.TextBlock); ok {
+						outputText += tb.Text
+					}
+				}
 				_ = tcrCollector.AddToolCallResult(ctx, memory.ToolCallResult{
 					ToolName: tc.Name,
 					Input:    tc.Input,
-					Output:   resultText,
+					Output:   outputText,
 					Success:  toolErr == nil,
 					TimeCost: tcElapsed,
 				})
@@ -407,9 +418,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 			}
 
 			singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
-				message.NewToolResultBlock(tc.ID, []message.ContentBlock{
-					message.NewTextBlock(resultText),
-				}, toolErr != nil),
+				message.NewToolResultBlock(tc.ID, contentBlocks, toolErr != nil),
 			).Build()
 
 			if _, _, err := a.fireStreamEvent(ctx, &hook.PostActingEvent{
@@ -417,7 +426,7 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 				Messages:  append([]*message.Msg(nil), history...),
 				ToolName:  tc.Name,
 				ToolInput: tc.Input,
-				Result:    result,
+				Result:    resp,
 				Err:       toolErr,
 				ResultMsg: singleResultMsg,
 			}); err != nil {
@@ -471,6 +480,18 @@ func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (finalResponse 
 	return finalResponse, nil
 }
 
+// Observe receives a message without generating a reply (aligns with Python AgentBase).
+func (a *ReActAgent) Observe(ctx context.Context, msg *message.Msg) error {
+	return a.Base.Observe(ctx, msg, a.observeInternal)
+}
+
+func (a *ReActAgent) observeInternal(ctx context.Context, msg *message.Msg) error {
+	if msg == nil {
+		return nil
+	}
+	return a.memory.Add(msg)
+}
+
 // CallStream executes the ReAct loop with streaming output
 func (a *ReActAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {
 	ch := make(chan *message.Msg, 16)
@@ -490,8 +511,9 @@ func (a *ReActAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *
 	return ch, nil
 }
 
-// buildHistory assembles system prompt + memory + new user message
-func (a *ReActAgent) buildHistory(userMsg *message.Msg) ([]*message.Msg, error) {
+// buildHistory assembles system prompt + memory + new user message.
+// If the memory implements ReMeMemory, PreReasoningPrepare is applied automatically.
+func (a *ReActAgent) buildHistory(ctx context.Context, userMsg *message.Msg) ([]*message.Msg, error) {
 	var history []*message.Msg
 
 	if a.Base.SysPrompt != "" {
@@ -515,6 +537,18 @@ func (a *ReActAgent) buildHistory(userMsg *message.Msg) ([]*message.Msg, error) 
 	}
 	history = append(history, memMsgs...)
 	history = append(history, userMsg)
+
+	// Auto-integrate ReMe memory compression
+	if rm, ok := a.memory.(interface {
+		PreReasoningPrepare(ctx context.Context, history []*message.Msg) ([]*message.Msg, *memory.CompactSummary, error)
+	}); ok {
+		prepared, _, err := rm.PreReasoningPrepare(ctx, history)
+		if err != nil {
+			return nil, err
+		}
+		history = prepared
+	}
+
 	return history, nil
 }
 
@@ -531,7 +565,7 @@ func (a *ReActAgent) toolSpecs() []model.ToolSpec {
 }
 
 // executeTool finds and runs the named tool
-func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[string]any) (any, error) {
+func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
 	if a.toolkit != nil {
 		return a.toolkit.ExecuteTool(ctx, name, input)
 	}

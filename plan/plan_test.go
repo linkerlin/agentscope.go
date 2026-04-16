@@ -54,12 +54,7 @@ func TestPlanNotebookAsTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, ok := result.(map[string]any)
-	if !ok {
-		t.Fatal("expected map result")
-	}
-	planID, _ := m["plan_id"].(string)
-	if planID == "" {
-		t.Error("expected plan_id in result")
+	if result.GetTextContent() == "" {
+		t.Fatal("expected non-empty result")
 	}
 }

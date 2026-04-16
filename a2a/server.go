@@ -112,6 +112,12 @@ type AgentRunner interface {
 	Run(ctx context.Context, msg *Message) (*Message, error)
 }
 
+// StreamingAgentRunner extends AgentRunner with streaming support.
+type StreamingAgentRunner interface {
+	AgentRunner
+	RunStream(ctx context.Context, msg *Message) (<-chan *Message, error)
+}
+
 // Server is the minimal A2A HTTP server.
 type Server struct {
 	card    AgentCard
@@ -133,6 +139,7 @@ func NewServer(card AgentCard, runner AgentRunner, store TaskStore) *Server {
 	}
 	s.mux.HandleFunc("/.well-known/agent.json", s.handleAgentCard)
 	s.mux.HandleFunc("/task/send", s.handleTaskSend)
+	s.mux.HandleFunc("/task/sendSubscribe", s.handleTaskSendSubscribe)
 	s.mux.HandleFunc("/task/", s.handleTaskGet)
 	return s
 }
@@ -217,6 +224,90 @@ func (s *Server) handleTaskSend(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(respTask)
+}
+
+func (s *Server) handleTaskSendSubscribe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req TaskUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	streamRunner, ok := s.runner.(StreamingAgentRunner)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusNotImplemented)
+		return
+	}
+
+	ctx := r.Context()
+	task, _ := s.store.Get(req.ID)
+	if task == nil {
+		task = &Task{
+			ID:        req.ID,
+			Status:    TaskStatusSubmitted,
+			Messages:  []Message{},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+	}
+	if req.Message != nil {
+		task.Messages = append(task.Messages, *req.Message)
+	}
+	task.Status = TaskStatusWorking
+	task.UpdatedAt = time.Now()
+	_ = s.store.Save(task)
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusAccepted)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	go func(taskID string, msgs []Message) {
+		if req.Message == nil {
+			return
+		}
+		t, _ := s.store.Get(taskID)
+		if t == nil {
+			return
+		}
+		ch, err := streamRunner.RunStream(ctx, req.Message)
+		if err != nil {
+			t.Status = TaskStatusFailed
+			t.Messages = append(msgs, Message{Role: "agent", Content: fmt.Sprintf("error: %v", err)})
+			t.UpdatedAt = time.Now()
+			_ = s.store.Save(t)
+			return
+		}
+		var finalMsg *Message
+		for msg := range ch {
+			if msg == nil {
+				continue
+			}
+			finalMsg = msg
+			t.Messages = append(msgs, *finalMsg)
+			_ = s.store.Save(t)
+		}
+		if finalMsg != nil {
+			t.Status = TaskStatusCompleted
+		} else {
+			t.Status = TaskStatusCompleted
+		}
+		t.UpdatedAt = time.Now()
+		_ = s.store.Save(t)
+	}(task.ID, append([]Message(nil), task.Messages...))
+
+	// Send the initial task snapshot as the first SSE event.
+	_ = json.NewEncoder(w).Encode(task)
+	flusher.Flush()
 }
 
 func (s *Server) handleTaskGet(w http.ResponseWriter, r *http.Request) {

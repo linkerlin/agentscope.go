@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `Parallel` — concurrent execution with configurable result joining.
     - `Condition` — branch selection based on an evaluator function.
     - `Loop` — repeated execution with a max-iteration safeguard.
+    - `MapReduce` — split input into chunks, map each chunk in parallel (bounded concurrency), then reduce into a single result.
 - **A2A Protocol Stack**:
   - Server-side SSE streaming via `/task/sendSubscribe`.
   - `HTTPClient` implementing the `Client` interface with `Send` and `SendSubscribe`.

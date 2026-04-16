@@ -33,6 +33,7 @@ func NewServer(a agent.Agent) *Server {
 	s := &Server{agent: a, mux: http.NewServeMux()}
 	s.mux.HandleFunc("/chat", s.handleChat)
 	s.mux.HandleFunc("/chat/stream", s.handleChatStream)
+	s.mux.HandleFunc("/chat/ws", s.handleChatWS)
 	return s
 }
 

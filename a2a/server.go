@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +73,7 @@ type TaskStore interface {
 
 // InMemoryTaskStore is a simple in-memory TaskStore.
 type InMemoryTaskStore struct {
+	mu    sync.RWMutex
 	tasks map[string]*Task
 }
 
@@ -82,11 +84,15 @@ func NewInMemoryTaskStore() *InMemoryTaskStore {
 
 // Get retrieves a task by ID.
 func (s *InMemoryTaskStore) Get(taskID string) (*Task, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	t, ok := s.tasks[taskID]
 	if !ok {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
-	return t, nil
+	// Return a shallow copy to avoid external mutation racing with Save.
+	cp := *t
+	return &cp, nil
 }
 
 // Save stores a task.
@@ -94,7 +100,10 @@ func (s *InMemoryTaskStore) Save(task *Task) error {
 	if task == nil {
 		return errors.New("nil task")
 	}
-	s.tasks[task.ID] = task
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *task
+	s.tasks[task.ID] = &cp
 	return nil
 }
 
@@ -177,30 +186,37 @@ func (s *Server) handleTaskSend(w http.ResponseWriter, r *http.Request) {
 	task.UpdatedAt = time.Now()
 	_ = s.store.Save(task)
 
-	go func() {
+	// Snapshot for the response so the async runner cannot mutate it.
+	respTask := *task
+
+	go func(taskID string, msgs []Message) {
 		if s.runner == nil || req.Message == nil {
+			return
+		}
+		t, _ := s.store.Get(taskID)
+		if t == nil {
 			return
 		}
 		resp, err := s.runner.Run(ctx, req.Message)
 		if err != nil {
-			task.Status = TaskStatusFailed
-			task.Messages = append(task.Messages, Message{
+			t.Status = TaskStatusFailed
+			t.Messages = append(msgs, Message{
 				Role:    "agent",
 				Content: fmt.Sprintf("error: %v", err),
 			})
 		} else if resp != nil {
-			task.Status = TaskStatusCompleted
-			task.Messages = append(task.Messages, *resp)
+			t.Status = TaskStatusCompleted
+			t.Messages = append(msgs, *resp)
 		} else {
-			task.Status = TaskStatusCompleted
+			t.Status = TaskStatusCompleted
 		}
-		task.UpdatedAt = time.Now()
-		_ = s.store.Save(task)
-	}()
+		t.UpdatedAt = time.Now()
+		_ = s.store.Save(t)
+	}(task.ID, append([]Message(nil), task.Messages...))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(respTask)
 }
 
 func (s *Server) handleTaskGet(w http.ResponseWriter, r *http.Request) {

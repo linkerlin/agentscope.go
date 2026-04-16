@@ -215,7 +215,7 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 				continue
 			}
 			delta := resp.Choices[0].Delta.Content
-			if resp.Usage.TotalTokens > 0 {
+			if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
 				usage = model.ChatUsage{
 					PromptTokens:     resp.Usage.PromptTokens,
 					CompletionTokens: resp.Usage.CompletionTokens,

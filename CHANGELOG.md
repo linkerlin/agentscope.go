@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Formatter Abstraction Layer**: Introduced a dedicated `Formatter` interface (`formatter/formatter.go`) decoupling message-to-API conversion from model implementations.
+  - `OpenAIFormatter`, `AnthropicFormatter`, `GeminiFormatter`, `DashScopeFormatter`, `OllamaFormatter`.
+  - DashScope and Ollama inject their own formatters into the OpenAI-compatible backend for future backend-specific customization.
+- **New Model Backends**:
+  - **Anthropic** (`model/anthropic/`): native HTTP client with SSE streaming support.
+  - **Gemini** (`model/gemini/`): native HTTP client with SSE streaming support.
+- **AgentBase Lifecycle Unification** (`agent/base.go`):
+  - `Base` struct centralizes shared lifecycle, hooks, state management, and usage tracking.
+  - `ReActAgent` now embeds `Base` and uses `Call()` / `Observe()` wrappers.
+  - Auto-fires `HookPreReply` / `HookPostReply` / `HookPreObserve` / `HookPostObserve`.
+- **ToolResponse Standardization** (`tool/response.go`):
+  - Replaced bare `any` returns with `*tool.Response` (carrying `[]message.ContentBlock`).
+  - Migrated `toolkit/executor`, `SubagentTool`, `MCP adapter`, `plan_notebook`, and examples.
+- **Memory Auto-Integration**:
+  - `ReActAgent.buildHistory()` automatically detects `PreReasoningPrepare` on memory (ReMe) and injects compressed summaries before model calls.
+- **Message Blocks Aligned to Python 2.0**:
+  - `DataBlock` with nested `Source` struct (URL / base64 / media_type) unifies multimedia handling.
+  - `ToolUseBlock.RawInput` supports streaming JSON accumulation.
+  - `ToolResultBlock` gains `ID`, `Name`, and `State` fields.
+  - `message/json.go` supports `source` serialization and backward-compatible deserialization.
 - **BM25/FTS5 Full-Text Search**: Integrated `modernc.org/sqlite` (pure Go, no CGO) with FTS5 virtual tables for real BM25 ranking. `ReMeVectorMemory` automatically syncs the FTS index on `AddMemory`/`DeleteMemory`, and `RankMemoryNodesHybrid` fuses BM25 scores with vector cosine similarity.
 - **Multi-Backend VectorStore**:
   - `QdrantVectorStore` using the official `qdrant/go-client` (gRPC).
@@ -33,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OpenAI Streaming Panic**: Added nil check for `resp.Usage` in `model/openai/openai.go` `chatStreamOnce` to prevent nil pointer dereference on intermediate stream chunks.
+- **A2A Data Race**: Protected `InMemoryTaskStore` with `sync.RWMutex` and returned shallow copies to eliminate races between HTTP handler and async runner goroutines.
 - Resolved Windows temp-directory cleanup failures in memory tests by ensuring `ReMeFileMemory.Close()` / `ReMeVectorMemory.Close()` is always deferred in tests, preventing open SQLite handles from locking `reme.db`.
 
 ### Benchmarks (baseline on Intel i9-13900HX)

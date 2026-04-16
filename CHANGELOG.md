@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `gateway.Server` exposes `POST /chat` (JSON), `POST /chat/stream` (SSE),
     and `GET /chat/ws` (WebSocket).
   - Enables browser-based real-time interaction with any `agent.Agent`.
+- **Reflection** (`reflection/`):
+  - `SelfReflectingAgent` implements a writer-critic loop.
+  - The writer drafts, the critic reviews, and the judge decides whether
+    to accept or ask the writer to revise (up to a max-iteration limit).
 - **AgentBase Lifecycle Unification** (`agent/base.go`):
   - `Base` struct centralizes shared lifecycle, hooks, state management, and usage tracking.
   - `ReActAgent` now embeds `Base` and uses `Call()` / `Observe()` wrappers.

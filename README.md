@@ -72,6 +72,7 @@ func main() {
 | `pipeline` | 顺序多 Agent 编排（Pipeline） |
 | `msghub` | 广播式多 Agent 消息调度（Hub） |
 | `workflow` | 高级多 Agent 编排：并行（Parallel）、条件（Condition）、循环（Loop） |
+| `reflection` | Agent 自省/反思模式：Writer + Critic 循环迭代优化 |
 | `a2a` | A2A 协议最小实现：AgentCard、任务发送、流式订阅 |
 | `gateway` | HTTP + SSE Gateway，支持浏览器实时对话 |
 | `session` | 会话管理 |
@@ -276,6 +277,24 @@ http.ListenAndServe(":8080", srv)
 - `POST /chat/stream` —— SSE 流式对话，浏览器可用 `EventSource` 接收增量回复。
 - `GET /chat/ws` —— WebSocket 流式对话，支持双向实时交互。
 
+## Agent 自省/反思模式
+
+```go
+import "github.com/linkerlin/agentscope.go/reflection"
+
+agent := reflection.NewSelfReflectingAgent(
+    "RefiningWriter",
+    writerAgent,
+    criticAgent,
+    func(_, critique *message.Msg) bool {
+        return strings.Contains(critique.GetTextContent(), "PASS")
+    },
+    3, // max iterations
+)
+
+resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("topic").Build())
+```
+
 ## 示例
 
 - [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
@@ -286,6 +305,7 @@ http.ListenAndServe(":8080", srv)
 - [`examples/msghub`](examples/msghub/main.go) —— 广播式多 Agent 消息调度
 - [`examples/workflow`](examples/workflow/main.go) —— 并行 + 条件 + 循环工作流
 - [`examples/gateway`](examples/gateway/main.go) —— HTTP + SSE 实时对话 Gateway
+- [`examples/reflection`](examples/reflection/main.go) —— Writer + Critic 自我反思迭代
 - [`examples/reme/file`](examples/reme/file/main.go) —— ReMe 文件型记忆（ReMeLight）
 - [`examples/reme/vector`](examples/reme/vector/main.go) —— ReMe 向量记忆检索
 - [`examples/reme/orchestrator`](examples/reme/orchestrator/main.go) —— ReMe Orchestrator 端到端（提取 + 检索 + Profile）

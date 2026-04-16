@@ -274,6 +274,7 @@ http.ListenAndServe(":8080", srv)
 
 - `POST /chat` —— 非流式对话，请求体 `{"text":"..."}`，返回 JSON。
 - `POST /chat/stream` —— SSE 流式对话，浏览器可用 `EventSource` 接收增量回复。
+- `GET /chat/ws` —— WebSocket 流式对话，支持双向实时交互。
 
 ## 示例
 

@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Server-side SSE streaming via `/task/sendSubscribe`.
   - `HTTPClient` implementing the `Client` interface with `Send` and `SendSubscribe`.
 - **Gateway** (`gateway/`):
-  - `gateway.Server` exposes `POST /chat` (JSON) and `POST /chat/stream` (SSE).
+  - `gateway.Server` exposes `POST /chat` (JSON), `POST /chat/stream` (SSE),
+    and `GET /chat/ws` (WebSocket).
   - Enables browser-based real-time interaction with any `agent.Agent`.
 - **AgentBase Lifecycle Unification** (`agent/base.go`):
   - `Base` struct centralizes shared lifecycle, hooks, state management, and usage tracking.

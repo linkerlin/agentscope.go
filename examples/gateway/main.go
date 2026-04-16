@@ -36,8 +36,9 @@ func main() {
 
 	srv := gateway.NewServer(agent)
 	fmt.Println("Gateway listening on http://localhost:8080")
-	fmt.Println("  POST /chat       -> JSON response")
+	fmt.Println("  POST /chat        -> JSON response")
 	fmt.Println("  POST /chat/stream -> SSE stream")
+	fmt.Println("  GET  /chat/ws     -> WebSocket stream")
 	if err := http.ListenAndServe(":8080", srv); err != nil {
 		panic(err)
 	}

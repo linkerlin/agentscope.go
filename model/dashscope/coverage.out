@@ -1,0 +1,17 @@
+mode: set
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:32.43,37.2 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:39.83,42.2 2 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:44.87,47.2 2 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:49.84,52.2 2 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:55.110,59.2 3 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:62.104,65.2 2 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:67.74,68.20 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:68.20,70.3 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:71.2,76.18 2 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:76.18,78.3 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:79.2,80.16 2 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:80.16,82.3 1 0
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:83.2,83.47 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:86.49,86.79 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:88.132,90.2 1 1
+github.com/linkerlin/agentscope.go/model/dashscope/dashscope.go:92.151,94.2 1 1

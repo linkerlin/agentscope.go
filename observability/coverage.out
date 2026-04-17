@@ -1,0 +1,25 @@
+mode: set
+github.com/linkerlin/agentscope.go/observability/otel.go:14.39,16.2 1 1
+github.com/linkerlin/agentscope.go/observability/otel.go:27.88,29.2 1 0
+github.com/linkerlin/agentscope.go/observability/otel.go:40.36,40.37 0 1
+github.com/linkerlin/agentscope.go/observability/otel.go:41.37,41.38 0 1
+github.com/linkerlin/agentscope.go/observability/otel.go:53.80,55.2 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:20.66,22.2 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:25.62,26.19 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:26.19,28.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:29.2,29.10 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:32.37,33.20 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:33.20,35.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:36.2,36.15 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:39.89,43.21 3 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:43.21,45.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:46.2,47.16 2 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:47.16,49.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:50.2,50.23 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:50.23,52.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:53.2,53.18 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:56.102,60.21 3 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:60.21,62.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:63.2,64.16 2 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:64.16,66.3 1 1
+github.com/linkerlin/agentscope.go/observability/wrap.go:67.2,67.16 1 1

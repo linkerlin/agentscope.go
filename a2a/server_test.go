@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -143,8 +144,19 @@ func TestServer_TaskSendSubscribe_Success(t *testing.T) {
 		t.Fatalf("expected text/event-stream, got %s", ct)
 	}
 	var task Task
-	if err := json.NewDecoder(rr.Body).Decode(&task); err != nil {
-		t.Fatal(err)
+	found := false
+	for _, line := range strings.Split(rr.Body.String(), "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			if err := json.Unmarshal([]byte(data), &task); err != nil {
+				t.Fatal(err)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no data line found in SSE response")
 	}
 	if task.Status != TaskStatusWorking {
 		t.Fatalf("expected status working, got %s", task.Status)
@@ -194,5 +206,84 @@ func TestServer_TaskSendSubscribe_StreamError(t *testing.T) {
 	}
 	if task.Status != TaskStatusFailed {
 		t.Fatalf("expected status failed, got %s", task.Status)
+	}
+}
+
+
+func TestServer_Addr(t *testing.T) {
+	srv := NewServer(AgentCard{Name: "A", URL: "http://localhost:9090"}, &mockRunner{}, nil)
+	if srv.Addr() != "http://localhost:9090" {
+		t.Fatalf("expected URL as addr, got %s", srv.Addr())
+	}
+	srv2 := NewServer(AgentCard{Name: "A"}, &mockRunner{}, nil)
+	if srv2.Addr() != ":8080" {
+		t.Fatalf("expected default addr, got %s", srv2.Addr())
+	}
+}
+
+func TestServer_TaskCancel(t *testing.T) {
+	card := AgentCard{Name: "TestAgent", URL: "http://localhost:8080"}
+	srv := NewServer(card, &mockRunner{}, nil)
+
+	taskID := NewTaskID()
+	task := &Task{ID: taskID, Status: TaskStatusWorking, Messages: []Message{}, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	_ = srv.store.Save(task)
+
+	payload := map[string]string{"id": taskID}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/task/cancel", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var got Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != TaskStatusCanceled {
+		t.Fatalf("expected status canceled, got %s", got.Status)
+	}
+}
+
+func TestServer_TaskCancel_NotFound(t *testing.T) {
+	card := AgentCard{Name: "TestAgent", URL: "http://localhost:8080"}
+	srv := NewServer(card, &mockRunner{}, nil)
+
+	payload := map[string]string{"id": "nonexistent"}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/task/cancel", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestServer_TaskCancel_MethodNotAllowed(t *testing.T) {
+	card := AgentCard{Name: "TestAgent", URL: "http://localhost:8080"}
+	srv := NewServer(card, &mockRunner{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/task/cancel", nil)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestServer_TaskSend_MethodNotAllowed(t *testing.T) {
+	card := AgentCard{Name: "TestAgent", URL: "http://localhost:8080"}
+	srv := NewServer(card, &mockRunner{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/task/send", nil)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rr.Code)
 	}
 }

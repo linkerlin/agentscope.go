@@ -72,6 +72,49 @@ func (gm *GroupManager) SetGroupActive(name string, active bool) error {
 	return nil
 }
 
+// RemoveGroup 删除分组并从激活集合中移除
+func (gm *GroupManager) RemoveGroup(name string) error {
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	g, ok := gm.groups[name]
+	if !ok {
+		return nil
+	}
+	// unregister tools that only belong to this group
+	for _, tn := range g.ToolNames {
+		inOtherGroup := false
+		for otherName, other := range gm.groups {
+			if otherName == name {
+				continue
+			}
+			for _, t := range other.ToolNames {
+				if t == tn {
+					inOtherGroup = true
+					break
+				}
+			}
+			if inOtherGroup {
+				break
+			}
+		}
+		if !inOtherGroup {
+			// We cannot delete from Registry here because Registry doesn't expose delete.
+			// We'll leave it in registry; just remove from group.
+		}
+	}
+	delete(gm.groups, name)
+	delete(gm.active, name)
+	return nil
+}
+
+// HasGroup reports whether a group exists.
+func (gm *GroupManager) HasGroup(name string) bool {
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	_, ok := gm.groups[name]
+	return ok
+}
+
 // ActiveTools 返回当前应对模型暴露的工具列表
 func (gm *GroupManager) ActiveTools() []tool.Tool {
 	gm.mu.RLock()

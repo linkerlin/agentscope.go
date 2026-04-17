@@ -2,10 +2,12 @@ package plan
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/linkerlin/agentscope.go/state"
 )
 
 // PlanState 计划整体状态
@@ -51,6 +53,9 @@ type RichPlan struct {
 	mu              sync.RWMutex
 }
 
+// StateType 实现 state.State 接口，用于持久化
+func (p *RichPlan) StateType() string { return "rich_plan" }
+
 // EnhancedPlanNotebook 带历史与提示的计划本
 type EnhancedPlanNotebook struct {
 	mu              sync.RWMutex
@@ -58,6 +63,7 @@ type EnhancedPlanNotebook struct {
 	history         []*RichPlan
 	historyByID     map[string]*RichPlan
 	defaultHintFunc func(*RichPlan) string
+	store           state.Store
 }
 
 // NewEnhancedPlanNotebook 创建增强计划本
@@ -65,6 +71,50 @@ func NewEnhancedPlanNotebook() *EnhancedPlanNotebook {
 	return &EnhancedPlanNotebook{
 		historyByID: make(map[string]*RichPlan),
 	}
+}
+
+// NewEnhancedPlanNotebookWithStore 创建带持久化存储的增强计划本，并尝试从存储恢复
+func NewEnhancedPlanNotebookWithStore(store state.Store) *EnhancedPlanNotebook {
+	nb := NewEnhancedPlanNotebook()
+	nb.store = store
+	_ = nb.LoadFromStore()
+	return nb
+}
+
+// LoadFromStore 从 state.Store 恢复所有历史计划
+func (nb *EnhancedPlanNotebook) LoadFromStore() error {
+	if nb.store == nil {
+		return nil
+	}
+	nb.mu.Lock()
+	defer nb.mu.Unlock()
+
+	keys := nb.store.ListKeys()
+	for _, key := range keys {
+		if !strings.HasPrefix(key, "plan_") {
+			continue
+		}
+		var p RichPlan
+		if err := nb.store.Get(key, &p); err != nil {
+			continue
+		}
+		if p.ID == "" {
+			continue
+		}
+		nb.historyByID[p.ID] = &p
+		nb.history = append(nb.history, &p)
+		if nb.current == nil || p.UpdatedAt.After(nb.current.UpdatedAt) {
+			nb.current = &p
+		}
+	}
+	return nil
+}
+
+func (nb *EnhancedPlanNotebook) persistCurrent() {
+	if nb.store == nil || nb.current == nil {
+		return
+	}
+	_ = nb.store.Save("plan_"+nb.current.ID, nb.current)
 }
 
 // SetHintFunc 自定义根据当前计划生成注入提示的函数
@@ -99,6 +149,7 @@ func (nb *EnhancedPlanNotebook) CreatePlan(name, description, expected string, s
 	nb.current = p
 	nb.historyByID[p.ID] = p
 	nb.history = append(nb.history, p)
+	nb.persistCurrent()
 	return p, nil
 }
 
@@ -123,6 +174,7 @@ func (nb *EnhancedPlanNotebook) UpdateSubtaskState(idx int, st SubtaskState) err
 	}
 	nb.current.Subtasks[idx].State = st
 	nb.current.UpdatedAt = time.Now()
+	nb.persistCurrent()
 	return nil
 }
 
@@ -141,6 +193,7 @@ func (nb *EnhancedPlanNotebook) FinishSubtask(idx int, outcome string) error {
 	nb.current.Subtasks[idx].State = SubtaskDone
 	nb.current.Subtasks[idx].Outcome = outcome
 	nb.current.UpdatedAt = time.Now()
+	nb.persistCurrent()
 	return nil
 }
 
@@ -156,6 +209,7 @@ func (nb *EnhancedPlanNotebook) FinishPlan(state PlanState, summary string) erro
 	nb.current.UpdatedAt = time.Now()
 	nb.current.mu.Unlock()
 	_ = summary
+	nb.persistCurrent()
 	return nil
 }
 

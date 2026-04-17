@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/agent"
@@ -11,14 +12,19 @@ import (
 )
 
 type mockAgent struct {
-	name string
-	resp string
-	err  error
+	mu        sync.Mutex
+	name      string
+	resp      string
+	err       error
+	lastInput string
 }
 
 func (m *mockAgent) Name() string { return m.name }
 
 func (m *mockAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	m.mu.Lock()
+	m.lastInput = msg.GetTextContent()
+	m.mu.Unlock()
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -27,6 +33,12 @@ func (m *mockAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, e
 		out = msg.GetTextContent()
 	}
 	return message.NewMsg().Role(message.RoleAssistant).TextContent(out).Build(), nil
+}
+
+func (m *mockAgent) getLastInput() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastInput
 }
 
 func (m *mockAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {

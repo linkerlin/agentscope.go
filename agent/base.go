@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/linkerlin/agentscope.go/hook"
+	"github.com/linkerlin/agentscope.go/interruption"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 )
@@ -28,6 +31,10 @@ type Base struct {
 	CallWg sync.WaitGroup
 
 	usage atomic.Value // stores model.ChatUsage
+
+	interruptFlag   atomic.Bool
+	interruptMsg    atomic.Value // *message.Msg
+	interruptSource atomic.Value // interruption.Source
 }
 
 // NewBase creates a new Base with the given metadata and hooks.
@@ -42,11 +49,77 @@ func NewBase(id, name, description, sysPrompt string, meta map[string]any, hooks
 		streamHooks: hook.SortStreamHooks(streamHooks),
 	}
 	b.usage.Store(model.ChatUsage{})
+	b.ResetInterrupt()
 	return b
 }
 
 // AgentName returns the agent's display name.
 func (b *Base) AgentName() string { return b.Name }
+
+// Interrupt signals the agent to stop its current execution at the next
+// checkpoint. This is safe to call from any goroutine.
+func (b *Base) Interrupt() {
+	b.interruptFlag.Store(true)
+	b.interruptSource.Store(interruption.SourceUser)
+}
+
+// InterruptWithMsg signals an interrupt and attaches a user message.
+func (b *Base) InterruptWithMsg(msg *message.Msg) {
+	b.interruptFlag.Store(true)
+	b.interruptSource.Store(interruption.SourceUser)
+	if msg != nil {
+		b.interruptMsg.Store(msg)
+	}
+}
+
+// InterruptWithSource signals an interrupt with an explicit source.
+func (b *Base) InterruptWithSource(source interruption.Source) {
+	b.interruptFlag.Store(true)
+	if source == "" {
+		source = interruption.SourceSystem
+	}
+	b.interruptSource.Store(source)
+}
+
+// ResetInterrupt clears the interrupt flag and associated state.
+// Call this at the beginning of each Call() to prepare for new execution.
+func (b *Base) ResetInterrupt() {
+	b.interruptFlag.Store(false)
+	b.interruptMsg.Store((*message.Msg)(nil))
+	b.interruptSource.Store(interruption.SourceUser)
+}
+
+// CheckInterrupted returns an error if the agent has been interrupted.
+// Subclasses should call this at appropriate checkpoints.
+func (b *Base) CheckInterrupted() error {
+	if b.interruptFlag.Load() {
+		return errors.New("agent execution interrupted")
+	}
+	return nil
+}
+
+// IsInterrupted reports whether an interrupt has been requested.
+func (b *Base) IsInterrupted() bool {
+	return b.interruptFlag.Load()
+}
+
+// CreateInterruptContext builds an InterruptContext from the current state.
+func (b *Base) CreateInterruptContext(pending []*message.ToolUseBlock) *interruption.Context {
+	src, _ := b.interruptSource.Load().(interruption.Source)
+	if src == "" {
+		src = interruption.SourceUser
+	}
+	var userMsg *message.Msg
+	if v := b.interruptMsg.Load(); v != nil {
+		userMsg = v.(*message.Msg)
+	}
+	return &interruption.Context{
+		Source:           src,
+		Timestamp:        time.Now(),
+		UserMessage:      userMsg,
+		PendingToolCalls: pending,
+	}
+}
 
 // Shutdown gracefully closes the agent and waits for ongoing calls to finish.
 func (b *Base) Shutdown(ctx context.Context) error {

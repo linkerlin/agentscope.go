@@ -126,3 +126,26 @@ func (m *mockEmbeddingModel) EmbedBatch(ctx context.Context, texts []string) ([]
 	}
 	return result, nil
 }
+
+
+func TestSummarizerAppendToMemoryMD(t *testing.T) {
+	dir := t.TempDir()
+	s := &Summarizer{WorkingDir: dir}
+	if err := s.AppendToMemoryMD("Title", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendToMemoryMD("", "body2"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSummarizerAppendToMemoryMD_Nil(t *testing.T) {
+	var s *Summarizer
+	if err := s.AppendToMemoryMD("T", "b"); err == nil {
+		t.Fatal("expected error for nil summarizer")
+	}
+	s2 := &Summarizer{}
+	if err := s2.AppendToMemoryMD("T", "b"); err == nil {
+		t.Fatal("expected error when WorkingDir empty")
+	}
+}

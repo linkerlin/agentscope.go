@@ -142,3 +142,105 @@ func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+
+func TestHTTPClient_Send_NoMessages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(Task{ID: "task-x", Status: TaskStatusCompleted, Messages: []Message{}})
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL)
+	_, err := client.Send(context.Background(), &Message{Role: "user", Content: "hi"})
+	if err == nil {
+		t.Fatal("expected error when no messages in task response")
+	}
+}
+
+func TestHTTPClient_WaitForTask(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/task/task-1" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		callCount++
+		status := TaskStatusWorking
+		if callCount >= 3 {
+			status = TaskStatusCompleted
+		}
+		_ = json.NewEncoder(w).Encode(Task{ID: "task-1", Status: status, Messages: []Message{{Role: "user", Content: "hi"}}})
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL)
+	task, err := client.WaitForTask(context.Background(), "task-1", 10*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != TaskStatusCompleted {
+		t.Fatalf("expected completed, got %s", task.Status)
+	}
+	if callCount < 3 {
+		t.Fatalf("expected at least 3 polls, got %d", callCount)
+	}
+}
+
+func TestHTTPClient_WaitForTask_ContextCancel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Task{ID: "task-1", Status: TaskStatusWorking})
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	client := NewHTTPClient(server.URL)
+	_, err := client.WaitForTask(ctx, "task-1", 20*time.Millisecond)
+	if err == nil {
+		t.Fatal("expected error from context")
+	}
+}
+
+func TestHTTPClient_CancelTask(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/task/cancel" || r.Method != http.MethodPost {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var req map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewEncoder(w).Encode(Task{ID: req["id"], Status: TaskStatusCanceled})
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL)
+	task, err := client.CancelTask(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != TaskStatusCanceled {
+		t.Fatalf("expected canceled, got %s", task.Status)
+	}
+}
+
+func TestHTTPClient_CancelTask_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"not_found"}`, http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL)
+	_, err := client.CancelTask(context.Background(), "task-1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestHTTPClient_Close(t *testing.T) {
+	client := NewHTTPClient("http://localhost:8080")
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

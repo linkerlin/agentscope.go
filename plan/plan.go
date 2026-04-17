@@ -44,13 +44,21 @@ type Plan struct {
 
 // PlanNotebook manages multiple plans
 type PlanNotebook struct {
-	mu    sync.RWMutex
-	plans map[string]*Plan
+	mu      sync.RWMutex
+	plans   map[string]*Plan
+	storage Storage
 }
 
 // NewPlanNotebook creates a new PlanNotebook
 func NewPlanNotebook() *PlanNotebook {
 	return &PlanNotebook{plans: make(map[string]*Plan)}
+}
+
+// NewPlanNotebookWithStorage creates a PlanNotebook backed by persistent storage.
+func NewPlanNotebookWithStorage(storage Storage) *PlanNotebook {
+	nb := NewPlanNotebook()
+	nb.storage = storage
+	return nb
 }
 
 // CreatePlan creates a new plan with the given name
@@ -64,6 +72,9 @@ func (nb *PlanNotebook) CreatePlan(name string) *Plan {
 	nb.mu.Lock()
 	nb.plans[p.ID] = p
 	nb.mu.Unlock()
+	if nb.storage != nil {
+		_ = nb.storage.AddPlan(p)
+	}
 	return p
 }
 
@@ -86,6 +97,9 @@ func (nb *PlanNotebook) AddStep(planID, description string) (*PlanStep, error) {
 	p.Steps = append(p.Steps, step)
 	p.UpdatedAt = time.Now()
 	p.mu.Unlock()
+	if nb.storage != nil {
+		_ = nb.storage.AddPlan(p)
+	}
 	return step, nil
 }
 
@@ -105,6 +119,9 @@ func (nb *PlanNotebook) UpdateStep(planID, stepID string, status StepStatus, res
 			s.Result = result
 			s.UpdatedAt = time.Now()
 			p.UpdatedAt = time.Now()
+			if nb.storage != nil {
+				_ = nb.storage.AddPlan(p)
+			}
 			return nil
 		}
 	}

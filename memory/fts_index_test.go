@@ -155,3 +155,48 @@ func TestFTSIndexDBFileCreated(t *testing.T) {
 		t.Fatal("db file not created")
 	}
 }
+
+
+func TestFTSIndexNilClose(t *testing.T) {
+	var idx *FTSIndex
+	if err := idx.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFTSIndexNilOperations(t *testing.T) {
+	var idx *FTSIndex
+	// Nil receiver returns nil for most operations
+	if err := idx.Insert(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Update(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Delete(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idx.Search("x", 1, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFTSIndexSearchWithFilter(t *testing.T) {
+	dir := t.TempDir()
+	idx, _ := NewFTSIndex(filepath.Join(dir, "reme.db"))
+	defer idx.Close()
+
+	n1 := NewMemoryNode(MemoryTypePersonal, "alice", "喜欢 Go")
+	n2 := NewMemoryNode(MemoryTypePersonal, "bob", "喜欢 Python")
+	_ = idx.Insert(n1)
+	_ = idx.Insert(n2)
+
+	mt := MemoryTypePersonal
+	res, err := idx.Search("喜欢", 5, &mt, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || res[0].MemoryID != n1.MemoryID {
+		t.Fatalf("unexpected filter result: %v", res)
+	}
+}

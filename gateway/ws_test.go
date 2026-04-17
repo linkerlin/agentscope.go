@@ -103,6 +103,12 @@ func TestGateway_ChatWS_SessionParam(t *testing.T) {
 	}
 	defer conn.Close()
 
+	for i := 0; i < 50; i++ {
+		if srv.SessionCount() == 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	if srv.SessionCount() != 1 {
 		t.Fatalf("expected 1 session, got %d", srv.SessionCount())
 	}

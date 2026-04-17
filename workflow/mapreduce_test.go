@@ -38,8 +38,8 @@ func TestMapReduce_Call_MapperError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(reducer.lastInput, "error: boom") {
-		t.Fatalf("expected error text in reducer input, got %q", reducer.lastInput)
+	if !strings.Contains(reducer.getLastInput(), "error: boom") {
+		t.Fatalf("expected error text in reducer input, got %q", reducer.getLastInput())
 	}
 }
 

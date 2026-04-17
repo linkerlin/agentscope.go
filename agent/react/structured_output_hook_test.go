@@ -189,3 +189,53 @@ func TestStructuredOutputHook_OnStreamEvent(t *testing.T) {
 		t.Fatal("expected goto reasoning from OnStreamEvent")
 	}
 }
+
+
+func TestStructuredOutputHook_collectMetadata_NoUsage(t *testing.T) {
+	h := NewStructuredOutputHook(ReminderPrompt, nil, nil)
+	msgs := []*message.Msg{
+		message.NewMsg().Role(message.RoleAssistant).TextContent("x").Build(),
+	}
+	h.collectMetadata(msgs)
+	if h.aggregatedUsage.TotalTokens != 0 {
+		t.Fatalf("expected zero usage, got %+v", h.aggregatedUsage)
+	}
+}
+
+func TestStructuredOutputHook_extractFinalResponseMsg_Fallback(t *testing.T) {
+	h := NewStructuredOutputHook(ReminderPrompt, nil, nil)
+	h.resultMsg = message.NewMsg().Role(message.RoleTool).Content(
+		message.NewToolResultBlock("call_1", []message.ContentBlock{message.NewTextBlock(`plain text`)}, false),
+	).Build()
+	msg := h.extractFinalResponseMsg()
+	if msg == nil || msg.GetTextContent() != "plain text" {
+		t.Fatalf("unexpected fallback msg: %v", msg)
+	}
+}
+
+func TestStructuredOutputHook_mergeCollectedMetadata_Thinking(t *testing.T) {
+	h := NewStructuredOutputHook(ReminderPrompt, nil, nil)
+	h.aggregatedThinking = &message.ThinkingBlock{Thinking: "think"}
+	msg := message.NewMsg().Role(message.RoleAssistant).TextContent("hi").Build()
+	out := h.mergeCollectedMetadata(msg)
+	if len(out.Content) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d", len(out.Content))
+	}
+	if _, ok := out.Content[0].(*message.ThinkingBlock); !ok {
+		t.Fatal("expected thinking block first")
+	}
+}
+
+func TestMapToMsg(t *testing.T) {
+	m := map[string]any{
+		"role":    "user",
+		"content": "hello",
+		"metadata": map[string]any{
+			"k": "v",
+		},
+	}
+	msg := mapToMsg(m)
+	if msg.Role != message.RoleUser || msg.GetTextContent() != "hello" {
+		t.Fatalf("unexpected msg: %+v", msg)
+	}
+}

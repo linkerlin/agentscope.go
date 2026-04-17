@@ -130,3 +130,27 @@ func TestToolExecutor_Parallel(t *testing.T) {
 		t.Fatalf("parallel execution too slow: %v", elapsed)
 	}
 }
+
+
+func TestToolExecutor_ExecuteTool(t *testing.T) {
+	reg := newTestRegistry(tool.NewFunctionTool("echo", "", nil, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return tool.NewTextResponse("ok"), nil
+	}))
+	exec := NewToolExecutor(DefaultExecutionConfig())
+	resp, err := exec.ExecuteTool(context.Background(), reg, "echo", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.GetTextContent() != "ok" {
+		t.Fatalf("unexpected: %s", resp.GetTextContent())
+	}
+}
+
+func TestToolExecutor_ExecuteTool_NotFound(t *testing.T) {
+	reg := NewRegistry()
+	exec := NewToolExecutor(DefaultExecutionConfig())
+	_, err := exec.ExecuteTool(context.Background(), reg, "missing", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

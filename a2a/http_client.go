@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // HTTPClient is a concrete HTTP implementation of the Client interface.
@@ -109,6 +110,71 @@ func (c *HTTPClient) SendSubscribe(ctx context.Context, msg *Message) (<-chan *M
 		}
 	}()
 	return ch, nil
+}
+
+// WaitForTask polls GET /task/{id} until the task reaches a terminal status.
+func (c *HTTPClient) WaitForTask(ctx context.Context, taskID string, pollInterval time.Duration) (*Task, error) {
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/task/"+taskID, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("a2a wait: %w", err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("a2a wait: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("a2a wait: %s %s", resp.Status, string(body))
+		}
+		var task Task
+		if err := json.Unmarshal(body, &task); err != nil {
+			return nil, fmt.Errorf("a2a wait: %w", err)
+		}
+		switch task.Status {
+		case TaskStatusCompleted, TaskStatusFailed, TaskStatusCanceled:
+			return &task, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// CancelTask posts to /task/cancel to cancel a task.
+func (c *HTTPClient) CancelTask(ctx context.Context, taskID string) (*Task, error) {
+	reqBody, err := json.Marshal(map[string]string{"id": taskID})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/task/cancel", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("a2a cancel: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("a2a cancel: %s %s", resp.Status, string(body))
+	}
+
+	var task Task
+	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
+		return nil, fmt.Errorf("a2a cancel: %w", err)
+	}
+	return &task, nil
 }
 
 // Close is a no-op for the HTTP client.

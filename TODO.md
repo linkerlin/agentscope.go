@@ -83,4 +83,53 @@
 
 ---
 
+## P2 - 运行时与扩展（新增完成项）
+
+### 8. 多模态工具封装
+- **目标**：补齐 OpenAI / DashScope 多模态 API 的 Tool 层封装。
+- **关键交付物**：
+  - `tool/multimodal/openai.go`：`OpenAIMultiModalTool`（text_to_image / image_to_text）
+  - `tool/multimodal/dashscope.go`：`DashScopeMultiModalTool`（text_to_image / image_to_text / text_to_video / image_to_video）
+  - 异步轮询通用逻辑、base64 / data URL 下载辅助函数
+- **状态**：✅ 已完成
+
+### 9. 中断与优雅关闭策略
+- **目标**：实现 `InterruptContext` 抽象和 `PartialReasoningPolicy`，让 ReActAgent 支持外部中断和系统关闭。
+- **关键交付物**：
+  - `interruption/`：`InterruptContext` + `InterruptSource`
+  - `shutdown/`：`GracefulShutdownConfig` + `PartialReasoningPolicy`
+  - `agent.Base`：原子中断标志 + `CheckInterrupted()` + `CreateInterruptContext()`
+  - `agent/react`：循环检查点 + `handleInterrupt`（USER 恢复 / SYSTEM 保存或丢弃）
+- **状态**：✅ 已完成
+
+### 10. A2A 协议补全
+- **目标**：补全 A2A 服务端与客户端的缺失能力。
+- **关键交付物**：
+  - `a2a/agent_adapter.go`：`AgentAdapter` 桥接 `agent.Agent`
+  - `a2a/server.go`：`/task/cancel` 端点 + SSE 格式规范化
+  - `a2a/http_client.go`：`WaitForTask` / `CancelTask`
+- **状态**：✅ 已完成
+
+### 11. 分布式 Agent 协调
+- **目标**：基于 A2A 构建多节点 Agent 发现与任务分发。
+- **关键交付物**：
+  - `dist/registry.go`：内存注册表 + `Discover` + `AutoDiscover`
+  - `dist/coordinator.go`：Random / RoundRobin / Broadcast 策略
+- **状态**：✅ 已完成
+
+### 12. 性能优化
+- **目标**：提升 ReActAgent 在高并发工具场景下的吞吐。
+- **关键交付物**：
+  - `agent/react`：并发工具执行（`errgroup`）+ 结果保序组装
+- **状态**：✅ 已完成
+
+### 13. 更多 Hook 点
+- **目标**：补齐经典 Hook 生命周期。
+- **关键交付物**：
+  - `hook/hook.go`：新增 `HookPreCall`
+  - `agent/react`：在 `replyInternal` 中触发 `HookPreCall`
+- **状态**：✅ 已完成
+
+---
+
 *完成一项请勾选或删除对应条目，保持本文件实时更新。*

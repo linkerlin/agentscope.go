@@ -1,0 +1,16 @@
+mode: set
+github.com/linkerlin/agentscope.go/rag/tika.go:20.48,21.19 1 1
+github.com/linkerlin/agentscope.go/rag/tika.go:21.19,23.3 1 1
+github.com/linkerlin/agentscope.go/rag/tika.go:24.2,27.3 1 1
+github.com/linkerlin/agentscope.go/rag/tika.go:31.85,33.16 2 1
+github.com/linkerlin/agentscope.go/rag/tika.go:33.16,35.3 1 1
+github.com/linkerlin/agentscope.go/rag/tika.go:36.2,37.24 2 1
+github.com/linkerlin/agentscope.go/rag/tika.go:41.81,43.16 2 1
+github.com/linkerlin/agentscope.go/rag/tika.go:43.16,45.3 1 0
+github.com/linkerlin/agentscope.go/rag/tika.go:46.2,49.16 3 1
+github.com/linkerlin/agentscope.go/rag/tika.go:49.16,51.3 1 0
+github.com/linkerlin/agentscope.go/rag/tika.go:52.2,54.38 2 1
+github.com/linkerlin/agentscope.go/rag/tika.go:54.38,57.3 2 1
+github.com/linkerlin/agentscope.go/rag/tika.go:59.2,60.16 2 1
+github.com/linkerlin/agentscope.go/rag/tika.go:60.16,62.3 1 0
+github.com/linkerlin/agentscope.go/rag/tika.go:64.2,67.8 1 1

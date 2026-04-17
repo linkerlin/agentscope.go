@@ -36,3 +36,31 @@ func TestWindowMemoryMaxTokens(t *testing.T) {
 func msg(text string) *message.Msg {
 	return message.NewMsg().Role(message.RoleUser).TextContent(text).Build()
 }
+
+
+func TestWindowMemoryGetRecentAndSizeAndClear(t *testing.T) {
+	m := NewWindowMemory(WindowOptions{MaxMessages: 3})
+	_ = m.Add(msg("a"))
+	_ = m.Add(msg("b"))
+
+	if m.Size() != 2 {
+		t.Fatalf("expected size 2, got %d", m.Size())
+	}
+
+	recent, _ := m.GetRecent(5)
+	if len(recent) != 2 || recent[0].GetTextContent() != "a" {
+		t.Fatalf("unexpected recent: %v", recent)
+	}
+
+	_ = m.Clear()
+	if m.Size() != 0 {
+		t.Fatalf("expected size 0 after clear, got %d", m.Size())
+	}
+}
+
+func TestRuneTokenizerCountText(t *testing.T) {
+	tok := RuneTokenizer{}
+	if tok.CountText("hello") != 5 {
+		t.Fatalf("expected 5, got %d", tok.CountText("hello"))
+	}
+}

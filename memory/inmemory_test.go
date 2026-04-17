@@ -60,3 +60,24 @@ func TestInMemoryClear(t *testing.T) {
 		t.Errorf("expected size 0 after clear, got %d", m.Size())
 	}
 }
+
+
+func TestInMemoryGetRecentMoreThanSize(t *testing.T) {
+	m := NewInMemoryMemory()
+	_ = m.Add(makeMsg("a"))
+	recent, _ := m.GetRecent(5)
+	if len(recent) != 1 {
+		t.Fatalf("expected 1, got %d", len(recent))
+	}
+}
+
+func TestInMemoryAddNil(t *testing.T) {
+	m := NewInMemoryMemory()
+	if err := m.Add(nil); err != nil {
+		t.Fatal(err)
+	}
+	// Current implementation appends nil; reflect actual behavior
+	if m.Size() != 1 {
+		t.Fatalf("expected size 1 (nil appended), got %d", m.Size())
+	}
+}

@@ -94,7 +94,7 @@ func (m *Manager) Tools(ctx context.Context) ([]tool.Tool, error) {
 			return nil, fmt.Errorf("mcp list tools %s: %w", label, err)
 		}
 		for _, info := range infos {
-			out = append(out, newToolAdapter(label, c, info))
+			out = append(out, NewToolAdapter(label, c, info))
 		}
 	}
 	return out, nil
@@ -106,7 +106,8 @@ type toolAdapter struct {
 	info   ToolInfo
 }
 
-func newToolAdapter(label string, c Client, info ToolInfo) tool.Tool {
+// NewToolAdapter 将 MCP ToolInfo 包装为 tool.Tool
+func NewToolAdapter(label string, c Client, info ToolInfo) tool.Tool {
 	return &toolAdapter{label: label, client: c, info: info}
 }
 

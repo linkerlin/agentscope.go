@@ -45,3 +45,14 @@ func TestSessionService(t *testing.T) {
 		t.Error("expected error after delete")
 	}
 }
+
+
+func TestInMemorySessionService_Errors(t *testing.T) {
+	svc := NewInMemorySessionService()
+	if err := svc.AddMessage("missing", nil); err == nil {
+		t.Fatal("expected error for missing session on AddMessage")
+	}
+	if err := svc.Delete("missing"); err == nil {
+		t.Fatal("expected error for missing session on Delete")
+	}
+}

@@ -66,3 +66,49 @@ func TestToolResultCompactorNil(t *testing.T) {
 		t.Fatal()
 	}
 }
+
+
+func TestToolResultCompactorDefaults(t *testing.T) {
+	c := NewToolResultCompactor("/tmp/tool", 0, 0, 0)
+	if c.recentMax != 100*1024 || c.oldMax != 3000 || c.retentionDays != 3 {
+		t.Fatalf("unexpected defaults: %+v", c)
+	}
+}
+
+func TestToolResultCompactorKeepsSmallResult(t *testing.T) {
+	dir := t.TempDir()
+	c := NewToolResultCompactor(dir, 100, 50, 3)
+	tr := message.NewToolResultBlock("tu1", []message.ContentBlock{
+		message.NewTextBlock("small"),
+	}, false)
+	msg := message.NewMsg().Role(message.RoleUser).Content(tr).Build()
+	out, err := c.Compact([]*message.Msg{msg}, 0)
+	if err != nil || len(out) != 1 {
+		t.Fatal(err, len(out))
+	}
+	if len(out[0].Content) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(out[0].Content))
+	}
+}
+
+func TestToolResultCompactorNilMessage(t *testing.T) {
+	dir := t.TempDir()
+	c := NewToolResultCompactor(dir, 100, 50, 3)
+	out, err := c.Compact([]*message.Msg{nil}, 1)
+	if err != nil || len(out) != 1 || out[0] != nil {
+		t.Fatal("expected nil passthrough")
+	}
+}
+
+func TestToolResultCompactorDefaultBlock(t *testing.T) {
+	dir := t.TempDir()
+	c := NewToolResultCompactor(dir, 100, 50, 3)
+	msg := message.NewMsg().Role(message.RoleUser).Content(message.NewTextBlock("text")).Build()
+	out, err := c.Compact([]*message.Msg{msg}, 0)
+	if err != nil || len(out) != 1 {
+		t.Fatal(err)
+	}
+	if out[0].GetTextContent() != "text" {
+		t.Fatalf("expected text preserved, got %s", out[0].GetTextContent())
+	}
+}

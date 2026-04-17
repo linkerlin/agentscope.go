@@ -15,3 +15,12 @@ func TestNoopClient(t *testing.T) {
 		t.Fatal()
 	}
 }
+
+
+func TestNoopClient_SendSubscribe(t *testing.T) {
+	var c NoopClient
+	_, err := c.SendSubscribe(context.Background(), &Message{Role: "user", Content: "hi"})
+	if err == nil || err.Error() != "a2a: noop client" {
+		t.Fatalf("got %v", err)
+	}
+}

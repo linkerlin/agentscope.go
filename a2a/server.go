@@ -140,6 +140,7 @@ func NewServer(card AgentCard, runner AgentRunner, store TaskStore) *Server {
 	s.mux.HandleFunc("/.well-known/agent.json", s.handleAgentCard)
 	s.mux.HandleFunc("/task/send", s.handleTaskSend)
 	s.mux.HandleFunc("/task/sendSubscribe", s.handleTaskSendSubscribe)
+	s.mux.HandleFunc("/task/cancel", s.handleTaskCancel)
 	s.mux.HandleFunc("/task/", s.handleTaskGet)
 	return s
 }
@@ -174,7 +175,6 @@ func (s *Server) handleTaskSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
 	task, _ := s.store.Get(req.ID)
 	if task == nil {
 		task = &Task{
@@ -204,7 +204,7 @@ func (s *Server) handleTaskSend(w http.ResponseWriter, r *http.Request) {
 		if t == nil {
 			return
 		}
-		resp, err := s.runner.Run(ctx, req.Message)
+		resp, err := s.runner.Run(context.Background(), req.Message)
 		if err != nil {
 			t.Status = TaskStatusFailed
 			t.Messages = append(msgs, Message{
@@ -243,7 +243,6 @@ func (s *Server) handleTaskSendSubscribe(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx := r.Context()
 	task, _ := s.store.Get(req.ID)
 	if task == nil {
 		task = &Task{
@@ -279,7 +278,7 @@ func (s *Server) handleTaskSendSubscribe(w http.ResponseWriter, r *http.Request)
 		if t == nil {
 			return
 		}
-		ch, err := streamRunner.RunStream(ctx, req.Message)
+		ch, err := streamRunner.RunStream(context.Background(), req.Message)
 		if err != nil {
 			t.Status = TaskStatusFailed
 			t.Messages = append(msgs, Message{Role: "agent", Content: fmt.Sprintf("error: %v", err)})
@@ -306,8 +305,36 @@ func (s *Server) handleTaskSendSubscribe(w http.ResponseWriter, r *http.Request)
 	}(task.ID, append([]Message(nil), task.Messages...))
 
 	// Send the initial task snapshot as the first SSE event.
-	_ = json.NewEncoder(w).Encode(task)
+	data, _ := json.Marshal(task)
+	_, _ = fmt.Fprintf(w, "event: task\ndata: %s\n\n", data)
 	flusher.Flush()
+}
+
+func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	task, err := s.store.Get(req.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	task.Status = TaskStatusCanceled
+	task.UpdatedAt = time.Now()
+	if err := s.store.Save(task); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(task)
 }
 
 func (s *Server) handleTaskGet(w http.ResponseWriter, r *http.Request) {

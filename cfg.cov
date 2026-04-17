@@ -1,0 +1,6 @@
+mode: set
+github.com/linkerlin/agentscope.go/config/config.go:52.54,54.16 2 1
+github.com/linkerlin/agentscope.go/config/config.go:54.16,56.3 1 1
+github.com/linkerlin/agentscope.go/config/config.go:57.2,58.49 2 1
+github.com/linkerlin/agentscope.go/config/config.go:58.49,60.3 1 0
+github.com/linkerlin/agentscope.go/config/config.go:61.2,61.16 1 1

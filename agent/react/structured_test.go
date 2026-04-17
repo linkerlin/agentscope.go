@@ -67,3 +67,12 @@ func TestReActAgent_CallStructured_SelfCorrecting(t *testing.T) {
 		t.Fatalf("expected at least 2 model calls due to self-correction, got %d", m.calls)
 	}
 }
+
+
+func TestReActAgent_CallStructured_NilUser(t *testing.T) {
+	a, _ := Builder().Name("Test").Model(&structuredMockModel{}).Build()
+	err := a.CallStructured(context.Background(), nil, nil, nil)
+	if err == nil || err.Error() != "react agent: nil user message" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

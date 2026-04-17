@@ -45,3 +45,34 @@ func TestExecutorParallel(t *testing.T) {
 		t.Fatal(res)
 	}
 }
+
+
+func TestRegistry_MustRegister(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(tool.NewFunctionTool("must", "", nil, nil))
+	if _, ok := r.Get("must"); !ok {
+		t.Fatal("expected must tool")
+	}
+}
+
+func TestRegistry_MustRegisterPanic(t *testing.T) {
+	r := NewRegistry()
+	_ = r.Register(tool.NewFunctionTool("dup", "", nil, nil))
+	defer func() {
+		if rec := recover(); rec == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+	r.MustRegister(tool.NewFunctionTool("dup", "", nil, nil))
+}
+
+func TestRegistry_RegisterDuplicate(t *testing.T) {
+	r := NewRegistry()
+	t1 := tool.NewFunctionTool("dup", "", nil, nil)
+	if err := r.Register(t1); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Register(t1); err == nil {
+		t.Fatal("expected error for duplicate")
+	}
+}

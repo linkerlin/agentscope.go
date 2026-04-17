@@ -258,9 +258,14 @@ func (d *MemoryDeduplicator) mergeMemoryGroup(ctx context.Context, group []*Memo
 
 	// 合并元数据
 	merged.Metadata["merged_from"] = len(group)
-	for _, m := range group {
-		merged.Metadata["source_ids"] = append(merged.Metadata["source_ids"].([]string), m.MemoryID)
+	var sourceIDs []string
+	if v, ok := merged.Metadata["source_ids"].([]string); ok {
+		sourceIDs = v
 	}
+	for _, m := range group {
+		sourceIDs = append(sourceIDs, m.MemoryID)
+	}
+	merged.Metadata["source_ids"] = sourceIDs
 
 	return merged, nil
 }

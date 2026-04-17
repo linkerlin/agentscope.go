@@ -77,3 +77,39 @@ func TestLocalVectorStoreNilEmbed(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+
+func TestLocalVectorStoreList(t *testing.T) {
+	e := fixedEmbed{dim: 2}
+	s := NewLocalVectorStore(e)
+	ctx := context.Background()
+
+	n1 := NewMemoryNode(MemoryTypePersonal, "alice", "a")
+	n2 := NewMemoryNode(MemoryTypePersonal, "bob", "b")
+	n3 := NewMemoryNode(MemoryTypeProcedural, "alice", "c")
+	_ = s.Insert(ctx, []*MemoryNode{n1, n2, n3})
+
+	list, err := s.List(MemoryTypePersonal, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 personal nodes, got %d", len(list))
+	}
+
+	filtered, err := s.List(MemoryTypePersonal, "alice", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 alice node, got %d", len(filtered))
+	}
+
+	limited, err := s.List(MemoryTypePersonal, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("expected 1 limited node, got %d", len(limited))
+	}
+}

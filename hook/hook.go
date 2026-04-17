@@ -16,6 +16,7 @@ const (
 	HookBeforeTool   HookPoint = "before_tool"
 	HookAfterTool    HookPoint = "after_tool"
 	HookBeforeFinish HookPoint = "before_finish"
+	HookPreCall      HookPoint = "pre_call"
 	HookPostCall     HookPoint = "post_call"
 
 	// 高层生命周期 Hook（对齐 Python 版 AgentBase）

@@ -65,6 +65,33 @@ func (s *RedisStorage) GetUser(ctx context.Context, id string) (*User, error) {
 	return &u, nil
 }
 
+func (s *RedisStorage) ListUsers(ctx context.Context) ([]*User, error) {
+	// Scan for all user keys (users:*)
+	keys, err := s.client.Keys(ctx, "users:*").Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: scan users: %w", err)
+	}
+	if len(keys) == 0 {
+		return []*User{}, nil
+	}
+	data, err := s.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: mget users: %w", err)
+	}
+	users := make([]*User, 0, len(data))
+	for _, d := range data {
+		if d == nil {
+			continue
+		}
+		var u User
+		if err := json.Unmarshal([]byte(d.(string)), &u); err != nil {
+			continue
+		}
+		users = append(users, &u)
+	}
+	return users, nil
+}
+
 func (s *RedisStorage) DeleteUser(ctx context.Context, id string) error {
 	return s.client.Del(ctx, keyUser(id)).Err()
 }

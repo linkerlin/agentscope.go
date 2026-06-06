@@ -48,6 +48,16 @@ func (s *MemoryStorage) GetUser(ctx context.Context, id string) (*User, error) {
 	return u, nil
 }
 
+func (s *MemoryStorage) ListUsers(ctx context.Context) ([]*User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	users := make([]*User, 0, len(s.users))
+	for _, u := range s.users {
+		users = append(users, u)
+	}
+	return users, nil
+}
+
 func (s *MemoryStorage) DeleteUser(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

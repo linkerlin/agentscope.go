@@ -17,12 +17,6 @@ type v2Event struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
-// RegisterV2Routes adds the V2 event-stream endpoint to the gateway server.
-// It requires the agent to implement agent.V2Agent (ReplyStream method).
-func (s *Server) RegisterV2Routes() {
-	s.mux.HandleFunc("/v2/chat/stream", s.handleV2ChatStream)
-}
-
 func (s *Server) handleV2ChatStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -159,3 +159,82 @@ func TestGateway_BroadcastToRoom(t *testing.T) {
 		t.Fatalf("conn2 unexpected msg: %v", msg2)
 	}
 }
+
+
+func TestGateway_ChatWSV2_Success(t *testing.T) {
+	srv := NewServer(&mockV2Agent{})
+	srv.RegisterV2Routes()
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	wsURL := strings.Replace(server.URL, "http", "ws", 1) + "/v2/chat/ws"
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial failed: %v (status %d)", err, resp.StatusCode)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(chatRequest{Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var foundDelta bool
+	for {
+		var ev v2Event
+		if err := conn.ReadJSON(&ev); err != nil {
+			t.Fatal(err)
+		}
+		if ev.EventType == "text_block_delta" {
+			foundDelta = true
+		}
+		if ev.EventType == "done" {
+			break
+		}
+	}
+	if !foundDelta {
+		t.Fatal("expected at least one text_block_delta event")
+	}
+}
+
+func TestGateway_ChatWSV2_NotV2Agent(t *testing.T) {
+	plain := &mockPlainAgent{}
+	srv := NewServer(plain)
+	srv.RegisterV2Routes()
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	wsURL := strings.Replace(server.URL, "http", "ws", 1) + "/v2/chat/ws"
+	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err == nil {
+		t.Fatal("expected dial failure for non-V2 agent")
+	}
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d", resp.StatusCode)
+	}
+}
+
+func TestGateway_ChatWSV2_MissingText(t *testing.T) {
+	srv := NewServer(&mockV2Agent{})
+	srv.RegisterV2Routes()
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	wsURL := strings.Replace(server.URL, "http", "ws", 1) + "/v2/chat/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(chatRequest{Text: ""}); err != nil {
+		t.Fatal(err)
+	}
+
+	var resp map[string]string
+	if err := conn.ReadJSON(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp["error"]; !ok {
+		t.Fatalf("expected error field, got %v", resp)
+	}
+}

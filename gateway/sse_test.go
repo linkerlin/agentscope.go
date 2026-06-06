@@ -33,8 +33,8 @@ func (m *mockV2Agent) CallStream(ctx context.Context, msg *message.Msg) (<-chan 
 
 func (m *mockV2Agent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	ch := make(chan event.AgentEvent, 2)
-	ch <- &event.TextBlockDeltaEvent{Delta: "hello"}
-	ch <- &event.TextBlockDeltaEvent{Delta: " world"}
+	ch <- event.NewTextBlockDelta("r1", 0, "hello")
+	ch <- event.NewTextBlockDelta("r1", 0, " world")
 	close(ch)
 	return ch, nil
 }

@@ -77,6 +77,12 @@ func NewServer(a agent.Agent) *Server {
 	return s
 }
 
+// RegisterV2Routes adds the V2 event-stream endpoints (SSE + WS) to the gateway server.
+func (s *Server) RegisterV2Routes() {
+	s.mux.HandleFunc("/v2/chat/stream", s.handleV2ChatStream)
+	s.mux.HandleFunc("/v2/chat/ws", s.handleChatWSV2)
+}
+
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)

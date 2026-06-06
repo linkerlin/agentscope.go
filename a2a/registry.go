@@ -113,3 +113,26 @@ func (r *Registry) Remove(url string) {
 	defer r.mu.Unlock()
 	delete(r.entries, url)
 }
+
+// StartBackgroundHealthCheck starts a goroutine that runs HealthCheck at the
+// given interval. The goroutine stops when the context is cancelled.
+// Returns a function that can be called to stop the background checker.
+func (r *Registry) StartBackgroundHealthCheck(ctx context.Context, interval time.Duration) func() {
+	ticker := time.NewTicker(interval)
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				r.HealthCheck(ctx)
+			case <-ctx.Done():
+				ticker.Stop()
+				return
+			case <-stop:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+	return func() { close(stop) }
+}

@@ -163,3 +163,36 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		<-done
 	}
 }
+
+func TestRegistry_StartBackgroundHealthCheck(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount > 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(AgentCard{Name: "bg", Version: "1.0.0"})
+	}))
+	defer server.Close()
+
+	r := NewRegistry()
+	r.Register(AgentCard{Name: "bg", URL: server.URL})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop := r.StartBackgroundHealthCheck(ctx, 50*time.Millisecond)
+	defer stop()
+
+	// Wait for at least 2 health checks.
+	time.Sleep(150 * time.Millisecond)
+
+	entry, _ := r.Get(server.URL)
+	if entry.Healthy {
+		t.Fatal("expected unhealthy after background checks")
+	}
+	if callCount < 2 {
+		t.Fatalf("expected at least 2 health checks, got %d", callCount)
+	}
+}

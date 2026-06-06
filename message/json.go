@@ -3,6 +3,7 @@ package message
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -10,7 +11,7 @@ import (
 type rawMsg struct {
 	ID        string         `json:"id"`
 	Role      MsgRole        `json:"role"`
-	Name      string         `json:"name,omitempty"`
+	Name      string         `json:"name"`
 	Content   []rawBlock     `json:"content"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -25,6 +26,8 @@ type rawSource struct {
 }
 
 // rawBlock is a JSON-serializable representation of ContentBlock.
+// It is aligned with Python agentscope v2 Pydantic models for cross-language
+// compatibility.
 type rawBlock struct {
 	Type       BlockType      `json:"type"`
 	Text       string         `json:"text,omitempty"`
@@ -35,8 +38,8 @@ type rawBlock struct {
 	ID         string         `json:"id,omitempty"`
 	Name       string         `json:"name,omitempty"`
 	ToolName   string         `json:"tool_name,omitempty"`
-	Input      map[string]any `json:"input,omitempty"`
-	RawInput   string         `json:"raw_input,omitempty"`
+	Input      any            `json:"input,omitempty"`     // string (PyV2) or map[string]any (legacy)
+	RawInput   string         `json:"raw_input,omitempty"` // legacy Go field
 	ToolUseID  string         `json:"tool_use_id,omitempty"`
 	IsError    bool           `json:"is_error,omitempty"`
 	State      string         `json:"state,omitempty"`
@@ -45,6 +48,7 @@ type rawBlock struct {
 	Hint       string         `json:"hint,omitempty"`
 	HintKind   string         `json:"hint_kind,omitempty"`
 	SubContent []rawBlock     `json:"sub_content,omitempty"`
+	Output     []rawBlock     `json:"output,omitempty"`     // PyV2 compatibility
 }
 
 func sourceToRaw(s *Source) *rawSource {
@@ -76,37 +80,70 @@ func blockToRaw(b ContentBlock) rawBlock {
 	case *TextBlock:
 		return rawBlock{Type: TypeText, Text: v.Text}
 	case *DataBlock:
-		return rawBlock{Type: v.BlockType_, Source: sourceToRaw(v.Source)}
+		src := sourceToRaw(v.Source)
+		if src != nil && src.MediaType == "" {
+			switch v.BlockType_ {
+			case TypeImage:
+				src.MediaType = "image/png"
+			case TypeAudio:
+				src.MediaType = "audio/mpeg"
+			case TypeVideo:
+				src.MediaType = "video/mp4"
+			}
+		}
+		return rawBlock{Type: TypeData, Source: src}
 	case *ImageBlock:
+		mime := v.MimeType
+		if mime == "" {
+			mime = "image/png"
+		}
 		var src *rawSource
 		if v.URL != "" {
-			src = &rawSource{Type: SourceTypeURL, URL: v.URL}
+			src = &rawSource{Type: SourceTypeURL, MediaType: mime, URL: v.URL}
 		} else if v.Base64 != "" {
-			src = &rawSource{Type: SourceTypeBase64, MediaType: v.MimeType, Data: v.Base64}
+			src = &rawSource{Type: SourceTypeBase64, MediaType: mime, Data: v.Base64}
 		}
-		return rawBlock{Type: TypeImage, Source: src}
+		return rawBlock{Type: TypeData, Source: src}
 	case *AudioBlock:
+		mime := v.MimeType
+		if mime == "" {
+			mime = "audio/mpeg"
+		}
 		var src *rawSource
 		if v.URL != "" {
-			src = &rawSource{Type: SourceTypeURL, URL: v.URL}
+			src = &rawSource{Type: SourceTypeURL, MediaType: mime, URL: v.URL}
 		} else if v.Base64 != "" {
-			src = &rawSource{Type: SourceTypeBase64, MediaType: v.MimeType, Data: v.Base64}
+			src = &rawSource{Type: SourceTypeBase64, MediaType: mime, Data: v.Base64}
 		}
-		return rawBlock{Type: TypeAudio, Source: src}
+		return rawBlock{Type: TypeData, Source: src}
 	case *VideoBlock:
 		var src *rawSource
 		if v.URL != "" {
-			src = &rawSource{Type: SourceTypeURL, URL: v.URL}
+			src = &rawSource{Type: SourceTypeURL, MediaType: "video/mp4", URL: v.URL}
 		}
-		return rawBlock{Type: TypeVideo, Source: src}
+		return rawBlock{Type: TypeData, Source: src}
 	case *ToolUseBlock:
-		return rawBlock{Type: TypeToolUse, ID: v.ID, ToolName: v.Name, Input: v.Input, RawInput: v.RawInput}
+		inputStr := v.RawInput
+		if inputStr == "" && v.Input != nil {
+			b, _ := json.Marshal(v.Input)
+			inputStr = string(b)
+		}
+		return rawBlock{Type: TypeToolCall, ID: v.ID, Name: v.Name, Input: inputStr, RawInput: v.RawInput}
 	case *ToolResultBlock:
 		var subs []rawBlock
 		for _, sb := range v.Content {
 			subs = append(subs, blockToRaw(sb))
 		}
-		return rawBlock{Type: TypeToolResult, ID: v.ID, Name: v.Name, ToolUseID: v.ToolUseID, IsError: v.IsError, State: v.State, SubContent: subs}
+		// Cross-lang: Python ToolResultBlock uses 'id' for the tool_call_id.
+		id := v.ToolUseID
+		if id == "" {
+			id = v.ID
+		}
+		name := v.Name
+		if name == "" {
+			name = id
+		}
+		return rawBlock{Type: TypeToolResult, ID: id, Name: name, ToolUseID: v.ToolUseID, IsError: v.IsError, State: v.State, SubContent: subs, Output: subs}
 	case *ThinkingBlock:
 		return rawBlock{Type: TypeThinking, Thinking: v.Thinking, Signature: v.Signature}
 	case *HintBlock:
@@ -135,20 +172,59 @@ func rawToBlock(r rawBlock) (ContentBlock, error) {
 			return NewVideoBlock(r.Source.URL), nil
 		}
 		return NewVideoBlock(r.URL), nil
-	case TypeToolUse:
-		b := NewToolUseBlock(r.ID, r.ToolName, r.Input)
-		b.RawInput = r.RawInput
+	case TypeData:
+		if r.Source == nil {
+			return nil, fmt.Errorf("message: data block missing source")
+		}
+		mt := r.Source.MediaType
+		switch {
+		case strings.HasPrefix(mt, "image/"):
+			return NewImageBlock(r.Source.URL, r.Source.Data, mt), nil
+		case strings.HasPrefix(mt, "audio/"):
+			return NewAudioBlock(r.Source.URL, r.Source.Data, mt), nil
+		case strings.HasPrefix(mt, "video/"):
+			return NewVideoBlock(r.Source.URL), nil
+		default:
+			return NewDataBlock(TypeData, sourceFromRaw(r.Source)), nil
+		}
+	case TypeToolUse, TypeToolCall:
+		name := r.Name
+		if name == "" {
+			name = r.ToolName
+		}
+		var input map[string]any
+		var rawInput string
+		switch v := r.Input.(type) {
+		case map[string]any:
+			input = v
+		case string:
+			rawInput = v
+			_ = json.Unmarshal([]byte(v), &input)
+		}
+		if rawInput == "" {
+			rawInput = r.RawInput
+		}
+		b := NewToolUseBlock(r.ID, name, input)
+		b.RawInput = rawInput
 		return b, nil
 	case TypeToolResult:
+		rawSubs := r.SubContent
+		if len(rawSubs) == 0 {
+			rawSubs = r.Output
+		}
 		var subs []ContentBlock
-		for _, s := range r.SubContent {
+		for _, s := range rawSubs {
 			b, err := rawToBlock(s)
 			if err != nil {
 				return nil, err
 			}
 			subs = append(subs, b)
 		}
-		b := NewToolResultBlock(r.ToolUseID, subs, r.IsError)
+		toolUseID := r.ID
+		if toolUseID == "" {
+			toolUseID = r.ToolUseID
+		}
+		b := NewToolResultBlock(toolUseID, subs, r.IsError)
 		b.ID = r.ID
 		b.Name = r.Name
 		b.State = r.State

@@ -1,6 +1,6 @@
 # agentscope.go
 
-[AgentScope Java](https://github.com/agentscope-ai/agentscope-java) 的 Go 语言实现 —— 一个生产级的 AI Agent 开发框架，助你使用 Go 构建基于大语言模型的智能应用。
+[AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现 —— 一个生产级的 AI Agent 开发框架，助你使用 Go 构建基于大语言模型的智能应用。
 
 ## 概述
 
@@ -54,6 +54,10 @@ func main() {
 | Anthropic | `github.com/linkerlin/agentscope.go/model/anthropic` | Claude 3.5 Sonnet / Opus / Haiku 原生 HTTP + SSE |
 | Gemini | `github.com/linkerlin/agentscope.go/model/gemini` | Gemini 1.5 Flash / Pro 原生 HTTP + SSE |
 | DashScope (阿里云) | `github.com/linkerlin/agentscope.go/model/dashscope` | 通义千问系列（OpenAI 兼容） |
+| DeepSeek | `github.com/linkerlin/agentscope.go/model/deepseek` | DeepSeek-V3 / Coder / Reasoner（OpenAI 兼容） |
+| Moonshot | `github.com/linkerlin/agentscope.go/model/moonshot` | Kimi 系列（OpenAI 兼容） |
+| xAI | `github.com/linkerlin/agentscope.go/model/xai` | Grok 系列（OpenAI 兼容） |
+| vLLM | `github.com/linkerlin/agentscope.go/model/vllm` | 私有化部署（OpenAI 兼容） |
 | Ollama | `github.com/linkerlin/agentscope.go/model/ollama` | 本地开源模型（OpenAI 兼容） |
 
 任何兼容 OpenAI API 格式的服务都可以通过 `BaseURL` 配置使用。
@@ -223,6 +227,46 @@ chatModel, _ := ollama.NewBuilder().
     Build()
 ```
 
+### DeepSeek
+
+```go
+import "github.com/linkerlin/agentscope.go/model/deepseek"
+
+chatModel, _ := deepseek.Builder("sk-...").
+    ModelName(deepseek.ModelChat).
+    Build()
+```
+
+### Moonshot (Kimi)
+
+```go
+import "github.com/linkerlin/agentscope.go/model/moonshot"
+
+chatModel, _ := moonshot.Builder("sk-...").
+    ModelName(moonshot.Model8K).
+    Build()
+```
+
+### xAI (Grok)
+
+```go
+import "github.com/linkerlin/agentscope.go/model/xai"
+
+chatModel, _ := xai.Builder("xai-...").
+    ModelName(xai.ModelGrok2).
+    Build()
+```
+
+### vLLM
+
+```go
+import "github.com/linkerlin/agentscope.go/model/vllm"
+
+chatModel, _ := vllm.Builder("http://localhost:8000/v1", "sk-...").
+    ModelName("meta-llama/Meta-Llama-3-8B-Instruct").
+    Build()
+```
+
 ## 多 Agent 编排
 
 ### 顺序执行（Pipeline）
@@ -326,6 +370,45 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/reme/file`](examples/reme/file/main.go) —— ReMe 文件型记忆（ReMeLight）
 - [`examples/reme/vector`](examples/reme/vector/main.go) —— ReMe 向量记忆检索
 - [`examples/reme/orchestrator`](examples/reme/orchestrator/main.go) —— ReMe Orchestrator 端到端（提取 + 检索 + Profile）
+- [`examples/voice`](examples/voice/main.go) —— STT → Chat → TTS 语音对话 Pipeline
+- [`examples/multi_tenant_workspace`](examples/multi_tenant_workspace/main.go) —— 多租户认证 + Workspace + 权限引擎端到端
+- [`examples/langsmith`](examples/langsmith/main.go) —— Agent 事件流转发到 LangSmith
+
+## 可观测性
+
+### LangSmith 追踪
+
+```go
+import (
+    "github.com/linkerlin/agentscope.go/event"
+    "github.com/linkerlin/agentscope.go/observability"
+)
+
+client := observability.NewLangSmithClient(os.Getenv("LANGSMITH_API_KEY"))
+observer := observability.NewLangSmithObserver(client, "my-project", "session-1")
+
+bus := event.NewBus(100)
+go observer.Observe(ctx, bus)
+
+agent, _ := react.Builder().
+    Name("TracedAgent").
+    Model(chatModel).
+    WithEventBus(bus).
+    Build()
+```
+
+Agent 运行期间的所有事件（`ReplyStart`、`TextBlockDelta`、`ToolCallStart`、`ToolCallEnd`、`ReplyEnd` 等）将自动上报到 LangSmith，生成完整的调用链追踪。
+
+### OpenTelemetry
+
+```go
+import "github.com/linkerlin/agentscope.go/observability"
+
+tp, _ := observability.InitTracerProvider("agent-service")
+defer tp.Shutdown(context.Background())
+```
+
+Gateway 自动集成 OTel HTTP 中间件，所有请求都会被追踪。
 
 ## 许可证
 

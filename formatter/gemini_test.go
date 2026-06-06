@@ -322,3 +322,53 @@ func TestGemini_ParseResponse_NoCandidatesError(t *testing.T) {
 		}
 	}
 }
+
+func TestGemini_ParseResponse_ExtractsThinkingTags(t *testing.T) {
+	f := NewGeminiFormatter()
+	body := map[string]any{
+		"candidates": []any{
+			map[string]any{
+				"content": map[string]any{
+					"parts": []any{
+						map[string]any{"text": "Hello\n<think>I need to plan</think> world"},
+					},
+				},
+			},
+		},
+	}
+	msg, err := f.ParseResponse(body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.GetTextContent() != "Hello\n world" {
+		t.Fatalf("unexpected text: %q", msg.GetTextContent())
+	}
+	if msg.GetThinkingContent() != "I need to plan" {
+		t.Fatalf("unexpected thinking: %q", msg.GetThinkingContent())
+	}
+}
+
+func TestGemini_ParseResponse_ExtractsMultipleThinkingTags(t *testing.T) {
+	f := NewGeminiFormatter()
+	body := map[string]any{
+		"candidates": []any{
+			map[string]any{
+				"content": map[string]any{
+					"parts": []any{
+						map[string]any{"text": "A<thinking>first</thinking>B<think>second</think>C"},
+					},
+				},
+			},
+		},
+	}
+	msg, err := f.ParseResponse(body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.GetTextContent() != "ABC" {
+		t.Fatalf("unexpected text: %q", msg.GetTextContent())
+	}
+	if msg.GetThinkingContent() != "firstsecond" {
+		t.Fatalf("unexpected thinking: %q", msg.GetThinkingContent())
+	}
+}

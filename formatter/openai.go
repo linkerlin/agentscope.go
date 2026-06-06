@@ -219,8 +219,14 @@ func (f *OpenAIFormatter) FormatToolChoice(tc *model.ToolChoice) (any, error) {
 func (f *OpenAIFormatter) ParseChoice(choice goopenai.ChatCompletionChoice) *message.Msg {
 	builder := message.NewMsg().Role(message.RoleAssistant)
 
-	if choice.Message.Content != "" {
-		builder.TextContent(choice.Message.Content)
+	content := choice.Message.Content
+	if content != "" {
+		// Detect and extract thinking blocks from models that emit
+		// <think>...</think> or <thinking>...</thinking> tags.
+		content = extractThinkingBlocks(builder, content)
+		if content != "" {
+			builder.TextContent(content)
+		}
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
@@ -239,6 +245,13 @@ func (f *OpenAIFormatter) ParseResponse(resp any) (*message.Msg, error) {
 		return nil, fmt.Errorf("openai formatter: expected ChatCompletionChoice, got %T", resp)
 	}
 	return f.ParseChoice(choice), nil
+}
+
+// WrapThinkingBlock implements ThinkingFormatter for OpenAI-compatible models.
+// OpenAI models do not support native thinking blocks in prompts, so the
+// content is returned as-is.
+func (f *OpenAIFormatter) WrapThinkingBlock(content string) string {
+	return content
 }
 
 func contentBlocksToString(blocks []message.ContentBlock) string {

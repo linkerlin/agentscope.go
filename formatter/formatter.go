@@ -7,9 +7,47 @@
 package formatter
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 )
+
+// thinkingTagPattern matches common thinking block markers emitted by reasoning
+// models (DeepSeek, QwQ, etc.) in their text output.
+var thinkingTagPattern = regexp.MustCompile(`(?s)<think>(.*?)</think>|<thinking>(.*?)</thinking>`)
+
+// extractThinkingBlocks scans content for thinking tags, adds ThinkingBlock
+// content to the builder, and returns the remaining text.
+func extractThinkingBlocks(builder *message.MsgBuilder, content string) string {
+	matches := thinkingTagPattern.FindAllStringSubmatchIndex(content, -1)
+	if len(matches) == 0 {
+		return content
+	}
+	var textParts []string
+	lastEnd := 0
+	for _, m := range matches {
+		start, end := m[0], m[1]
+		if start > lastEnd {
+			textParts = append(textParts, content[lastEnd:start])
+		}
+		var thinking string
+		if m[2] >= 0 {
+			thinking = content[m[2]:m[3]]
+		} else if m[4] >= 0 {
+			thinking = content[m[4]:m[5]]
+		}
+		if thinking != "" {
+			builder.Content(message.NewThinkingBlock(thinking, ""))
+		}
+		lastEnd = end
+	}
+	if lastEnd < len(content) {
+		textParts = append(textParts, content[lastEnd:])
+	}
+	return strings.Join(textParts, "")
+}
 
 // Formatter is the generic abstraction for message-to-model formatting.
 // Concrete formatters may expose additional typed helpers when the generic

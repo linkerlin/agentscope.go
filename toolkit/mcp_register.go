@@ -3,6 +3,7 @@ package toolkit
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/linkerlin/agentscope.go/toolkit/mcp"
 )
@@ -70,6 +71,47 @@ func (tk *Toolkit) RegisterMCPClient(ctx context.Context, label string, c mcp.Cl
 		}
 	}
 	return nil
+}
+
+// RegisterMCPManager 将 Manager 中所有已注册客户端的工具批量注册到 Toolkit。
+// 返回成功注册的工具名列表和遇到的第一个错误。
+func (tk *Toolkit) RegisterMCPManager(ctx context.Context, mgr *mcp.Manager, opts ...MCPRegisterOption) ([]string, error) {
+	cfg := &mcpRegisterConfig{}
+	for _, o := range opts {
+		o(cfg)
+	}
+
+	if cfg.groupName != "" && !tk.Groups.HasGroup(cfg.groupName) {
+		if err := tk.Groups.CreateGroup(cfg.groupName, ""); err != nil {
+			return nil, err
+		}
+	}
+
+	tools, err := mgr.Tools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("toolkit: discover mcp tools: %w", err)
+	}
+
+	var registered []string
+	for _, t := range tools {
+		shortName := t.Name()
+		if strings.Contains(shortName, "/") {
+			shortName = strings.SplitN(shortName, "/", 2)[1]
+		}
+		if !shouldRegisterMCP(shortName, cfg.enableTools, cfg.disableTools) {
+			continue
+		}
+		if err := tk.Registry.Register(t); err != nil {
+			return registered, fmt.Errorf("toolkit: register mcp tool %s: %w", t.Name(), err)
+		}
+		registered = append(registered, t.Name())
+		if cfg.groupName != "" {
+			if err := tk.Groups.AddTool(cfg.groupName, t.Name()); err != nil {
+				return registered, fmt.Errorf("toolkit: add mcp tool to group %s: %w", cfg.groupName, err)
+			}
+		}
+	}
+	return registered, nil
 }
 
 func shouldRegisterMCP(toolName string, enable, disable []string) bool {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
 )
 
@@ -187,7 +188,7 @@ func TestGateway_ChatWSV2_Success(t *testing.T) {
 		if ev.EventType == "text_block_delta" {
 			foundDelta = true
 		}
-		if ev.EventType == "done" {
+		if ev.EventType == "reply_end" {
 			break
 		}
 	}
@@ -230,11 +231,117 @@ func TestGateway_ChatWSV2_MissingText(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp map[string]string
+	var resp v2Event
 	if err := conn.ReadJSON(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := resp["error"]; !ok {
-		t.Fatalf("expected error field, got %v", resp)
+	if resp.EventType != "error" {
+		t.Fatalf("expected error event, got %v", resp)
+	}
+}
+
+func TestGateway_ChatWSV2_SuspendResume(t *testing.T) {
+	mock := newMockV2AgentWithSuspend()
+	srv := NewServer(mock)
+	srv.RegisterV2Routes()
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	wsURL := strings.Replace(server.URL, "http", "ws", 1) + "/v2/chat/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Send chat message.
+	if err := conn.WriteJSON(wsV2Message{Type: "chat", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read "before" event.
+	var ev v2Event
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.EventType != "text_block_delta" {
+		t.Fatalf("expected text_block_delta, got %s", ev.EventType)
+	}
+
+	// Read suspend event.
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.EventType != "require_user_confirm" {
+		t.Fatalf("expected require_user_confirm, got %s", ev.EventType)
+	}
+
+	// Send resume message.
+	if err := conn.WriteJSON(wsV2Message{
+		Type:      "resume",
+		ReplyID:   "r1",
+		ConfirmID: "c1",
+		Decisions: []event.ConfirmDecision{{ToolCallID: "tc1", Decision: "allow"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read "after" event.
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.EventType != "text_block_delta" {
+		t.Fatalf("expected text_block_delta after resume, got %s", ev.EventType)
+	}
+
+	// Read end event.
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.EventType != "reply_end" {
+		t.Fatalf("expected reply_end, got %s", ev.EventType)
+	}
+}
+
+func TestGateway_ChatWSV2_SuspendThenNewChat(t *testing.T) {
+	mock := newMockV2AgentWithSuspend()
+	srv := NewServer(mock)
+	srv.RegisterV2Routes()
+	server := httptest.NewServer(srv)
+	defer server.Close()
+
+	wsURL := strings.Replace(server.URL, "http", "ws", 1) + "/v2/chat/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	// First chat.
+	if err := conn.WriteJSON(wsV2Message{Type: "chat", Text: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	var ev v2Event
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.EventType != "require_user_confirm" {
+		t.Fatalf("expected suspend, got %s", ev.EventType)
+	}
+
+	// Send new chat while suspended (should cancel old stream and start fresh).
+	if err := conn.WriteJSON(wsV2Message{Type: "chat", Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should get fresh stream events.
+	if err := conn.ReadJSON(&ev); err != nil {
+		t.Fatal(err)
+	}
+	if ev.EventType != "text_block_delta" {
+		t.Fatalf("expected text_block_delta after new chat, got %s", ev.EventType)
 	}
 }

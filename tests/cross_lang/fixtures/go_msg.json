@@ -1,0 +1,81 @@
+{
+  "id": "msg-go-001",
+  "role": "assistant",
+  "name": "",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello from Go"
+    },
+    {
+      "type": "data",
+      "source": {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "iVBORw0KGgo="
+      }
+    },
+    {
+      "type": "data",
+      "source": {
+        "type": "url",
+        "media_type": "audio/mp3",
+        "url": "http://example.com/audio.mp3"
+      }
+    },
+    {
+      "type": "data",
+      "source": {
+        "type": "url",
+        "media_type": "video/mp4",
+        "url": "http://example.com/video.mp4"
+      }
+    },
+    {
+      "type": "data",
+      "source": {
+        "type": "url",
+        "media_type": "image/png",
+        "url": "http://example.com/data.png"
+      }
+    },
+    {
+      "type": "thinking",
+      "thinking": "Thinking...",
+      "signature": "sig123"
+    },
+    {
+      "type": "hint",
+      "hint": "hint text",
+      "hint_kind": "suggestion"
+    },
+    {
+      "type": "tool_call",
+      "id": "tu1",
+      "name": "calc",
+      "input": "{\"x\":1}"
+    },
+    {
+      "type": "tool_result",
+      "id": "tu1",
+      "name": "tu1",
+      "tool_use_id": "tu1",
+      "sub_content": [
+        {
+          "type": "text",
+          "text": "result"
+        }
+      ],
+      "output": [
+        {
+          "type": "text",
+          "text": "result"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "key": "value"
+  },
+  "created_at": "2024-01-01T00:00:00Z"
+}

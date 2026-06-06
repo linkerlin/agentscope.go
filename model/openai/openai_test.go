@@ -209,6 +209,51 @@ func TestChat_Success(t *testing.T) {
 	}
 }
 
+func TestChat_ResponseFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		rf, ok := reqBody["response_format"].(map[string]any)
+		if !ok {
+			http.Error(w, "missing response_format", http.StatusBadRequest)
+			return
+		}
+		if rf["type"] != "json_object" {
+			http.Error(w, "bad response_format type", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":     "chatcmpl-1",
+			"object": "chat.completion",
+			"model":  "gpt-4o",
+			"choices": []any{
+				map[string]any{
+					"index":         0,
+					"message":       map[string]any{"role": "assistant", "content": `{}`},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+		})
+	}))
+	defer server.Close()
+
+	m, err := Builder().APIKey("test-key").ModelName("gpt-4o").BaseURL(server.URL).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.Chat(context.Background(), []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent("hi").Build(),
+	}, model.WithResponseFormat(&model.ResponseFormat{Type: "json_object"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestChat_ErrorResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"rate_limit"}`, http.StatusTooManyRequests)

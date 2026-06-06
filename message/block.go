@@ -8,6 +8,8 @@ const (
 	TypeImage      BlockType = "image"
 	TypeAudio      BlockType = "audio"
 	TypeVideo      BlockType = "video"
+	TypeData       BlockType = "data"
+	TypeToolCall   BlockType = "tool_call"
 	TypeToolUse    BlockType = "tool_use"
 	TypeToolResult BlockType = "tool_result"
 	TypeThinking   BlockType = "thinking"

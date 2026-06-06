@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
 )
 
@@ -109,8 +111,19 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 	close(stopHeartbeat)
 }
 
+// wsV2Message is the wire format for V2 WebSocket messages.
+type wsV2Message struct {
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	ConfirmID string                `json:"confirm_id,omitempty"`
+	ReplyID   string                `json:"reply_id,omitempty"`
+	Decisions []event.ConfirmDecision `json:"decisions,omitempty"`
+}
 
 // handleChatWSV2 serves the V2 WebSocket endpoint that streams AgentEvents.
+// It supports suspend-resume: when a RequireUserConfirmEvent is emitted,
+// the stream pauses and the AgentState is saved to Storage (if configured).
+// The client must send a "resume" message with decisions to continue.
 func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -162,48 +175,153 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+	defer close(stopHeartbeat)
 
-	// Message read loop
-	for {
-		_, data, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-		var req chatRequest
-		if err := json.Unmarshal(data, &req); err != nil {
-			_ = ws.writeJSON(map[string]string{"error": fmt.Sprintf("parse error: %v", err)})
-			continue
-		}
-		if req.Text == "" {
-			_ = ws.writeJSON(map[string]string{"error": "text is required"})
-			continue
-		}
+	var (
+		streamCtx    context.Context
+		streamCancel context.CancelFunc
+		evForward    chan event.AgentEvent
+	)
 
-		msg := message.NewMsg().Role(message.RoleUser).TextContent(req.Text).Build()
-		ch, err := v2.ReplyStream(r.Context(), msg)
-		if err != nil {
-			_ = ws.writeJSON(map[string]string{"error": fmt.Sprintf("reply stream error: %v", err)})
-			continue
+	startStream := func(text string) {
+		if streamCancel != nil {
+			streamCancel()
 		}
-
-		for ev := range ch {
-			if ev == nil {
-				continue
+		if evForward != nil {
+			for len(evForward) > 0 {
+				<-evForward
 			}
-			payload, _ := json.Marshal(ev)
-			data, _ := json.Marshal(v2Event{
-				EventType: ev.EventType(),
-				Timestamp: ev.Timestamp().Format("2006-01-02T15:04:05.000Z"),
-				ReplyID:   ev.ReplyID(),
-				Payload:   payload,
-			})
-			if err := ws.writeJSON(json.RawMessage(data)); err != nil {
+		} else {
+			evForward = make(chan event.AgentEvent, 64)
+		}
+
+		streamCtx, streamCancel = context.WithCancel(r.Context())
+		msg := message.NewMsg().Role(message.RoleUser).TextContent(text).Build()
+		evCh, err := v2.ReplyStream(streamCtx, msg)
+		if err != nil {
+			_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"%v"}`, err))})
+			return
+		}
+
+		go func() {
+			for ev := range evCh {
+				select {
+				case evForward <- ev:
+				case <-streamCtx.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	needsStreamStart := true
+
+	for {
+		if needsStreamStart {
+			// Check for reconnect resume before waiting for a new chat message.
+			if sessionID != "" && s.sessionState.HasPendingSnapshot(r.Context(), sessionID) {
+				if _, err := s.sessionState.LoadSnapshot(r.Context(), sessionID, v2); err == nil {
+					// Agent will detect the suspended state and enter resume path automatically.
+					startStream("resume")
+					needsStreamStart = false
+					continue
+				}
+			}
+
+			// Wait for a chat message to start a new stream.
+			_, data, err := conn.ReadMessage()
+			if err != nil {
 				break
 			}
+			var wsMsg wsV2Message
+			_ = json.Unmarshal(data, &wsMsg)
+			if wsMsg.Type == "" {
+				// Fallback: try old chatRequest format for backward compatibility.
+				var oldReq chatRequest
+				if err := json.Unmarshal(data, &oldReq); err == nil && oldReq.Text != "" {
+					wsMsg = wsV2Message{Type: "chat", Text: oldReq.Text}
+				}
+			}
+			if wsMsg.Type == "chat" && wsMsg.Text != "" {
+				startStream(wsMsg.Text)
+				needsStreamStart = false
+			} else {
+				_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(`{"error":"expected chat message"}`)})
+			}
+			continue
 		}
-		if err := ws.writeJSON(v2Event{EventType: "done"}); err != nil {
+
+		// Consume events from the forward channel.
+		ev := <-evForward
+		if ev == nil {
+			continue
+		}
+
+		if _, suspended := ev.(*event.RequireUserConfirmEvent); suspended {
+			// Save snapshot for resume (including reconnect resume).
+			if err := s.sessionState.SaveSnapshot(streamCtx, sessionID, v2); err != nil {
+				_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"save snapshot failed: %v"}`, err))})
+			}
+			if err := writeV2Event(ws, ev); err != nil {
+				break
+			}
+			// Wait for resume message.
+			for {
+				_, data, err := conn.ReadMessage()
+				if err != nil {
+					goto done
+				}
+				var wsMsg wsV2Message
+				if err := json.Unmarshal(data, &wsMsg); err != nil {
+					_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(`{"error":"parse error"}`)})
+					continue
+				}
+				if wsMsg.Type == "resume" {
+					resumeErr := s.sessionState.Resume(streamCtx, sessionID, v2,
+						event.NewUserConfirmResult(wsMsg.ReplyID, wsMsg.ConfirmID, wsMsg.Decisions))
+					if resumeErr != nil {
+						_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"resume failed: %v"}`, resumeErr))})
+						continue
+					}
+					break
+				}
+				if wsMsg.Type == "chat" && wsMsg.Text != "" {
+					// Client sent a new chat while suspended; cancel old stream and start fresh.
+					_ = s.sessionState.DeleteSnapshot(streamCtx, sessionID)
+					startStream(wsMsg.Text)
+					break
+				}
+				_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(`{"error":"expected resume or chat"}`)})
+			}
+			continue
+		}
+
+		if _, isEnd := ev.(*event.ReplyEndEvent); isEnd {
+			if err := writeV2Event(ws, ev); err != nil {
+				break
+			}
+			_ = s.sessionState.DeleteSnapshot(streamCtx, sessionID)
+			needsStreamStart = true
+			continue
+		}
+
+		if err := writeV2Event(ws, ev); err != nil {
 			break
 		}
 	}
-	close(stopHeartbeat)
+done:
+	if streamCancel != nil {
+		streamCancel()
+	}
+}
+
+func writeV2Event(ws *wsSession, ev event.AgentEvent) error {
+	payload, _ := json.Marshal(ev)
+	data, _ := json.Marshal(v2Event{
+		EventType: ev.EventType(),
+		Timestamp: ev.Timestamp().Format("2006-01-02T15:04:05.000Z"),
+		ReplyID:   ev.ReplyID(),
+		Payload:   payload,
+	})
+	return ws.writeJSON(json.RawMessage(data))
 }

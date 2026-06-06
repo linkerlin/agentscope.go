@@ -1,6 +1,8 @@
 package event
 
 import (
+	"encoding/json"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -126,4 +128,18 @@ func (b *BusWithMetrics) PublishWithLatency(ev AgentEvent, d time.Duration) {
 	b.metrics.RecordPublished(ev)
 	b.metrics.RecordLatency(int64(d / time.Millisecond))
 	b.Bus.Publish(ev)
+}
+
+// MetricsHandler returns an http.HandlerFunc that serves the current metrics
+// snapshot as JSON. It can be mounted on any HTTP mux (e.g. /metrics/events).
+func MetricsHandler(collector *MetricsCollector) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		snap := collector.Snapshot()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(snap)
+	}
 }

@@ -62,6 +62,8 @@ type Server struct {
 	mux           *http.ServeMux
 	authenticator service.Authenticator
 	storage       service.Storage
+	sessionState  *SessionStateManager
+	cipher        *service.Cipher
 	otelHandler   http.Handler
 	sessions      map[string]*wsSession
 	rooms         map[string]map[string]*wsSession
@@ -88,9 +90,26 @@ func (s *Server) WithAuthenticator(auth service.Authenticator) *Server {
 	return s
 }
 
-// WithStorage attaches a service storage for management endpoints.
+// WithStorage attaches a service storage for management endpoints and
+// automatically creates a SessionStateManager if storage is non-nil.
 func (s *Server) WithStorage(st service.Storage) *Server {
 	s.storage = st
+	if st != nil {
+		s.sessionState = NewSessionStateManager(st)
+	}
+	return s
+}
+
+// WithSessionStateManager explicitly sets the session state manager.
+// This overrides any manager created by WithStorage.
+func (s *Server) WithSessionStateManager(m *SessionStateManager) *Server {
+	s.sessionState = m
+	return s
+}
+
+// WithCipher attaches an AES-GCM cipher for credential encryption.
+func (s *Server) WithCipher(c *service.Cipher) *Server {
+	s.cipher = c
 	return s
 }
 
@@ -111,11 +130,13 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// RegisterV2Routes adds the V2 event-stream endpoints (SSE + WS) to the gateway server.
+// RegisterV2Routes adds the V2 event-stream endpoints (SSE + WS) and the
+// resume endpoint for suspend-resume workflows to the gateway server.
 // These routes are protected if an authenticator is configured.
 func (s *Server) RegisterV2Routes() {
 	s.mux.HandleFunc("/v2/chat/stream", s.requireAuth(s.handleV2ChatStream))
 	s.mux.HandleFunc("/v2/chat/ws", s.requireAuth(s.handleChatWSV2))
+	s.mux.HandleFunc("/v2/resume", s.requireAuth(s.handleV2Resume))
 }
 
 // ServeHTTP implements http.Handler.

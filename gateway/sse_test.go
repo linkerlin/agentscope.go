@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/agent"
@@ -32,9 +33,10 @@ func (m *mockV2Agent) CallStream(ctx context.Context, msg *message.Msg) (<-chan 
 }
 
 func (m *mockV2Agent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
-	ch := make(chan event.AgentEvent, 2)
+	ch := make(chan event.AgentEvent, 3)
 	ch <- event.NewTextBlockDelta("r1", 0, "hello")
 	ch <- event.NewTextBlockDelta("r1", 0, " world")
+	ch <- event.NewReplyEnd("r1", "")
 	close(ch)
 	return ch, nil
 }
@@ -143,6 +145,66 @@ func (m *mockV2AgentError) LoadState(state *agent.AgentState) error { return nil
 func (m *mockV2AgentError) SaveState() (*agent.AgentState, error)   { return nil, nil }
 func (m *mockV2AgentError) InjectEvent(ctx context.Context, ev event.AgentEvent) error {
 	return nil
+}
+
+// mockV2AgentWithSuspend simulates an agent that suspends on a tool call.
+type mockV2AgentWithSuspend struct {
+	mu        sync.Mutex
+	injectCh  chan event.AgentEvent
+	state     *agent.AgentState
+}
+
+func newMockV2AgentWithSuspend() *mockV2AgentWithSuspend {
+	return &mockV2AgentWithSuspend{injectCh: make(chan event.AgentEvent, 1)}
+}
+
+func (m *mockV2AgentWithSuspend) Name() string { return "mock-v2-suspend" }
+func (m *mockV2AgentWithSuspend) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build(), nil
+}
+func (m *mockV2AgentWithSuspend) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {
+	ch := make(chan *message.Msg, 1)
+	ch <- message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build()
+	close(ch)
+	return ch, nil
+}
+func (m *mockV2AgentWithSuspend) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
+	ch := make(chan event.AgentEvent, 4)
+	go func() {
+		defer close(ch)
+		ch <- event.NewTextBlockDelta("r1", 0, "before")
+		ch <- event.NewRequireUserConfirm("r1", "c1", []event.ToolCallSummary{
+			{ID: "tc1", Name: "tool", Input: map[string]any{}},
+		})
+		// Wait for inject
+		select {
+		case <-m.injectCh:
+		case <-ctx.Done():
+			return
+		}
+		ch <- event.NewTextBlockDelta("r1", 0, "after")
+		ch <- event.NewReplyEnd("r1", "")
+	}()
+	return ch, nil
+}
+func (m *mockV2AgentWithSuspend) LoadState(state *agent.AgentState) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.state = state
+	return nil
+}
+func (m *mockV2AgentWithSuspend) SaveState() (*agent.AgentState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return &agent.AgentState{ReplyID: "r1", AgentName: m.Name()}, nil
+}
+func (m *mockV2AgentWithSuspend) InjectEvent(ctx context.Context, ev event.AgentEvent) error {
+	select {
+	case m.injectCh <- ev:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func TestServer_V2ChatStream_AgentError(t *testing.T) {

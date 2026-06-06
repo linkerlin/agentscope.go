@@ -106,21 +106,34 @@ func TestScheduler_DuplicateID(t *testing.T) {
 	defer s.Stop()
 
 	ctx := context.Background()
-	job1 := &Job{ID: "dup", CronExpr: "@every 1s"}
-	job2 := &Job{ID: "dup", CronExpr: "@every 2s"}
-
+	job1 := &Job{ID: "dup", CronExpr: "@every 1h"}
 	if err := s.Schedule(ctx, job1); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Schedule(ctx, job2); err != nil {
+	next1, err := s.NextRun("dup")
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(1200 * time.Millisecond)
+	// Replace with a different schedule.
+	job2 := &Job{ID: "dup", CronExpr: "@every 2h"}
+	if err := s.Schedule(ctx, job2); err != nil {
+		t.Fatal(err)
+	}
+	next2, err := s.NextRun("dup")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	c := atomic.LoadInt64(&count)
-	if c != 1 {
-		t.Fatalf("expected 1 invocation after reschedule, got %d", c)
+	// The next-run time must have changed, proving the old entry was removed.
+	if next2.Equal(next1) {
+		t.Fatalf("expected NextRun to change after reschedule, got same time: %v", next2)
+	}
+
+	// The long interval means handler should not fire during the test.
+	time.Sleep(50 * time.Millisecond)
+	if atomic.LoadInt64(&count) != 0 {
+		t.Fatalf("expected 0 invocations with long interval, got %d", atomic.LoadInt64(&count))
 	}
 }
 

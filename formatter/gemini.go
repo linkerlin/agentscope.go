@@ -102,6 +102,13 @@ func (f *GeminiFormatter) FormatTools(specs []model.ToolSpec) []map[string]any {
 	return decls
 }
 
+// WrapThinkingBlock implements ThinkingFormatter for Gemini models.
+// Gemini does not support native thinking blocks in prompts, so the content
+// is returned as-is.
+func (f *GeminiFormatter) WrapThinkingBlock(content string) string {
+	return content
+}
+
 // ParseResponse converts a Gemini API response into a standard *message.Msg.
 func (f *GeminiFormatter) ParseResponse(body map[string]any) (*message.Msg, error) {
 	candidates, ok := body["candidates"].([]any)
@@ -122,7 +129,10 @@ func (f *GeminiFormatter) ParseResponse(body map[string]any) (*message.Msg, erro
 	for _, p := range parts {
 		part, _ := p.(map[string]any)
 		if text, ok := part["text"].(string); ok {
-			builder.TextContent(text)
+			text = extractThinkingBlocks(builder, text)
+			if text != "" {
+				builder.TextContent(text)
+			}
 		}
 		if fc, ok := part["function_call"].(map[string]any); ok {
 			name, _ := fc["name"].(string)

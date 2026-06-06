@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -131,6 +132,9 @@ func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg,
 	if opts.ToolChoice != nil {
 		req.ToolChoice, _ = m.formatter.FormatToolChoice(opts.ToolChoice)
 	}
+	if opts.ResponseFormat != nil {
+		req.ResponseFormat = toOpenAIResponseFormat(opts.ResponseFormat)
+	}
 
 	resp, err := m.client.CreateChatCompletion(ctx, req)
 	if err != nil {
@@ -190,6 +194,9 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 	if opts.ToolChoice != nil {
 		req.ToolChoice, _ = m.formatter.FormatToolChoice(opts.ToolChoice)
 	}
+	if opts.ResponseFormat != nil {
+		req.ResponseFormat = toOpenAIResponseFormat(opts.ResponseFormat)
+	}
 
 	stream, err := m.client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
@@ -236,6 +243,36 @@ func applyOptions(options []model.ChatOption) *model.ChatOptions {
 		o(opts)
 	}
 	return opts
+}
+
+// jsonSchemaWrapper adapts map[string]any to json.Marshaler for go-openai.
+type jsonSchemaWrapper struct {
+	schema map[string]any
+}
+
+func (w jsonSchemaWrapper) MarshalJSON() ([]byte, error) {
+	return json.Marshal(w.schema)
+}
+
+func toOpenAIResponseFormat(rf *model.ResponseFormat) *goopenai.ChatCompletionResponseFormat {
+	if rf == nil {
+		return nil
+	}
+	out := &goopenai.ChatCompletionResponseFormat{
+		Type: goopenai.ChatCompletionResponseFormatType(rf.Type),
+	}
+	if rf.Type == "json_schema" && rf.JSONSchema != nil {
+		name := "schema"
+		if n, ok := rf.JSONSchema["name"].(string); ok && n != "" {
+			name = n
+		}
+		out.JSONSchema = &goopenai.ChatCompletionResponseFormatJSONSchema{
+			Name:   name,
+			Schema: jsonSchemaWrapper{schema: rf.JSONSchema},
+			Strict: true,
+		}
+	}
+	return out
 }
 
 

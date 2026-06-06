@@ -227,12 +227,21 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userID := service.UserIDFromContext(r.Context())
+	encrypted := req.Value
+	if s.cipher != nil {
+		enc, err := s.cipher.Encrypt(req.Value)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("encryption failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		encrypted = enc
+	}
 	cred := &service.Credential{
 		ID:        generateID("cred"),
 		UserID:    userID,
 		Provider:  req.Provider,
 		Label:     req.Label,
-		Encrypted: req.Value, // In production, encrypt this.
+		Encrypted: encrypted,
 		CreatedAt: time.Now(),
 	}
 	if err := s.storage.SaveCredential(r.Context(), cred); err != nil {

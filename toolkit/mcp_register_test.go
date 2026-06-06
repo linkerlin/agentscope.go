@@ -140,3 +140,79 @@ func TestShouldRegisterMCP(t *testing.T) {
 		t.Fatal("enable list should take precedence")
 	}
 }
+
+func TestToolkit_RegisterMCPManager(t *testing.T) {
+	tk := NewToolkit()
+	mc := createTestMCPClient(t)
+	defer mc.Close()
+
+	mgr := mcp.NewManager()
+	if err := mgr.Register("local", mc); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	registered, err := tk.RegisterMCPManager(ctx, mgr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registered) != 2 {
+		t.Fatalf("expected 2 registered tools, got %d", len(registered))
+	}
+
+	tools := tk.Registry.List()
+	if len(tools) != 2 {
+		t.Fatalf("expected 2 tools in registry, got %d", len(tools))
+	}
+}
+
+func TestToolkit_RegisterMCPManager_WithGroup(t *testing.T) {
+	tk := NewToolkit()
+	mc := createTestMCPClient(t)
+	defer mc.Close()
+
+	mgr := mcp.NewManager()
+	if err := mgr.Register("local", mc); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	registered, err := tk.RegisterMCPManager(ctx, mgr, WithMCPGroup("mcp-group"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registered) != 2 {
+		t.Fatalf("expected 2 registered tools, got %d", len(registered))
+	}
+
+	if err := tk.Groups.SetGroupActive("mcp-group", true); err != nil {
+		t.Fatal(err)
+	}
+	active := tk.ActiveTools()
+	if len(active) != 2 {
+		t.Fatalf("expected 2 active tools, got %d", len(active))
+	}
+}
+
+func TestToolkit_RegisterMCPManager_EnableTools(t *testing.T) {
+	tk := NewToolkit()
+	mc := createTestMCPClient(t)
+	defer mc.Close()
+
+	mgr := mcp.NewManager()
+	if err := mgr.Register("local", mc); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	registered, err := tk.RegisterMCPManager(ctx, mgr, WithMCPEnableTools("echo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registered) != 1 {
+		t.Fatalf("expected 1 registered tool, got %d", len(registered))
+	}
+	if registered[0] != "local/echo" {
+		t.Fatalf("unexpected tool: %s", registered[0])
+	}
+}

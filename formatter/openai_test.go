@@ -202,3 +202,37 @@ func TestOpenAIFormatter_FormatMessages_ThinkingBlockSkipped(t *testing.T) {
 		t.Fatalf("expected thinking block to be skipped, got %+v", out)
 	}
 }
+
+func TestOpenAIFormatter_ParseChoice_ExtractsThinkingTags(t *testing.T) {
+	f := NewOpenAIFormatter()
+	choice := goopenai.ChatCompletionChoice{
+		Message: goopenai.ChatCompletionMessage{
+			Content: "Hello\n<think>I need to reason about this</think> world",
+		},
+	}
+	msg := f.ParseChoice(choice)
+	if msg.GetTextContent() != "Hello\n world" {
+		t.Fatalf("unexpected text: %q", msg.GetTextContent())
+	}
+	thinking := msg.GetThinkingContent()
+	if thinking != "I need to reason about this" {
+		t.Fatalf("unexpected thinking: %q", thinking)
+	}
+}
+
+func TestOpenAIFormatter_ParseChoice_ExtractsMultipleThinkingTags(t *testing.T) {
+	f := NewOpenAIFormatter()
+	choice := goopenai.ChatCompletionChoice{
+		Message: goopenai.ChatCompletionMessage{
+			Content: "A<thinking>first thought</thinking>B<think>second thought</think>C",
+		},
+	}
+	msg := f.ParseChoice(choice)
+	if msg.GetTextContent() != "ABC" {
+		t.Fatalf("unexpected text: %q", msg.GetTextContent())
+	}
+	thinking := msg.GetThinkingContent()
+	if thinking != "first thoughtsecond thought" {
+		t.Fatalf("unexpected thinking: %q", thinking)
+	}
+}

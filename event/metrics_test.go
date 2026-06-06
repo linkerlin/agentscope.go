@@ -1,6 +1,9 @@
 package event
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -64,5 +67,46 @@ func TestBusWithMetrics(t *testing.T) {
 	}
 	if snap.LatencyBuckets[1] != 1 {
 		t.Fatalf("expected latency bucket 1=1, got %d", snap.LatencyBuckets[1])
+	}
+}
+
+func TestMetricsHandler(t *testing.T) {
+	m := NewMetricsCollector()
+	m.RecordPublished(&TextBlockDeltaEvent{baseEvent: baseEvent{EventType_: "text_delta"}})
+	m.RecordReceived()
+	m.RecordLatency(5)
+
+	 handler := MetricsHandler(m)
+	req := httptest.NewRequest(http.MethodGet, "/metrics/events", nil)
+	rr := httptest.NewRecorder()
+	handler(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var snap MetricsSnapshot
+	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if snap.PublishedTotal != 1 {
+		t.Fatalf("expected published_total=1, got %d", snap.PublishedTotal)
+	}
+	if snap.ReceivedTotal != 1 {
+		t.Fatalf("expected received_total=1, got %d", snap.ReceivedTotal)
+	}
+	if snap.LatencyBuckets[1] != 1 {
+		t.Fatalf("expected latency bucket 1=1, got %d", snap.LatencyBuckets[1])
+	}
+}
+
+func TestMetricsHandler_MethodNotAllowed(t *testing.T) {
+	m := NewMetricsCollector()
+	handler := MetricsHandler(m)
+	req := httptest.NewRequest(http.MethodPost, "/metrics/events", nil)
+	rr := httptest.NewRecorder()
+	handler(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rr.Code)
 	}
 }

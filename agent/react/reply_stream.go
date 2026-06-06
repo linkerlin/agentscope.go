@@ -52,32 +52,42 @@ func (a *ReActAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan 
 func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out chan<- event.AgentEvent) {
 	defer close(out)
 
-	replyID := uuid.New().String()
-	out <- event.NewReplyStart(replyID, a.Name())
-
-	// Initialize runtime state for this reply
 	a.runtimeMu.Lock()
-	a.runtimeState = &agent.AgentState{
-		Version:   "v2",
-		ReplyID:   replyID,
-		CurIter:   0,
-		MaxIters:  a.maxIterations,
-		AgentName: a.Name(),
-		AgentID:   a.Base.ID,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	var replyID string
+	var isResume bool
+	if a.runtimeState != nil && a.runtimeState.SuspendedAt != nil {
+		replyID = a.runtimeState.ReplyID
+		isResume = true
+	} else {
+		replyID = uuid.New().String()
+		a.runtimeState = &agent.AgentState{
+			Version:   "v2",
+			ReplyID:   replyID,
+			CurIter:   0,
+			MaxIters:  a.maxIterations,
+			AgentName: a.Name(),
+			AgentID:   a.Base.ID,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
 	}
 	a.runtimeMu.Unlock()
 
+	out <- event.NewReplyStart(replyID, a.Name())
 	defer func() {
 		out <- event.NewReplyEnd(replyID, a.Name())
 	}()
 
-	// For backward compatibility with Base.Call lifecycle, we keep the wrapper
-	// but the internal loop emits events directly.
-	_, err := a.Base.Call(ctx, msg, func(innerCtx context.Context, input *message.Msg) (*message.Msg, error) {
-		return a.replyStreamInternal(innerCtx, input, out, replyID)
-	})
+	var err error
+	if isResume {
+		_, err = a.resumeReplyStreamInternal(ctx, msg, out, replyID)
+	} else {
+		// For backward compatibility with Base.Call lifecycle, we keep the wrapper
+		// but the internal loop emits events directly.
+		_, err = a.Base.Call(ctx, msg, func(innerCtx context.Context, input *message.Msg) (*message.Msg, error) {
+			return a.replyStreamInternal(innerCtx, input, out, replyID)
+		})
+	}
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			out <- event.NewError(replyID, err)
@@ -208,6 +218,15 @@ func (a *ReActAgent) replyStreamInternal(
 
 		history = append(history, response)
 
+		// Update runtime state after model response so that SaveState captures
+		// the assistant message (including any tool calls) for reconnect resume.
+		a.runtimeMu.Lock()
+		if a.runtimeState != nil {
+			a.runtimeState.Messages = append([]*message.Msg(nil), history...)
+			a.runtimeState.UpdatedAt = time.Now()
+		}
+		a.runtimeMu.Unlock()
+
 		toolCalls := response.GetToolUseCalls()
 		if len(toolCalls) == 0 {
 			_, hr, err = a.fireHooks(ctx, hook.HookBeforeFinish, history, response, "", nil)
@@ -244,6 +263,112 @@ func (a *ReActAgent) replyStreamInternal(
 	_ = a.memory.Add(finalResponse)
 
 	return finalResponse, nil
+}
+
+// resumeReplyStreamInternal resumes a reply that was previously suspended at a
+// RequireUserConfirmEvent. It restores the saved history, waits for the
+// UserConfirmResultEvent, executes the confirmed tools, and performs one final
+// reasoning round. This is a minimal viable reconnect-resume path; full
+// multi-iteration resume can be added later.
+func (a *ReActAgent) resumeReplyStreamInternal(
+	ctx context.Context,
+	msg *message.Msg,
+	out chan<- event.AgentEvent,
+	replyID string,
+) (*message.Msg, error) {
+	a.CallWg.Add(1)
+	defer a.CallWg.Done()
+
+	a.ResetInterrupt()
+
+	// Restore history and suspend metadata from runtimeState.
+	a.runtimeMu.Lock()
+	history := append([]*message.Msg(nil), a.runtimeState.Messages...)
+	confirmID := a.runtimeState.WaitConfirmID
+	startIter := a.runtimeState.CurIter
+	a.runtimeMu.Unlock()
+
+	// Find the last assistant message that contains tool calls.
+	var toolCalls []*message.ToolUseBlock
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == message.RoleAssistant {
+			toolCalls = history[i].GetToolUseCalls()
+			break
+		}
+	}
+	if len(toolCalls) == 0 {
+		return nil, errors.New("react agent resume: no tool calls in saved history")
+	}
+
+	// Re-emit the suspend event so the reconnecting client knows we are waiting.
+	var calls []event.ToolCallSummary
+	for _, tc := range toolCalls {
+		calls = append(calls, event.ToolCallSummary{ID: tc.ID, Name: tc.Name})
+	}
+	out <- event.NewRequireUserConfirm(replyID, confirmID, calls)
+
+	// Wait for the external confirmation using the saved confirmID.
+	ev, err := a.waitForExternalEvent(ctx, confirmID)
+	if err != nil {
+		return nil, fmt.Errorf("react agent resume: wait failed: %w", err)
+	}
+	confirm, ok := ev.(*event.UserConfirmResultEvent)
+	if !ok {
+		return nil, fmt.Errorf("react agent resume: expected UserConfirmResultEvent, got %T", ev)
+	}
+	toolCalls = applyConfirmDecisions(toolCalls, confirm.Decisions)
+	if len(toolCalls) == 0 {
+		finalResponse := message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build()
+		_ = a.memory.Add(msg)
+		_ = a.memory.Add(finalResponse)
+		return finalResponse, nil
+	}
+
+	// Clear suspend state so subsequent SaveState reflects a running agent.
+	a.runtimeMu.Lock()
+	if a.runtimeState != nil {
+		a.runtimeState.SuspendedAt = nil
+		a.runtimeState.SuspendedEvent = ""
+		a.runtimeState.WaitConfirmID = ""
+	}
+	a.runtimeMu.Unlock()
+
+	// Bypass permission check because it was already performed before suspension.
+	oldPerm := a.permissionEngine
+	a.permissionEngine = nil
+	toolResultMsg, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, startIter)
+	a.permissionEngine = oldPerm
+	if err != nil {
+		return nil, err
+	}
+	history = append(history, toolResultMsg)
+
+	// Perform one final reasoning round with the tool results.
+	toolSpecs := a.toolSpecs()
+	var chatOpts []model.ChatOption
+	if len(toolSpecs) > 0 {
+		chatOpts = append(chatOpts, model.WithTools(toolSpecs))
+	}
+
+	response, err := a.runModelStream(ctx, history, chatOpts, startIter+1, len(toolSpecs) > 0, out, replyID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Before-finish hooks
+	_, hr, err := a.fireHooks(ctx, hook.HookBeforeFinish, history, response, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	if hr != nil && hr.Override != nil {
+		response = hr.Override
+	}
+
+	// Persist to memory
+	_ = a.memory.Add(msg)
+	_ = a.memory.Add(response)
+
+	return response, nil
 }
 
 // runModelStream calls the model and emits fine-grained events.
@@ -400,6 +525,16 @@ func (a *ReActAgent) executeToolsStream(
 			confirmID := uuid.New().String()
 			out <- event.NewRequireUserConfirm(replyID, confirmID, asking)
 
+			// Save suspend state for potential reconnect resume
+			tnow := time.Now()
+			a.runtimeMu.Lock()
+			if a.runtimeState != nil {
+				a.runtimeState.SuspendedAt = &tnow
+				a.runtimeState.SuspendedEvent = event.TypeRequireUserConfirm
+				a.runtimeState.WaitConfirmID = confirmID
+			}
+			a.runtimeMu.Unlock()
+
 			// Suspend: wait for external UserConfirmResultEvent
 			ev, err := a.waitForExternalEvent(ctx, confirmID)
 			if err != nil {
@@ -409,6 +544,16 @@ func (a *ReActAgent) executeToolsStream(
 			if !ok {
 				return nil, fmt.Errorf("expected UserConfirmResultEvent, got %T", ev)
 			}
+
+			// Clear suspend state after resume
+			a.runtimeMu.Lock()
+			if a.runtimeState != nil {
+				a.runtimeState.SuspendedAt = nil
+				a.runtimeState.SuspendedEvent = ""
+				a.runtimeState.WaitConfirmID = ""
+			}
+			a.runtimeMu.Unlock()
+
 			// Apply decisions: filter out denied tool calls, apply modifications
 			toolCalls = applyConfirmDecisions(toolCalls, confirm.Decisions)
 			if len(toolCalls) == 0 {

@@ -59,8 +59,8 @@ func TestMsgJSON_ImageBlock_SourceNested(t *testing.T) {
 	}
 	content := raw["content"].([]any)
 	block := content[0].(map[string]any)
-	if block["type"] != "image" {
-		t.Fatalf("expected type image, got %v", block["type"])
+	if block["type"] != "data" {
+		t.Fatalf("expected type data, got %v", block["type"])
 	}
 	src, ok := block["source"].(map[string]any)
 	if !ok {
@@ -167,7 +167,132 @@ func TestMsgJSON_ToolResultBlock_ExtraFields(t *testing.T) {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
 	tr := parsed.Content[0].(*ToolResultBlock)
-	if tr.ID != "tr1" || tr.Name != "calc" || tr.State != "completed" || tr.ToolUseID != "tu1" {
+	// Cross-lang: Python ToolResultBlock uses 'id' for tool_call_id, so Go's
+	// ID field is mapped to ToolUseID on deserialization.
+	if tr.ToolUseID != "tu1" || tr.Name != "calc" || tr.State != "completed" {
 		t.Fatalf("unexpected tool result block: %+v", tr)
+	}
+}
+
+func TestMsgJSON_ToolCallFormat(t *testing.T) {
+	msg := NewMsg().Role(RoleAssistant).Content(
+		&ToolUseBlock{ID: "tc1", Name: "calculator", Input: map[string]any{"expr": "1+1"}, RawInput: `{"expr":"1+1"}`},
+	).Build()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal to raw failed: %v", err)
+	}
+	content := raw["content"].([]any)
+	block := content[0].(map[string]any)
+	if block["type"] != "tool_call" {
+		t.Fatalf("expected type tool_call, got %v", block["type"])
+	}
+	if block["name"] != "calculator" {
+		t.Fatalf("unexpected name: %v", block["name"])
+	}
+	if block["input"] != `{"expr":"1+1"}` {
+		t.Fatalf("unexpected input: %v", block["input"])
+	}
+
+	var parsed Msg
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	tu := parsed.Content[0].(*ToolUseBlock)
+	if tu.Name != "calculator" || tu.RawInput != `{"expr":"1+1"}` {
+		t.Fatalf("unexpected tool use block: %+v", tu)
+	}
+}
+
+func TestMsgJSON_ToolResultOutputField(t *testing.T) {
+	msg := NewMsg().Role(RoleTool).Content(
+		NewToolResultBlock("tc1", []ContentBlock{NewTextBlock("result=2")}, false),
+	).Build()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal to raw failed: %v", err)
+	}
+	content := raw["content"].([]any)
+	block := content[0].(map[string]any)
+	if block["type"] != "tool_result" {
+		t.Fatalf("expected type tool_result, got %v", block["type"])
+	}
+	output, ok := block["output"].([]any)
+	if !ok || len(output) != 1 {
+		t.Fatalf("expected output array with 1 element, got %v", block["output"])
+	}
+}
+
+func TestMsgJSON_CrossLangPyV2ToolResult(t *testing.T) {
+	// Simulate a Python v2-generated ToolResultBlock JSON.
+	pyJSON := `{
+		"id":"1","role":"tool","created_at":"2024-01-01T00:00:00Z",
+		"content":[
+			{"type":"tool_result","id":"tc1","name":"calculator","output":[{"type":"text","text":"42"}],"is_error":false}
+		]
+	}`
+	var parsed Msg
+	if err := json.Unmarshal([]byte(pyJSON), &parsed); err != nil {
+		t.Fatalf("unmarshal py format failed: %v", err)
+	}
+	if len(parsed.Content) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(parsed.Content))
+	}
+	tr := parsed.Content[0].(*ToolResultBlock)
+	if tr.ToolUseID != "tc1" || tr.Name != "calculator" {
+		t.Fatalf("unexpected tool result: %+v", tr)
+	}
+	if len(tr.Content) != 1 {
+		t.Fatalf("expected 1 sub-content, got %d", len(tr.Content))
+	}
+}
+
+func TestMsgJSON_ImageBlock_DefaultMimeType(t *testing.T) {
+	msg := NewMsg().Role(RoleUser).Content(
+		NewImageBlock("http://x.com/img.png", "", ""),
+	).Build()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var parsed Msg
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	img := parsed.Content[0].(*ImageBlock)
+	if img.URL != "http://x.com/img.png" || img.MimeType != "image/png" {
+		t.Fatalf("unexpected image block: %+v", img)
+	}
+}
+
+func TestMsgJSON_SpecialCharactersInText(t *testing.T) {
+	text := "Hello \n\t<>\"'& 你好 世界 🌍"
+	msg := NewMsg().Role(RoleUser).TextContent(text).Build()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var parsed Msg
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if parsed.GetTextContent() != text {
+		t.Fatalf("unexpected text: %q", parsed.GetTextContent())
 	}
 }

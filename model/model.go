@@ -38,12 +38,22 @@ type ToolChoice struct {
 	Function string
 }
 
+// ResponseFormat determines the output format of the model.
+type ResponseFormat struct {
+	// Type is one of: "text", "json_object", "json_schema".
+	Type string
+	// JSONSchema is required when Type is "json_schema".
+	// It should be a valid JSON Schema object (map[string]any).
+	JSONSchema map[string]any
+}
+
 // ChatOptions holds configuration for a model call
 type ChatOptions struct {
-	MaxTokens   int
-	Temperature float64
-	Tools       []ToolSpec
-	ToolChoice  *ToolChoice
+	MaxTokens      int
+	Temperature    float64
+	Tools          []ToolSpec
+	ToolChoice     *ToolChoice
+	ResponseFormat *ResponseFormat
 }
 
 // ToolSpec defines a tool available to the model
@@ -70,6 +80,10 @@ func WithTools(tools []ToolSpec) ChatOption {
 
 func WithToolChoice(tc *ToolChoice) ChatOption {
 	return func(o *ChatOptions) { o.ToolChoice = tc }
+}
+
+func WithResponseFormat(rf *ResponseFormat) ChatOption {
+	return func(o *ChatOptions) { o.ResponseFormat = rf }
 }
 
 // StreamChunk is a single chunk from a streaming model response

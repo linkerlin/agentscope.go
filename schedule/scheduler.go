@@ -48,11 +48,19 @@ func (s *Scheduler) Stop() {
 	s.cron.Stop()
 }
 
-// Schedule adds a new cron job.
+// Schedule adds a new cron job. If a job with the same ID already exists,
+// the old schedule is replaced by the new one.
 func (s *Scheduler) Schedule(ctx context.Context, job *Job) error {
 	if job.CronExpr == "" {
 		return fmt.Errorf("schedule: empty cron expression")
 	}
+	s.mu.Lock()
+	if oldID, ok := s.jobs[job.ID]; ok {
+		s.cron.Remove(oldID)
+		delete(s.jobs, job.ID)
+	}
+	s.mu.Unlock()
+
 	entryID, err := s.cron.AddFunc(job.CronExpr, func() {
 		_ = s.handle(ctx, job)
 	})

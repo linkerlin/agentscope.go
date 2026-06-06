@@ -1,0 +1,8 @@
+{
+  "block_index": 0,
+  "delta": "hello",
+  "id": "evt-go-001",
+  "reply_id": "reply-001",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "type": "text_block_delta"
+}

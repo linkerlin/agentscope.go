@@ -1,0 +1,69 @@
+{
+  "name": "PyAgent",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello from Python",
+      "id": "38d05a88f37f48bdb206e9533c1076e9"
+    },
+    {
+      "type": "data",
+      "id": "2f466707cb4d40beb2eefcb43361bd4c",
+      "source": {
+        "type": "url",
+        "url": "http://example.com/img.png",
+        "media_type": "image/png"
+      },
+      "name": null
+    },
+    {
+      "type": "data",
+      "id": "015051ed5ed94887a4ee9f3d2840f6d9",
+      "source": {
+        "type": "base64",
+        "data": "iVBORw0KGgo=",
+        "media_type": "audio/mp3"
+      },
+      "name": null
+    },
+    {
+      "type": "thinking",
+      "thinking": "Thinking...",
+      "id": "f7ebcdb438d44cae8bbc14cb2bf12c0e"
+    },
+    {
+      "type": "hint",
+      "hint": "hint text",
+      "id": "f2d8b15c590b41e1be8c4c42d5bfff2a"
+    },
+    {
+      "type": "tool_call",
+      "id": "tc1",
+      "name": "calc",
+      "input": "{\"x\": 1}",
+      "state": "pending",
+      "suggested_rules": []
+    },
+    {
+      "type": "tool_result",
+      "id": "tc1",
+      "name": "calc",
+      "output": [
+        {
+          "type": "text",
+          "text": "result",
+          "id": "5867df24f943478fbf1bd622b3284fb4"
+        }
+      ],
+      "state": "success"
+    }
+  ],
+  "role": "assistant",
+  "id": "msg-py-001",
+  "metadata": {
+    "key": "value"
+  },
+  "created_at": "2024-01-01T00:00:00Z",
+  "finished_at": null,
+  "usage": null
+}

@@ -10,11 +10,13 @@ import (
 
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 // ReadFileTool provides file viewing and directory listing capabilities.
 type ReadFileTool struct {
 	baseDir string
+	ws      workspace.Workspace
 }
 
 // NewReadFileTool creates a new ReadFileTool with optional baseDir restriction.
@@ -23,6 +25,12 @@ func NewReadFileTool(baseDir string) *ReadFileTool {
 		baseDir, _ = filepath.Abs(baseDir)
 	}
 	return &ReadFileTool{baseDir: baseDir}
+}
+
+// WithWorkspace binds the tool to a workspace for sandboxed execution.
+func (r *ReadFileTool) WithWorkspace(ws workspace.Workspace) *ReadFileTool {
+	r.ws = ws
+	return r
 }
 
 // Name returns the tool name.
@@ -65,28 +73,40 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 		return nil, err
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("file does not exist: %s", filePath)
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("path is a directory, use list_directory tool: %s", filePath)
+	var data []byte
+	if r.ws != nil {
+		info, err := r.ws.Stat(ctx, path)
+		if err != nil {
+			return nil, fmt.Errorf("file does not exist: %s", filePath)
+		}
+		if info.IsDir {
+			return nil, fmt.Errorf("path is a directory, use list_directory tool: %s", filePath)
+		}
+		data, err = r.ws.ReadFile(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("file does not exist: %s", filePath)
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("path is a directory, use list_directory tool: %s", filePath)
+		}
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
 	lines := strings.Split(string(data), "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
 
 	if strings.TrimSpace(ranges) == "" {
-		content, err := viewTextFile(path, 1, len(lines))
-		if err != nil {
-			return nil, err
-		}
+		content := viewLines(lines, 1, len(lines))
 		return tool.NewTextResponse(fmt.Sprintf("The content of %s:\n```\n%s```", filePath, content)), nil
 	}
 
@@ -112,16 +132,14 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 		return nil, fmt.Errorf("invalid range: start line %d is greater than end line %d", start, end)
 	}
 
-	content, err := viewTextFile(path, start, end)
-	if err != nil {
-		return nil, err
-	}
+	content := viewLines(lines, start, end)
 	return tool.NewTextResponse(fmt.Sprintf("The content of %s in lines [%d, %d]:\n```\n%s```", filePath, start, end, content)), nil
 }
 
 // ListDirectoryTool lists files and directories.
 type ListDirectoryTool struct {
 	baseDir string
+	ws      workspace.Workspace
 }
 
 // NewListDirectoryTool creates a new ListDirectoryTool.
@@ -130,6 +148,12 @@ func NewListDirectoryTool(baseDir string) *ListDirectoryTool {
 		baseDir, _ = filepath.Abs(baseDir)
 	}
 	return &ListDirectoryTool{baseDir: baseDir}
+}
+
+// WithWorkspace binds the tool to a workspace for sandboxed execution.
+func (l *ListDirectoryTool) WithWorkspace(ws workspace.Workspace) *ListDirectoryTool {
+	l.ws = ws
+	return l
 }
 
 // Name returns the tool name.
@@ -166,23 +190,40 @@ func (l *ListDirectoryTool) Execute(ctx context.Context, input map[string]any) (
 		return nil, err
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("directory does not exist: %s", dirPath)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("path is not a directory: %s", dirPath)
-	}
-
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
+	var entries []workspace.DirEntry
+	if l.ws != nil {
+		info, err := l.ws.Stat(ctx, path)
+		if err != nil {
+			return nil, fmt.Errorf("directory does not exist: %s", dirPath)
+		}
+		if !info.IsDir {
+			return nil, fmt.Errorf("path is not a directory: %s", dirPath)
+		}
+		entries, err = l.ws.ListDir(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("directory does not exist: %s", dirPath)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("path is not a directory: %s", dirPath)
+		}
+		raw, err := os.ReadDir(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range raw {
+			entries = append(entries, workspace.DirEntry{Name: e.Name(), IsDir: e.IsDir()})
+		}
 	}
 
 	var dirs, files []string
 	for _, e := range entries {
-		full := filepath.Join(path, e.Name())
-		if e.IsDir() {
+		full := filepath.Join(path, e.Name)
+		if e.IsDir {
 			dirs = append(dirs, full)
 		} else {
 			files = append(files, full)

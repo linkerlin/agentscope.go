@@ -189,3 +189,9 @@ func intAny(v any) int {
 	}
 	return 0
 }
+
+// WrapThinkingBlock wraps raw thinking content with Anthropic's native
+// <thinking> tags. This satisfies the ThinkingFormatter extension interface.
+func (f *AnthropicFormatter) WrapThinkingBlock(content string) string {
+	return "<thinking>\n" + content + "\n</thinking>"
+}

@@ -24,3 +24,14 @@ type Formatter interface {
 	// ParseResponse converts a raw model response into a standard *message.Msg.
 	ParseResponse(resp any) (*message.Msg, error)
 }
+
+// ThinkingFormatter is an optional extension for formatters that need to wrap
+// thinking/reasoning content with provider-specific tags (e.g. Anthropic's
+// <thinking> block). If a formatter implements this interface, the agent will
+// call it before emitting thinking content.
+type ThinkingFormatter interface {
+	Formatter
+	// WrapThinkingBlock wraps raw thinking content into the model's native
+	// representation. For Anthropic this might return `<thinking>content</thinking>`.
+	WrapThinkingBlock(content string) string
+}

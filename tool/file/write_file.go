@@ -9,11 +9,13 @@ import (
 
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 // WriteFileTool provides file writing capabilities.
 type WriteFileTool struct {
 	baseDir string
+	ws      workspace.Workspace
 }
 
 // NewWriteFileTool creates a new WriteFileTool with optional baseDir restriction.
@@ -22,6 +24,12 @@ func NewWriteFileTool(baseDir string) *WriteFileTool {
 		baseDir, _ = filepath.Abs(baseDir)
 	}
 	return &WriteFileTool{baseDir: baseDir}
+}
+
+// WithWorkspace binds the tool to a workspace for sandboxed execution.
+func (w *WriteFileTool) WithWorkspace(ws workspace.Workspace) *WriteFileTool {
+	w.ws = ws
+	return w
 }
 
 // Name returns the tool name.
@@ -69,12 +77,46 @@ func (w *WriteFileTool) Execute(ctx context.Context, input map[string]any) (*too
 		return nil, err
 	}
 
+	// Helper to check if file exists
+	fileExists := func() bool {
+		if w.ws != nil {
+			_, err := w.ws.Stat(ctx, path)
+			return err == nil
+		}
+		_, err := os.Stat(path)
+		return err == nil
+	}
+
+	// Helper to read file
+	readFile := func() ([]byte, error) {
+		if w.ws != nil {
+			return w.ws.ReadFile(ctx, path)
+		}
+		return os.ReadFile(path)
+	}
+
+	// Helper to write file
+	writeFile := func(data []byte) error {
+		if w.ws != nil {
+			return w.ws.WriteFile(ctx, path, data, 0o644)
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+
+	// Helper to mkdir
+	mkdirAll := func(dir string) error {
+		if w.ws != nil {
+			return w.ws.MkdirAll(ctx, dir, 0o755)
+		}
+		return os.MkdirAll(dir, 0o755)
+	}
+
 	// File doesn't exist: create it
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if !fileExists() {
+		if err := mkdirAll(filepath.Dir(path)); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := writeFile([]byte(content)); err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(ranges) != "" {
@@ -83,7 +125,7 @@ func (w *WriteFileTool) Execute(ctx context.Context, input map[string]any) (*too
 		return tool.NewTextResponse(fmt.Sprintf("Create and write %s successfully.", filePath)), nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := readFile()
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +135,7 @@ func (w *WriteFileTool) Execute(ctx context.Context, input map[string]any) (*too
 	}
 
 	if strings.TrimSpace(ranges) == "" {
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := writeFile([]byte(content)); err != nil {
 			return nil, err
 		}
 		return tool.NewTextResponse(fmt.Sprintf("Overwrite %s successfully.", filePath)), nil
@@ -117,21 +159,19 @@ func (w *WriteFileTool) Execute(ctx context.Context, input map[string]any) (*too
 		newLines = append(newLines, originalLines[end:]...)
 	}
 
-	if err := os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0o644); err != nil {
+	if err := writeFile([]byte(strings.Join(newLines, "\n"))); err != nil {
 		return nil, err
 	}
 
 	viewStart, viewEnd := calculateViewRanges(len(originalLines), len(newLines), start, end, 5)
-	snippet, err := viewTextFile(path, viewStart, viewEnd)
-	if err != nil {
-		snippet = ""
-	}
+	snippet := viewLines(newLines, viewStart, viewEnd)
 	return tool.NewTextResponse(fmt.Sprintf("Write %s successfully. The new content snippet:\n```\n%s```", filePath, snippet)), nil
 }
 
 // InsertTextFileTool inserts content at a specific line.
 type InsertTextFileTool struct {
 	baseDir string
+	ws      workspace.Workspace
 }
 
 // NewInsertTextFileTool creates a new InsertTextFileTool.
@@ -140,6 +180,12 @@ func NewInsertTextFileTool(baseDir string) *InsertTextFileTool {
 		baseDir, _ = filepath.Abs(baseDir)
 	}
 	return &InsertTextFileTool{baseDir: baseDir}
+}
+
+// WithWorkspace binds the tool to a workspace for sandboxed execution.
+func (i *InsertTextFileTool) WithWorkspace(ws workspace.Workspace) *InsertTextFileTool {
+	i.ws = ws
+	return i
 }
 
 // Name returns the tool name.
@@ -192,11 +238,32 @@ func (i *InsertTextFileTool) Execute(ctx context.Context, input map[string]any) 
 		return nil, err
 	}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	readFile := func() ([]byte, error) {
+		if i.ws != nil {
+			return i.ws.ReadFile(ctx, path)
+		}
+		return os.ReadFile(path)
+	}
+	writeFile := func(data []byte) error {
+		if i.ws != nil {
+			return i.ws.WriteFile(ctx, path, data, 0o644)
+		}
+		return os.WriteFile(path, data, 0o644)
+	}
+	fileExists := func() bool {
+		if i.ws != nil {
+			_, err := i.ws.Stat(ctx, path)
+			return err == nil
+		}
+		_, err := os.Stat(path)
+		return err == nil
+	}
+
+	if !fileExists() {
 		return nil, fmt.Errorf("file does not exist: %s", filePath)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := readFile()
 	if err != nil {
 		return nil, err
 	}
@@ -218,14 +285,11 @@ func (i *InsertTextFileTool) Execute(ctx context.Context, input map[string]any) 
 		newLines = append(originalLines, strings.Split(content, "\n")...)
 	}
 
-	if err := os.WriteFile(path, []byte(strings.Join(newLines, "\n")), 0o644); err != nil {
+	if err := writeFile([]byte(strings.Join(newLines, "\n"))); err != nil {
 		return nil, err
 	}
 
 	viewStart, viewEnd := calculateViewRanges(len(originalLines), len(newLines), lineNumber, lineNumber, 5)
-	snippet, err := viewTextFile(path, viewStart, viewEnd)
-	if err != nil {
-		snippet = ""
-	}
+	snippet := viewLines(newLines, viewStart, viewEnd)
 	return tool.NewTextResponse(fmt.Sprintf("Insert content into %s at line %d successfully. The content between lines %d-%d is:\n```\n%s```", filePath, lineNumber, viewStart, viewEnd, snippet)), nil
 }

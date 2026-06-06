@@ -74,8 +74,9 @@ func WithToolChoice(tc *ToolChoice) ChatOption {
 
 // StreamChunk is a single chunk from a streaming model response
 type StreamChunk struct {
-	Delta   string
-	Content []message.ContentBlock
-	Done    bool
-	Usage   *ChatUsage // optional final usage for the stream
+	Delta      string
+	IsThinking bool // true if this chunk is model reasoning content (e.g. Anthropic thinking tags)
+	Content    []message.ContentBlock
+	Done       bool
+	Usage      *ChatUsage // optional final usage for the stream
 }

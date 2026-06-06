@@ -327,3 +327,13 @@ func TestAnthropicFormatter_ParseResponse_MissingContentError(t *testing.T) {
 		t.Fatal("expected error for missing content")
 	}
 }
+
+
+func TestAnthropicFormatter_WrapThinkingBlock(t *testing.T) {
+	f := NewAnthropicFormatter()
+	got := f.WrapThinkingBlock("thinking content")
+	expected := "<thinking>\nthinking content\n</thinking>"
+	if got != expected {
+		t.Fatalf("expected %q, got %q", expected, got)
+	}
+}

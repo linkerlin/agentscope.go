@@ -79,6 +79,11 @@ func viewTextFile(path string, startLine, endLine int) (string, error) {
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
+	return viewLines(lines, startLine, endLine), nil
+}
+
+// viewLines formats a slice of lines with line numbers.
+func viewLines(lines []string, startLine, endLine int) string {
 	start := startLine - 1
 	if start < 0 {
 		start = 0
@@ -91,5 +96,5 @@ func viewTextFile(path string, startLine, endLine int) (string, error) {
 	for i := start; i < end; i++ {
 		fmt.Fprintf(&sb, "%d: %s\n", i+1, lines[i])
 	}
-	return sb.String(), nil
+	return sb.String()
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 // ApprovalCallback is invoked when a command is not in the whitelist.
@@ -25,6 +26,7 @@ type ShellCommandTool struct {
 	Validator        CommandValidator
 	BaseDir          string
 	DefaultTimeout   time.Duration
+	ws               workspace.Workspace
 }
 
 // NewShellCommandTool creates a ShellCommandTool.
@@ -40,6 +42,12 @@ func NewShellCommandTool(baseDir string, allowed []string, callback ApprovalCall
 		BaseDir:          baseDir,
 		DefaultTimeout:   300 * time.Second,
 	}
+}
+
+// WithWorkspace binds the tool to a workspace for sandboxed execution.
+func (s *ShellCommandTool) WithWorkspace(ws workspace.Workspace) *ShellCommandTool {
+	s.ws = ws
+	return s
 }
 
 // Name returns the tool name.
@@ -133,6 +141,19 @@ func (s *ShellCommandTool) Execute(ctx context.Context, input map[string]any) (*
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	// If workspace is configured, delegate execution to it
+	if s.ws != nil {
+		result, err := s.ws.Execute(ctx, command, workspace.ExecuteOptions{
+			WorkingDir: workingDir,
+			Timeout:    timeout,
+		})
+		if err != nil {
+			return tool.NewTextResponse(fmt.Sprintf("<returncode>-1</returncode><stdout></stdout><stderr>%s</stderr>", err.Error())), nil
+		}
+		output := fmt.Sprintf("<returncode>%d</returncode><stdout>%s</stdout><stderr>%s</stderr>", result.ExitCode, result.Stdout, result.Stderr)
+		return tool.NewTextResponse(output), nil
+	}
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {

@@ -149,3 +149,22 @@ func TestGateway_ChatStream_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("expected 405, got %d", rr.Code)
 	}
 }
+
+
+func TestGateway_Chat_MethodNotAllowed(t *testing.T) {
+	srv := NewServer(&mockAgent{name: "test"})
+	req := httptest.NewRequest(http.MethodGet, "/chat", nil)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestGateway_SessionCount(t *testing.T) {
+	srv := NewServer(&mockAgent{name: "test"})
+	if srv.SessionCount() != 0 {
+		t.Fatalf("expected 0 sessions initially, got %d", srv.SessionCount())
+	}
+}

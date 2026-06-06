@@ -4,19 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/interruption"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
+	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/shutdown"
 	"github.com/linkerlin/agentscope.go/tool"
+	"github.com/linkerlin/agentscope.go/tool/file"
+	"github.com/linkerlin/agentscope.go/tool/shell"
 	"github.com/linkerlin/agentscope.go/toolkit"
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 const defaultMaxIterations = 10
@@ -42,6 +48,17 @@ type ReActAgent struct {
 	maxIterations   int
 	toolMap         map[string]tool.Tool
 	shutdownConfig  shutdown.GracefulShutdownConfig
+
+	// V2 runtime state (suspend-resume support)
+	runtimeMu    sync.Mutex
+	runtimeState *agent.AgentState
+	waiters      map[string]chan event.AgentEvent // confirm_id -> waiter channel
+	waitersMu    sync.Mutex
+
+	// V2 production capabilities
+	permissionEngine *permission.Engine
+	workspace        workspace.Workspace
+	eventBus         *event.Bus
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
@@ -59,6 +76,11 @@ type ReActAgentBuilder struct {
 	streamHooks    []hook.StreamHook
 	meta           map[string]any
 	shutdownConfig shutdown.GracefulShutdownConfig
+
+	// V2 fields
+	permissionEngine *permission.Engine
+	workspace        workspace.Workspace
+	eventBus         *event.Bus
 }
 
 // Builder returns a new ReActAgentBuilder
@@ -152,6 +174,25 @@ func (b *ReActAgentBuilder) StreamHooks(hooks ...hook.StreamHook) *ReActAgentBui
 	return b
 }
 
+// PermissionEngine sets the V2 permission engine for HITL tool confirmation.
+func (b *ReActAgentBuilder) PermissionEngine(pe *permission.Engine) *ReActAgentBuilder {
+	b.permissionEngine = pe
+	return b
+}
+
+// Workspace sets the V2 workspace abstraction for sandboxed tool execution.
+func (b *ReActAgentBuilder) Workspace(ws workspace.Workspace) *ReActAgentBuilder {
+	b.workspace = ws
+	return b
+}
+
+// WithEventBus attaches an event bus for broadcasting AgentEvents to external
+// consumers (e.g. Studio UI, loggers).
+func (b *ReActAgentBuilder) WithEventBus(bus *event.Bus) *ReActAgentBuilder {
+	b.eventBus = bus
+	return b
+}
+
 func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 	if b.name == "" {
 		return nil, errors.New("react agent: name is required")
@@ -184,13 +225,17 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 			b.hooks,
 			b.streamHooks,
 		),
-		chatModel:      b.chatModel,
-		tools:          b.tools,
-		toolkit:        b.toolkit,
-		memory:         b.memory,
-		maxIterations:  b.maxIterations,
-		toolMap:        toolMap,
-		shutdownConfig: b.shutdownConfig,
+		chatModel:        b.chatModel,
+		tools:            b.tools,
+		toolkit:          b.toolkit,
+		memory:           b.memory,
+		maxIterations:    b.maxIterations,
+		toolMap:          toolMap,
+		shutdownConfig:   b.shutdownConfig,
+		waiters:          make(map[string]chan event.AgentEvent),
+		permissionEngine: b.permissionEngine,
+		workspace:        b.workspace,
+		eventBus:         b.eventBus,
 	}
 	return a, nil
 }
@@ -692,16 +737,42 @@ func (a *ReActAgent) toolSpecs() []model.ToolSpec {
 	return specs
 }
 
-// executeTool finds and runs the named tool
+// executeTool finds and runs the named tool. If a workspace is configured,
+// it attempts to bind the workspace to the tool before execution.
 func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
 	if a.toolkit != nil {
+		if a.workspace != nil {
+			if t, ok := a.toolkit.Registry.Get(name); ok {
+				bindWorkspaceToTool(t, a.workspace)
+			}
+		}
 		return a.toolkit.ExecuteTool(ctx, name, input)
 	}
 	t, ok := a.toolMap[name]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", name)
 	}
+	if a.workspace != nil {
+		bindWorkspaceToTool(t, a.workspace)
+	}
 	return t.Execute(ctx, input)
+}
+
+// bindWorkspaceToTool uses reflection-free type assertions to bind a workspace
+// to tools that expose WithWorkspace methods.
+func bindWorkspaceToTool(t tool.Tool, ws workspace.Workspace) {
+	switch wt := t.(type) {
+	case *file.ReadFileTool:
+		wt.WithWorkspace(ws)
+	case *file.WriteFileTool:
+		wt.WithWorkspace(ws)
+	case *file.InsertTextFileTool:
+		wt.WithWorkspace(ws)
+	case *file.ListDirectoryTool:
+		wt.WithWorkspace(ws)
+	case *shell.ShellCommandTool:
+		wt.WithWorkspace(ws)
+	}
 }
 
 // fireHooks fires all registered hooks for the given point；支持 InjectMessages 链式更新 Messages
@@ -716,9 +787,84 @@ func (a *ReActAgent) fireHooks(
 	return a.Base.FireHooks(ctx, point, messages, response, toolName, toolInput)
 }
 
-// Ensure ReActAgent satisfies agent.Agent (compile-time check via blank import in agent package)
-var _ interface {
-	Name() string
-	Call(ctx context.Context, msg *message.Msg) (*message.Msg, error)
-	CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error)
-} = (*ReActAgent)(nil)
+// InjectEvent allows an external consumer to inject a resume event into a
+// suspended agent. Supported events: UserConfirmResultEvent, ExternalExecutionResultEvent.
+func (a *ReActAgent) InjectEvent(ctx context.Context, ev event.AgentEvent) error {
+	switch e := ev.(type) {
+	case *event.UserConfirmResultEvent:
+		return a.signalWaiter(e.ConfirmID, ev)
+	case *event.ExternalExecutionResultEvent:
+		return a.signalWaiter(e.ConfirmID, ev)
+	default:
+		return fmt.Errorf("react agent: unsupported inject event type %T", ev)
+	}
+}
+
+// signalWaiter delivers an event to a registered waiter channel.
+func (a *ReActAgent) signalWaiter(confirmID string, ev event.AgentEvent) error {
+	a.waitersMu.Lock()
+	ch, ok := a.waiters[confirmID]
+	a.waitersMu.Unlock()
+	if !ok {
+		return fmt.Errorf("react agent: no waiter for confirm_id %s", confirmID)
+	}
+	select {
+	case ch <- ev:
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("react agent: timeout signalling waiter for confirm_id %s", confirmID)
+	}
+}
+
+// waitForExternalEvent blocks until an external event is injected for the given confirmID.
+func (a *ReActAgent) waitForExternalEvent(ctx context.Context, confirmID string) (event.AgentEvent, error) {
+	ch := make(chan event.AgentEvent, 1)
+	a.waitersMu.Lock()
+	a.waiters[confirmID] = ch
+	a.waitersMu.Unlock()
+
+	defer func() {
+		a.waitersMu.Lock()
+		delete(a.waiters, confirmID)
+		a.waitersMu.Unlock()
+	}()
+
+	select {
+	case ev := <-ch:
+		return ev, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// SaveState captures the current runtime state.
+func (a *ReActAgent) SaveState() (*agent.AgentState, error) {
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+	if a.runtimeState == nil {
+		return nil, errors.New("react agent: no active runtime state")
+	}
+	// Deep copy messages to avoid races
+	st := *a.runtimeState
+	if len(a.runtimeState.Messages) > 0 {
+		st.Messages = make([]*message.Msg, len(a.runtimeState.Messages))
+		copy(st.Messages, a.runtimeState.Messages)
+	}
+	st.UpdatedAt = time.Now()
+	return &st, nil
+}
+
+// LoadState restores runtime state. Note: ChatModel, tools, and memory
+// must still be injected by the caller after LoadState.
+func (a *ReActAgent) LoadState(st *agent.AgentState) error {
+	if st == nil {
+		return errors.New("react agent: nil state")
+	}
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+	a.runtimeState = st
+	return nil
+}
+
+// Ensure ReActAgent satisfies agent.Agent (compile-time check)
+var _ agent.Agent = (*ReActAgent)(nil)

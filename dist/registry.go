@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ func (r *Registry) Get(url string) (a2a.AgentCard, bool) {
 	return c, ok
 }
 
-// List returns all registered cards.
+// List returns all registered cards sorted by URL for deterministic ordering.
 func (r *Registry) List() []a2a.AgentCard {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -52,6 +53,9 @@ func (r *Registry) List() []a2a.AgentCard {
 	for _, c := range r.cards {
 		out = append(out, c)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].URL < out[j].URL
+	})
 	return out
 }
 

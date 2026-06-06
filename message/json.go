@@ -42,6 +42,8 @@ type rawBlock struct {
 	State      string         `json:"state,omitempty"`
 	Thinking   string         `json:"thinking,omitempty"`
 	Signature  string         `json:"signature,omitempty"`
+	Hint       string         `json:"hint,omitempty"`
+	HintKind   string         `json:"hint_kind,omitempty"`
 	SubContent []rawBlock     `json:"sub_content,omitempty"`
 }
 
@@ -107,6 +109,8 @@ func blockToRaw(b ContentBlock) rawBlock {
 		return rawBlock{Type: TypeToolResult, ID: v.ID, Name: v.Name, ToolUseID: v.ToolUseID, IsError: v.IsError, State: v.State, SubContent: subs}
 	case *ThinkingBlock:
 		return rawBlock{Type: TypeThinking, Thinking: v.Thinking, Signature: v.Signature}
+	case *HintBlock:
+		return rawBlock{Type: TypeHint, Hint: v.Text, HintKind: v.Kind}
 	default:
 		return rawBlock{Type: TypeText}
 	}
@@ -151,6 +155,8 @@ func rawToBlock(r rawBlock) (ContentBlock, error) {
 		return b, nil
 	case TypeThinking:
 		return NewThinkingBlock(r.Thinking, r.Signature), nil
+	case TypeHint:
+		return NewHintBlock(r.Hint, r.HintKind), nil
 	default:
 		return nil, fmt.Errorf("message: unknown block type %s", r.Type)
 	}

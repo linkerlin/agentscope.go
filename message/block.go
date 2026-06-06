@@ -11,6 +11,7 @@ const (
 	TypeToolUse    BlockType = "tool_use"
 	TypeToolResult BlockType = "tool_result"
 	TypeThinking   BlockType = "thinking"
+	TypeHint       BlockType = "hint"
 )
 
 // ContentBlock is the interface for all content block types
@@ -126,3 +127,14 @@ func NewThinkingBlock(thinking, signature string) *ThinkingBlock {
 	return &ThinkingBlock{Thinking: thinking, Signature: signature}
 }
 func (b *ThinkingBlock) BlockType() BlockType { return TypeThinking }
+
+// HintBlock contains a model-generated hint or suggestion for the user.
+type HintBlock struct {
+	Text string
+	Kind string // e.g. "suggestion", "warning", "instruction"
+}
+
+func NewHintBlock(text, kind string) *HintBlock {
+	return &HintBlock{Text: text, Kind: kind}
+}
+func (b *HintBlock) BlockType() BlockType { return TypeHint }

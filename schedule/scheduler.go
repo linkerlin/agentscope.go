@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -24,6 +25,7 @@ type Job struct {
 type Scheduler struct {
 	cron   *cron.Cron
 	jobs   map[string]cron.EntryID // jobID -> cron entryID
+	mu     sync.RWMutex
 	handle func(ctx context.Context, job *Job) error
 }
 
@@ -57,24 +59,31 @@ func (s *Scheduler) Schedule(ctx context.Context, job *Job) error {
 	if err != nil {
 		return fmt.Errorf("schedule: invalid cron expression: %w", err)
 	}
+	s.mu.Lock()
 	s.jobs[job.ID] = entryID
+	s.mu.Unlock()
 	return nil
 }
 
 // Cancel removes a scheduled job.
 func (s *Scheduler) Cancel(ctx context.Context, jobID string) error {
+	s.mu.Lock()
 	entryID, ok := s.jobs[jobID]
 	if !ok {
+		s.mu.Unlock()
 		return fmt.Errorf("schedule: job not found: %s", jobID)
 	}
 	s.cron.Remove(entryID)
 	delete(s.jobs, jobID)
+	s.mu.Unlock()
 	return nil
 }
 
 // NextRun returns the next scheduled run time for a job.
 func (s *Scheduler) NextRun(jobID string) (time.Time, error) {
+	s.mu.RLock()
 	entryID, ok := s.jobs[jobID]
+	s.mu.RUnlock()
 	if !ok {
 		return time.Time{}, fmt.Errorf("schedule: job not found: %s", jobID)
 	}

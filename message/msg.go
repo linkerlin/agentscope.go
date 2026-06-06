@@ -50,6 +50,28 @@ func (m *Msg) GetToolResults() []*ToolResultBlock {
 	return result
 }
 
+// GetThinkingContent returns all ThinkingBlock content concatenated.
+func (m *Msg) GetThinkingContent() string {
+	var sb strings.Builder
+	for _, block := range m.Content {
+		if tb, ok := block.(*ThinkingBlock); ok {
+			sb.WriteString(tb.Thinking)
+		}
+	}
+	return sb.String()
+}
+
+// GetHintContent returns all HintBlock content concatenated.
+func (m *Msg) GetHintContent() string {
+	var sb strings.Builder
+	for _, block := range m.Content {
+		if hb, ok := block.(*HintBlock); ok {
+			sb.WriteString(hb.Text)
+		}
+	}
+	return sb.String()
+}
+
 // MsgBuilder provides a fluent API for constructing Msg instances
 type MsgBuilder struct {
 	msg *Msg

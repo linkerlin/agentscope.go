@@ -88,6 +88,50 @@ func NewThinkingBlockEnd(replyID string, blockIndex int) *ThinkingBlockEndEvent 
 	}
 }
 
+// HintBlockStartEvent signals the start of a hint/suggestion block.
+type HintBlockStartEvent struct {
+	baseEvent
+	BlockIndex int `json:"block_index"`
+}
+
+// NewHintBlockStart creates a HintBlockStartEvent.
+func NewHintBlockStart(replyID string, blockIndex int) *HintBlockStartEvent {
+	return &HintBlockStartEvent{
+		baseEvent:  NewBase(TypeHintBlockStart, replyID),
+		BlockIndex: blockIndex,
+	}
+}
+
+// HintBlockDeltaEvent carries an incremental hint fragment.
+type HintBlockDeltaEvent struct {
+	baseEvent
+	BlockIndex int    `json:"block_index"`
+	Delta      string `json:"delta"`
+}
+
+// NewHintBlockDelta creates a HintBlockDeltaEvent.
+func NewHintBlockDelta(replyID string, blockIndex int, delta string) *HintBlockDeltaEvent {
+	return &HintBlockDeltaEvent{
+		baseEvent:  NewBase(TypeHintBlockDelta, replyID),
+		BlockIndex: blockIndex,
+		Delta:      delta,
+	}
+}
+
+// HintBlockEndEvent signals the end of a hint block.
+type HintBlockEndEvent struct {
+	baseEvent
+	BlockIndex int `json:"block_index"`
+}
+
+// NewHintBlockEnd creates a HintBlockEndEvent.
+func NewHintBlockEnd(replyID string, blockIndex int) *HintBlockEndEvent {
+	return &HintBlockEndEvent{
+		baseEvent:  NewBase(TypeHintBlockEnd, replyID),
+		BlockIndex: blockIndex,
+	}
+}
+
 // ToolCallStartEvent signals the start of a tool call block.
 type ToolCallStartEvent struct {
 	baseEvent
@@ -201,6 +245,9 @@ var (
 	_ AgentEvent = (*ThinkingBlockStartEvent)(nil)
 	_ AgentEvent = (*ThinkingBlockDeltaEvent)(nil)
 	_ AgentEvent = (*ThinkingBlockEndEvent)(nil)
+	_ AgentEvent = (*HintBlockStartEvent)(nil)
+	_ AgentEvent = (*HintBlockDeltaEvent)(nil)
+	_ AgentEvent = (*HintBlockEndEvent)(nil)
 	_ AgentEvent = (*ToolCallStartEvent)(nil)
 	_ AgentEvent = (*ToolCallDeltaEvent)(nil)
 	_ AgentEvent = (*ToolCallEndEvent)(nil)

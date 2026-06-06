@@ -9,9 +9,10 @@ import (
 
 // Toolkit 聚合注册表、分组与执行器
 type Toolkit struct {
-	Registry *Registry
-	Groups   *GroupManager
-	Executor *ToolExecutor
+	Registry    *Registry
+	Groups      *GroupManager
+	Executor    *ToolExecutor
+	middlewares []Middleware
 }
 
 // NewToolkit 使用默认执行配置创建 Toolkit
@@ -54,12 +55,45 @@ func (tk *Toolkit) ActiveToolSpecs() []model.ToolSpec {
 	return specs
 }
 
-// Execute 批量执行（顺序或并行）
-func (tk *Toolkit) Execute(ctx context.Context, calls []ToolCall) ([]ToolResult, error) {
-	return tk.Executor.Execute(ctx, tk.Registry, calls)
+// Use registers one or more middleware. Middleware are applied in registration order.
+func (tk *Toolkit) Use(mw ...Middleware) {
+	tk.middlewares = append(tk.middlewares, mw...)
 }
 
-// ExecuteTool 执行单个工具名
+// Execute 批量执行（顺序或并行），经过中间件链。
+func (tk *Toolkit) Execute(ctx context.Context, calls []ToolCall) ([]ToolResult, error) {
+	if len(tk.middlewares) == 0 {
+		return tk.Executor.Execute(ctx, tk.Registry, calls)
+	}
+
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		results, err := tk.Executor.Execute(ctx, tk.Registry, req.ToolCalls)
+		return &Response{Results: results}, err
+	}
+	handler = chain(handler, tk.middlewares...)
+
+	resp, err := handler(ctx, &Request{Stage: StageExecute, ToolCalls: calls})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Results, nil
+}
+
+// ExecuteTool 执行单个工具名，经过中间件链。
 func (tk *Toolkit) ExecuteTool(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
-	return tk.Executor.ExecuteTool(ctx, tk.Registry, name, input)
+	if len(tk.middlewares) == 0 {
+		return tk.Executor.ExecuteTool(ctx, tk.Registry, name, input)
+	}
+
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		resp, err := tk.Executor.ExecuteTool(ctx, tk.Registry, req.ToolName, req.ToolInput)
+		return &Response{Single: resp}, err
+	}
+	handler = chain(handler, tk.middlewares...)
+
+	resp, err := handler(ctx, &Request{Stage: StageExecuteTool, ToolName: name, ToolInput: input})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Single, nil
 }

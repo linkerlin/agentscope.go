@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 // chatRequest is the expected JSON body for /chat and /chat/stream.
@@ -55,12 +56,16 @@ func (s *wsSession) close() {
 
 // Server exposes an agent over HTTP with REST, SSE, and WebSocket endpoints.
 // It also supports session-based connection tracking and room broadcasting.
+// When an authenticator is configured, V2 routes require authentication.
 type Server struct {
-	agent    agent.Agent
-	mux      *http.ServeMux
-	sessions map[string]*wsSession
-	rooms    map[string]map[string]*wsSession
-	mu       sync.RWMutex
+	agent         agent.Agent
+	mux           *http.ServeMux
+	authenticator service.Authenticator
+	storage       service.Storage
+	otelHandler   http.Handler
+	sessions      map[string]*wsSession
+	rooms         map[string]map[string]*wsSession
+	mu            sync.RWMutex
 }
 
 // NewServer creates a gateway HTTP server for the given agent.
@@ -77,14 +82,48 @@ func NewServer(a agent.Agent) *Server {
 	return s
 }
 
+// WithAuthenticator configures the gateway to require authentication on protected routes.
+func (s *Server) WithAuthenticator(auth service.Authenticator) *Server {
+	s.authenticator = auth
+	return s
+}
+
+// WithStorage attaches a service storage for management endpoints.
+func (s *Server) WithStorage(st service.Storage) *Server {
+	s.storage = st
+	return s
+}
+
+// requireAuth wraps a handler with authentication if an authenticator is configured.
+func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
+	if s.authenticator == nil {
+		return h
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, err := s.authenticator.Authenticate(r)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		h(w, r.WithContext(ctx))
+	}
+}
+
 // RegisterV2Routes adds the V2 event-stream endpoints (SSE + WS) to the gateway server.
+// These routes are protected if an authenticator is configured.
 func (s *Server) RegisterV2Routes() {
-	s.mux.HandleFunc("/v2/chat/stream", s.handleV2ChatStream)
-	s.mux.HandleFunc("/v2/chat/ws", s.handleChatWSV2)
+	s.mux.HandleFunc("/v2/chat/stream", s.requireAuth(s.handleV2ChatStream))
+	s.mux.HandleFunc("/v2/chat/ws", s.requireAuth(s.handleChatWSV2))
 }
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.otelHandler != nil {
+		s.otelHandler.ServeHTTP(w, r)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 

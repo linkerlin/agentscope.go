@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -81,6 +82,20 @@ type JWTAuthenticator struct {
 // NewJWTAuthenticator creates a JWT authenticator.
 func NewJWTAuthenticator(secret []byte, issuer string) *JWTAuthenticator {
 	return &JWTAuthenticator{secret: secret, issuer: issuer}
+}
+
+// GenerateToken creates a new JWT for the given user ID with an optional expiry.
+func (a *JWTAuthenticator) GenerateToken(userID string, expiry time.Duration) (string, error) {
+	claims := jwt.MapClaims{
+		"sub": userID,
+		"iss": a.issuer,
+		"iat": time.Now().Unix(),
+	}
+	if expiry > 0 {
+		claims["exp"] = time.Now().Add(expiry).Unix()
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(a.secret)
 }
 
 // Authenticate extracts the Bearer token and validates the JWT.

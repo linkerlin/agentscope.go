@@ -2,10 +2,17 @@ package toolkit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strconv"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/linkerlin/agentscope.go/tool"
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 // MiddlewareStage identifies the lifecycle stage for middleware interception.
@@ -126,5 +133,77 @@ func (m *PermissionMiddleware) Wrap(next Handler) Handler {
 			}
 		}
 		return next(ctx, req)
+	}
+}
+
+// TracingMiddleware creates OpenTelemetry spans for tool execution.
+type TracingMiddleware struct {
+	tracer trace.Tracer
+}
+
+// NewTracingMiddleware creates a tracing middleware backed by OpenTelemetry.
+func NewTracingMiddleware(tracer trace.Tracer) *TracingMiddleware {
+	return &TracingMiddleware{tracer: tracer}
+}
+
+func (m *TracingMiddleware) Wrap(next Handler) Handler {
+	return func(ctx context.Context, req *Request) (*Response, error) {
+		ctx, span := m.tracer.Start(ctx, "toolkit.execute")
+		defer span.End()
+
+		if req.Stage == StageExecute {
+			span.SetAttributes(attribute.Int("toolkit.call_count", len(req.ToolCalls)))
+			for i, c := range req.ToolCalls {
+				span.SetAttributes(attribute.String("toolkit.tool."+strconv.Itoa(i), c.Name))
+			}
+		} else {
+			span.SetAttributes(
+				attribute.String("toolkit.tool", req.ToolName),
+				attribute.String("toolkit.stage", string(req.Stage)),
+			)
+		}
+
+		resp, err := next(ctx, req)
+		if err != nil {
+			span.RecordError(err)
+			span.SetAttributes(attribute.Bool("toolkit.error", true))
+		}
+		if resp != nil && req.Stage == StageExecute {
+			span.SetAttributes(attribute.Int("toolkit.result_count", len(resp.Results)))
+		}
+		return resp, err
+	}
+}
+
+// OffloadMiddleware persists tool execution results to a workspace.
+type OffloadMiddleware struct {
+	ws      workspace.Workspace
+	baseDir string
+}
+
+// NewOffloadMiddleware creates an offload middleware that writes results to the given workspace.
+func NewOffloadMiddleware(ws workspace.Workspace, baseDir string) *OffloadMiddleware {
+	return &OffloadMiddleware{ws: ws, baseDir: baseDir}
+}
+
+func (m *OffloadMiddleware) Wrap(next Handler) Handler {
+	return func(ctx context.Context, req *Request) (*Response, error) {
+		resp, err := next(ctx, req)
+		if err != nil || resp == nil || m.ws == nil {
+			return resp, err
+		}
+
+		if req.Stage == StageExecute {
+			for i, r := range resp.Results {
+				data, _ := json.Marshal(map[string]any{
+					"tool_name": r.Name,
+					"success":   r.Err == nil,
+					"timestamp": time.Now().Unix(),
+				})
+				path := filepath.Join(m.baseDir, fmt.Sprintf("%s_%d.json", r.Name, i))
+				_ = m.ws.WriteFile(ctx, path, data, 0644)
+			}
+		}
+		return resp, err
 	}
 }

@@ -7,9 +7,12 @@ import (
 	"testing"
 	"time"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 func TestChain(t *testing.T) {
@@ -171,4 +174,67 @@ func (d *dummyTool) Spec() model.ToolSpec {
 }
 func (d *dummyTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	return &tool.Response{Content: []message.ContentBlock{message.NewTextBlock("ok")}}, nil
+}
+
+func TestTracingMiddleware(t *testing.T) {
+	tp := sdktrace.NewTracerProvider()
+	defer tp.Shutdown(context.Background())
+	tracer := tp.Tracer("test")
+
+	mw := NewTracingMiddleware(tracer)
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		return &Response{Results: []ToolResult{{Name: "t1"}}}, nil
+	}
+
+	chained := mw.Wrap(handler)
+	_, err := chained(context.Background(), &Request{Stage: StageExecute, ToolCalls: []ToolCall{{Name: "t1"}}})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+}
+
+func TestTracingMiddlewareError(t *testing.T) {
+	tp := sdktrace.NewTracerProvider()
+	defer tp.Shutdown(context.Background())
+	tracer := tp.Tracer("test")
+
+	mw := NewTracingMiddleware(tracer)
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		return nil, errors.New("boom")
+	}
+
+	chained := mw.Wrap(handler)
+	_, err := chained(context.Background(), &Request{Stage: StageExecuteTool, ToolName: "t1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestOffloadMiddleware(t *testing.T) {
+	ws := workspace.NewLocalWorkspace("offload-test", "")
+	mw := NewOffloadMiddleware(ws, "/tmp/offload")
+
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		return &Response{Results: []ToolResult{{Name: "echo", Response: &tool.Response{Content: []message.ContentBlock{message.NewTextBlock("ok")}}}}}, nil
+	}
+
+	chained := mw.Wrap(handler)
+	_, err := chained(context.Background(), &Request{Stage: StageExecute, ToolCalls: []ToolCall{{Name: "echo"}}})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+}
+
+func TestOffloadMiddlewareNilWorkspace(t *testing.T) {
+	mw := NewOffloadMiddleware(nil, "/tmp/offload")
+
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		return &Response{Results: []ToolResult{{Name: "echo"}}}, nil
+	}
+
+	chained := mw.Wrap(handler)
+	_, err := chained(context.Background(), &Request{Stage: StageExecute, ToolCalls: []ToolCall{{Name: "echo"}}})
+	if err != nil {
+		t.Fatalf("expected success with nil workspace, got %v", err)
+	}
 }

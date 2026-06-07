@@ -3,6 +3,8 @@ package workspace
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -235,4 +238,115 @@ func CreateContainer(ctx context.Context, image string, cfg DockerConfig) (strin
 		return "", fmt.Errorf("docker workspace: create container: %w\n%s", err, string(out))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+const defaultDockerBaseImage = "python:3.11-slim"
+
+// DockerBuildConfig controls Dockerfile rendering for agent workspaces.
+type DockerBuildConfig struct {
+	BaseImage    string
+	WorkDir      string
+	PythonPackages []string
+	ExtraRunLines  []string
+}
+
+// RenderDockerfile renders a minimal workspace Dockerfile from config.
+func RenderDockerfile(cfg DockerBuildConfig) string {
+	base := cfg.BaseImage
+	if base == "" {
+		base = defaultDockerBaseImage
+	}
+	workdir := cfg.WorkDir
+	if workdir == "" {
+		workdir = "/workspace"
+	}
+	var installLines []string
+	if len(cfg.PythonPackages) > 0 {
+		installLines = append(installLines,
+			"RUN pip install --no-cache-dir "+strings.Join(cfg.PythonPackages, " "),
+		)
+	}
+	installLines = append(installLines, cfg.ExtraRunLines...)
+
+	var buf bytes.Buffer
+	_ = dockerfileTemplate.Execute(&buf, map[string]any{
+		"BaseImage":    base,
+		"WorkDir":      workdir,
+		"InstallLines": installLines,
+	})
+	return buf.String()
+}
+
+var dockerfileTemplate = template.Must(template.New("dockerfile").Parse(`# syntax=docker/dockerfile:1
+FROM {{.BaseImage}}
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR {{.WorkDir}}
+{{range .InstallLines}}{{.}}
+{{end}}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD test -d {{.WorkDir}} || exit 1
+`))
+
+// ComputeImageTag returns a deterministic local image tag from Dockerfile content.
+func ComputeImageTag(dockerfile string, extra ...[]byte) string {
+	h := sha256.New()
+	h.Write([]byte(dockerfile))
+	for _, b := range extra {
+		h.Write(b)
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	if len(sum) > 12 {
+		sum = sum[:12]
+	}
+	return "agentscope-workspace:" + sum
+}
+
+// HealthCheck verifies a container is running (or healthy if configured).
+func HealthCheck(ctx context.Context, containerID string) error {
+	return HealthCheckWithRunner(ctx, containerID, defaultRunner)
+}
+
+// HealthCheckWithRunner allows injecting a command runner (for tests).
+func HealthCheckWithRunner(ctx context.Context, containerID string, runner cmdRunner) error {
+	cmd := runner(ctx, "docker", "inspect", "-f", "{{.State.Running}}", containerID)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker health inspect: %w\n%s", err, string(out))
+	}
+	if strings.TrimSpace(string(out)) != "true" {
+		return fmt.Errorf("docker container %s is not running", containerID)
+	}
+	cmd = runner(ctx, "docker", "inspect", "-f", "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", containerID)
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker health status: %w\n%s", err, string(out))
+	}
+	status := strings.TrimSpace(string(out))
+	if status == "unhealthy" {
+		return fmt.Errorf("docker container %s is unhealthy", containerID)
+	}
+	return nil
+}
+
+// BuildImage builds a Docker image from rendered Dockerfile bytes.
+func BuildImage(ctx context.Context, dockerfile, tag string) error {
+	return BuildImageWithRunner(ctx, dockerfile, tag, defaultRunner)
+}
+
+// BuildImageWithRunner writes Dockerfile to a temp dir and runs docker build.
+func BuildImageWithRunner(ctx context.Context, dockerfile, tag string, runner cmdRunner) error {
+	dir, err := os.MkdirTemp("", "agentscope-docker-build-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0644); err != nil {
+		return err
+	}
+	cmd := runner(ctx, "docker", "build", "-t", tag, dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker build: %w\n%s", err, string(out))
+	}
+	return nil
 }

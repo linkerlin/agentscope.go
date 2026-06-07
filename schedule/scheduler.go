@@ -11,14 +11,19 @@ import (
 
 // Job represents a scheduled agent run.
 type Job struct {
-	ID        string
-	UserID    string
-	AgentID   string
-	SessionID string
-	CronExpr  string
-	Payload   string // user message text
-	NextRun   time.Time
-	Enabled   bool
+	ID         string
+	UserID     string
+	AgentID    string
+	SessionID  string
+	CronExpr   string
+	Payload    string // user message text
+	NextRun    time.Time
+	Enabled    bool
+	MaxRetries int           // 0 = no retry
+	RetryDelay time.Duration // delay between retries
+	Timeout    time.Duration // per-run timeout; 0 = no limit
+	LastRun    time.Time
+	LastError  string
 }
 
 // Scheduler manages cron-based background tasks for agent execution.
@@ -75,6 +80,18 @@ func (s *Scheduler) Schedule(ctx context.Context, job *Job) error {
 	s.defs[job.ID] = &cp
 	s.mu.Unlock()
 	return nil
+}
+
+// UpdateJobMeta mutates stored job metadata (e.g. last run / error).
+func (s *Scheduler) UpdateJobMeta(jobID string, fn func(*Job)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.defs[jobID]
+	if !ok {
+		return false
+	}
+	fn(j)
+	return true
 }
 
 // Cancel removes a scheduled job.

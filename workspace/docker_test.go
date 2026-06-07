@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -181,5 +182,56 @@ func TestDockerWorkspaceCloseAutoRemove(t *testing.T) {
 	w.runner = mockRunner("c1\n", "", 0)
 	if err := w.Close(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRenderDockerfile(t *testing.T) {
+	df := RenderDockerfile(DockerBuildConfig{
+		BaseImage:      "python:3.12-slim",
+		WorkDir:        "/app",
+		PythonPackages: []string{"fastapi", "uvicorn"},
+	})
+	if !strings.Contains(df, "FROM python:3.12-slim") {
+		t.Fatalf("missing base image: %s", df)
+	}
+	if !strings.Contains(df, "pip install --no-cache-dir fastapi uvicorn") {
+		t.Fatalf("missing pip install: %s", df)
+	}
+	if !strings.Contains(df, "HEALTHCHECK") {
+		t.Fatalf("missing healthcheck: %s", df)
+	}
+}
+
+func TestComputeImageTagDeterministic(t *testing.T) {
+	a := ComputeImageTag("FROM python:3.11-slim\n")
+	b := ComputeImageTag("FROM python:3.11-slim\n")
+	if a != b || !strings.HasPrefix(a, "agentscope-workspace:") {
+		t.Fatalf("unexpected tag: %q %q", a, b)
+	}
+}
+
+func TestHealthCheckWithRunner(t *testing.T) {
+	runner := func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		joined := strings.Join(arg, " ")
+		if strings.Contains(joined, "State.Running") {
+			return mockRunner("true", "", 0)(ctx, name, arg...)
+		}
+		return mockRunner("none", "", 0)(ctx, name, arg...)
+	}
+	if err := HealthCheckWithRunner(context.Background(), "c1", runner); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestHealthCheckUnhealthy(t *testing.T) {
+	runner := func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		joined := strings.Join(arg, " ")
+		if strings.Contains(joined, "State.Running") {
+			return mockRunner("true", "", 0)(ctx, name, arg...)
+		}
+		return mockRunner("unhealthy", "", 0)(ctx, name, arg...)
+	}
+	if err := HealthCheckWithRunner(context.Background(), "c1", runner); err == nil {
+		t.Fatal("expected unhealthy error")
 	}
 }

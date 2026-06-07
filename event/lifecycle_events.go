@@ -28,6 +28,49 @@ func NewReplyEnd(replyID, agentName string) *ReplyEndEvent {
 	}
 }
 
+// ModelCallStartEvent marks the beginning of a model API call.
+type ModelCallStartEvent struct {
+	baseEvent
+	ModelName string `json:"model_name"`
+}
+
+// NewModelCallStart creates a ModelCallStartEvent.
+func NewModelCallStart(replyID, modelName string) *ModelCallStartEvent {
+	return &ModelCallStartEvent{
+		baseEvent: NewBase(TypeModelCallStart, replyID),
+		ModelName: modelName,
+	}
+}
+
+// ModelCallEndEvent marks the end of a model API call.
+type ModelCallEndEvent struct {
+	baseEvent
+	ModelName string `json:"model_name"`
+}
+
+// NewModelCallEnd creates a ModelCallEndEvent.
+func NewModelCallEnd(replyID, modelName string) *ModelCallEndEvent {
+	return &ModelCallEndEvent{
+		baseEvent: NewBase(TypeModelCallEnd, replyID),
+		ModelName: modelName,
+	}
+}
+
+// ExceedMaxItersEvent signals that the agent reached the maximum
+// number of iterations without producing a final answer.
+type ExceedMaxItersEvent struct {
+	baseEvent
+	MaxIters int `json:"max_iters"`
+}
+
+// NewExceedMaxIters creates an ExceedMaxItersEvent.
+func NewExceedMaxIters(replyID string, maxIters int) *ExceedMaxItersEvent {
+	return &ExceedMaxItersEvent{
+		baseEvent: NewBase(TypeExceedMaxIters, replyID),
+		MaxIters:  maxIters,
+	}
+}
+
 // ErrorEvent signals an error during reply execution.
 type ErrorEvent struct {
 	baseEvent
@@ -64,6 +107,9 @@ func NewInterrupt(replyID, source string) *InterruptEvent {
 var (
 	_ AgentEvent = (*ReplyStartEvent)(nil)
 	_ AgentEvent = (*ReplyEndEvent)(nil)
+	_ AgentEvent = (*ModelCallStartEvent)(nil)
+	_ AgentEvent = (*ModelCallEndEvent)(nil)
+	_ AgentEvent = (*ExceedMaxItersEvent)(nil)
 	_ AgentEvent = (*ErrorEvent)(nil)
 	_ AgentEvent = (*InterruptEvent)(nil)
 )

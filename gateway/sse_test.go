@@ -32,6 +32,9 @@ func (m *mockV2Agent) CallStream(ctx context.Context, msg *message.Msg) (<-chan 
 	return ch, nil
 }
 
+func (m *mockV2Agent) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return m.Call(ctx, msg)
+}
 func (m *mockV2Agent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	ch := make(chan event.AgentEvent, 3)
 	ch <- event.NewTextBlockDelta("r1", 0, "hello")
@@ -138,6 +141,9 @@ func (m *mockV2AgentError) Call(ctx context.Context, msg *message.Msg) (*message
 func (m *mockV2AgentError) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {
 	return nil, errors.New("agent error")
 }
+func (m *mockV2AgentError) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return nil, errors.New("reply error")
+}
 func (m *mockV2AgentError) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	return nil, errors.New("stream error")
 }
@@ -167,6 +173,9 @@ func (m *mockV2AgentWithSuspend) CallStream(ctx context.Context, msg *message.Ms
 	ch <- message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build()
 	close(ch)
 	return ch, nil
+}
+func (m *mockV2AgentWithSuspend) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return m.Call(ctx, msg)
 }
 func (m *mockV2AgentWithSuspend) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	ch := make(chan event.AgentEvent, 4)

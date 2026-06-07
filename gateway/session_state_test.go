@@ -77,6 +77,9 @@ func (a *stateTestV2Agent) Call(ctx context.Context, msg *message.Msg) (*message
 func (a *stateTestV2Agent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {
 	return nil, nil
 }
+func (a *stateTestV2Agent) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return nil, nil
+}
 func (a *stateTestV2Agent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	return nil, nil
 }

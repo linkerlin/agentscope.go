@@ -20,6 +20,11 @@ type Agent interface {
 type V2Agent interface {
 	Agent
 
+	// Reply consumes the full event stream and returns the final assembled
+	// assistant message. It is the synchronous counterpart to ReplyStream,
+	// aligned with Python v2's reply() method.
+	Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error)
+
 	// ReplyStream returns a true event stream.
 	// Events are fine-grained (block-level deltas, HITL suspend points, etc.)
 	// and can be consumed in real time by UIs, A2A peers, or loggers.

@@ -132,6 +132,62 @@ func NewHintBlockEnd(replyID string, blockIndex int) *HintBlockEndEvent {
 	}
 }
 
+// DataBlockStartEvent signals the start of a binary data block
+// (e.g. image, file) within a reply.
+type DataBlockStartEvent struct {
+	baseEvent
+	BlockIndex int    `json:"block_index"`
+	BlockID    string `json:"block_id"`
+	MediaType  string `json:"media_type"`
+}
+
+// NewDataBlockStart creates a DataBlockStartEvent.
+func NewDataBlockStart(replyID string, blockIndex int, blockID, mediaType string) *DataBlockStartEvent {
+	return &DataBlockStartEvent{
+		baseEvent:  NewBase(TypeDataBlockStart, replyID),
+		BlockIndex: blockIndex,
+		BlockID:    blockID,
+		MediaType:  mediaType,
+	}
+}
+
+// DataBlockDeltaEvent carries an incremental binary data fragment
+// (base64-encoded) of a data block.
+type DataBlockDeltaEvent struct {
+	baseEvent
+	BlockIndex int    `json:"block_index"`
+	BlockID    string `json:"block_id"`
+	Data       string `json:"data"`
+	MediaType  string `json:"media_type"`
+}
+
+// NewDataBlockDelta creates a DataBlockDeltaEvent.
+func NewDataBlockDelta(replyID string, blockIndex int, blockID, data, mediaType string) *DataBlockDeltaEvent {
+	return &DataBlockDeltaEvent{
+		baseEvent:  NewBase(TypeDataBlockDelta, replyID),
+		BlockIndex: blockIndex,
+		BlockID:    blockID,
+		Data:       data,
+		MediaType:  mediaType,
+	}
+}
+
+// DataBlockEndEvent signals the end of a data block.
+type DataBlockEndEvent struct {
+	baseEvent
+	BlockIndex int    `json:"block_index"`
+	BlockID    string `json:"block_id"`
+}
+
+// NewDataBlockEnd creates a DataBlockEndEvent.
+func NewDataBlockEnd(replyID string, blockIndex int, blockID string) *DataBlockEndEvent {
+	return &DataBlockEndEvent{
+		baseEvent:  NewBase(TypeDataBlockEnd, replyID),
+		BlockIndex: blockIndex,
+		BlockID:    blockID,
+	}
+}
+
 // ToolCallStartEvent signals the start of a tool call block.
 type ToolCallStartEvent struct {
 	baseEvent
@@ -221,6 +277,27 @@ func NewToolResultTextDelta(replyID string, blockIndex int, toolCallID, delta st
 	}
 }
 
+// ToolResultDataDeltaEvent carries an incremental binary data fragment
+// (base64-encoded) of a tool result.
+type ToolResultDataDeltaEvent struct {
+	baseEvent
+	BlockIndex int    `json:"block_index"`
+	ToolCallID string `json:"tool_call_id"`
+	Data       string `json:"data"`
+	MediaType  string `json:"media_type"`
+}
+
+// NewToolResultDataDelta creates a ToolResultDataDeltaEvent.
+func NewToolResultDataDelta(replyID string, blockIndex int, toolCallID, data, mediaType string) *ToolResultDataDeltaEvent {
+	return &ToolResultDataDeltaEvent{
+		baseEvent:  NewBase(TypeToolResultDataDelta, replyID),
+		BlockIndex: blockIndex,
+		ToolCallID: toolCallID,
+		Data:       data,
+		MediaType:  mediaType,
+	}
+}
+
 // ToolResultEndEvent signals the end of a tool result block.
 type ToolResultEndEvent struct {
 	baseEvent
@@ -251,7 +328,11 @@ var (
 	_ AgentEvent = (*ToolCallStartEvent)(nil)
 	_ AgentEvent = (*ToolCallDeltaEvent)(nil)
 	_ AgentEvent = (*ToolCallEndEvent)(nil)
+	_ AgentEvent = (*DataBlockStartEvent)(nil)
+	_ AgentEvent = (*DataBlockDeltaEvent)(nil)
+	_ AgentEvent = (*DataBlockEndEvent)(nil)
 	_ AgentEvent = (*ToolResultStartEvent)(nil)
 	_ AgentEvent = (*ToolResultTextDeltaEvent)(nil)
+	_ AgentEvent = (*ToolResultDataDeltaEvent)(nil)
 	_ AgentEvent = (*ToolResultEndEvent)(nil)
 )

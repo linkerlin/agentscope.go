@@ -32,6 +32,10 @@ func (m *smMockAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan 
 	return ch, nil
 }
 
+func (m *smMockAgent) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return m.Call(ctx, msg)
+}
+
 func (m *smMockAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	ch := make(chan event.AgentEvent)
 	go func() {
@@ -109,9 +113,11 @@ func TestSessionManager_Serialisation(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	started := make(chan struct{})
 	go func() {
 		defer wg.Done()
 		ch, _ := sm.Run(context.Background(), "s1", a1, msg)
+		close(started)
 		for range ch {
 		}
 		mu.Lock()
@@ -121,8 +127,7 @@ func TestSessionManager_Serialisation(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		// Give the first run a head start.
-		time.Sleep(5 * time.Millisecond)
+		<-started // wait until the first run has actually acquired the lock
 		ch, _ := sm.Run(context.Background(), "s1", a2, msg)
 		for range ch {
 		}

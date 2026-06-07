@@ -52,6 +52,24 @@ func UnmarshalEvent(data []byte) (AgentEvent, error) {
 			return nil, err
 		}
 		return &e, nil
+	case TypeModelCallStart:
+		var e ModelCallStartEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case TypeModelCallEnd:
+		var e ModelCallEndEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case TypeExceedMaxIters:
+		var e ExceedMaxItersEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
 	case TypeTextBlockStart:
 		var e TextBlockStartEvent
 		if err := json.Unmarshal(data, &e); err != nil {
@@ -72,6 +90,24 @@ func UnmarshalEvent(data []byte) (AgentEvent, error) {
 		return &e, nil
 	case TypeThinkingBlockStart:
 		var e ThinkingBlockStartEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case TypeDataBlockStart:
+		var e DataBlockStartEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case TypeDataBlockDelta:
+		var e DataBlockDeltaEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case TypeDataBlockEnd:
+		var e DataBlockEndEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}
@@ -126,6 +162,12 @@ func UnmarshalEvent(data []byte) (AgentEvent, error) {
 		return &e, nil
 	case TypeToolResultTextDelta:
 		var e ToolResultTextDeltaEvent
+		if err := json.Unmarshal(data, &e); err != nil {
+			return nil, err
+		}
+		return &e, nil
+	case TypeToolResultDataDelta:
+		var e ToolResultDataDeltaEvent
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, err
 		}

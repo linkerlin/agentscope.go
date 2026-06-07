@@ -327,3 +327,134 @@ func TestReActAgent_HITL_DenyAll(t *testing.T) {
 		t.Fatal("expected RequireUserConfirmEvent")
 	}
 }
+func TestReActAgent_Reply_ReturnsFinalMsg(t *testing.T) {
+	m := &mockChatModel{name: "mock"}
+	agent, err := Builder().
+		Name("test").
+		Model(m).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()
+	resp, err := agent.Reply(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("reply failed: %v", err)
+	}
+	if resp.GetTextContent() != "ok" {
+		t.Fatalf("expected 'ok', got %q", resp.GetTextContent())
+	}
+	if resp.Role != message.RoleAssistant {
+		t.Fatalf("expected assistant role, got %s", resp.Role)
+	}
+}
+
+func TestReActAgent_Reply_ExceedMaxIters(t *testing.T) {
+	m := &mockToolModel{
+		responses: []*message.Msg{
+			message.NewMsg().Role(message.RoleAssistant).Content(
+				message.NewToolUseBlock("tc1", "dummy_tool", map[string]any{}),
+			).Build(),
+		},
+	}
+	agent, err := Builder().
+		Name("test").
+		Model(m).
+		MaxIterations(1).
+		Tools(&dummyTool{}).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := message.NewMsg().Role(message.RoleUser).TextContent("trigger tool").Build()
+	_, err = agent.Reply(context.Background(), msg)
+	if err == nil || err.Error() != "react agent: max iterations reached without final answer" {
+		t.Fatalf("expected max iters error, got %v", err)
+	}
+}
+
+func TestReActAgent_Reply_EmitsModelCallEvents(t *testing.T) {
+	m := &mockChatModel{name: "mock"}
+	agent, err := Builder().
+		Name("test").
+		Model(m).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotModelCallStart, gotModelCallEnd bool
+	for ev := range ch {
+		if ev.EventType() == "model_call_start" {
+			gotModelCallStart = true
+		}
+		if ev.EventType() == "model_call_end" {
+			gotModelCallEnd = true
+		}
+	}
+	if !gotModelCallStart {
+		t.Fatal("expected model_call_start event")
+	}
+	if !gotModelCallEnd {
+		t.Fatal("expected model_call_end event")
+	}
+}
+
+func TestReActAgent_Reply_ExceedMaxItersEvent(t *testing.T) {
+	m := &mockToolModel{
+		responses: []*message.Msg{
+			message.NewMsg().Role(message.RoleAssistant).Content(
+				message.NewToolUseBlock("tc1", "dummy_tool", map[string]any{}),
+			).Build(),
+		},
+	}
+	agent, err := Builder().
+		Name("test").
+		Model(m).
+		MaxIterations(1).
+		Tools(&dummyTool{}).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("trigger").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotExceed bool
+	for ev := range ch {
+		if ev.EventType() == "exceed_max_iters" {
+			gotExceed = true
+		}
+	}
+	if !gotExceed {
+		t.Fatal("expected exceed_max_iters event")
+	}
+}
+
+// dummyTool is a no-op tool for testing max iters.
+type dummyTool struct{}
+
+func (d *dummyTool) Name() string { return "dummy_tool" }
+func (d *dummyTool) Description() string { return "dummy" }
+func (d *dummyTool) Spec() model.ToolSpec {
+	return model.ToolSpec{
+		Name:        d.Name(),
+		Description: d.Description(),
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+	}
+}
+func (d *dummyTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
+	return tool.NewTextResponse("done"), nil
+}
+
+var _ tool.Tool = (*dummyTool)(nil)

@@ -285,8 +285,40 @@ func extractUsage(msg *message.Msg) model.ChatUsage {
 }
 
 // Call executes the ReAct loop and returns the final response
+// Call executes the agent synchronously (V1 API).
 func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
 	return a.Base.Call(ctx, msg, a.replyInternal)
+}
+
+// Reply consumes the full event stream and returns the final assembled
+// assistant message. It is the synchronous counterpart to ReplyStream,
+// aligned with Python v2's reply() method.
+func (a *ReActAgent) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	ch, err := a.ReplyStream(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for ev := range ch {
+		if e, ok := ev.(*event.ErrorEvent); ok && e.Err != "" {
+			lastErr = errors.New(e.Err)
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+	if a.runtimeState == nil || len(a.runtimeState.Messages) == 0 {
+		return nil, errors.New("react agent: reply completed but no message produced")
+	}
+	for i := len(a.runtimeState.Messages) - 1; i >= 0; i-- {
+		if a.runtimeState.Messages[i].Role == message.RoleAssistant {
+			return a.runtimeState.Messages[i], nil
+		}
+	}
+	return nil, errors.New("react agent: reply completed but no assistant message found")
 }
 
 // replyInternal is the core ReAct logic executed inside Base.Call lifecycle.

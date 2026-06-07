@@ -253,8 +253,8 @@ func (a *ReActAgent) replyStreamInternal(
 	}
 
 	if finalResponse == nil {
+		out <- event.NewExceedMaxIters(replyID, a.maxIterations)
 		err := errors.New("react agent: max iterations reached without final answer")
-		out <- event.NewError(replyID, err)
 		return nil, err
 	}
 
@@ -368,6 +368,16 @@ func (a *ReActAgent) resumeReplyStreamInternal(
 	_ = a.memory.Add(msg)
 	_ = a.memory.Add(response)
 
+	// Update runtime state so Reply() can retrieve the final message.
+	a.runtimeMu.Lock()
+	if a.runtimeState != nil {
+		finalHistory := append([]*message.Msg(nil), history...)
+		finalHistory = append(finalHistory, response)
+		a.runtimeState.Messages = finalHistory
+		a.runtimeState.UpdatedAt = time.Now()
+	}
+	a.runtimeMu.Unlock()
+
 	return response, nil
 }
 
@@ -400,17 +410,22 @@ func (a *ReActAgent) runModelStream(
 		chatOpts = preEv.ChatOpts
 	}
 
+	modelName := a.chatModel.ModelName()
+	out <- event.NewModelCallStart(replyID, modelName)
+
 	// When tools are requested, we must use Chat (non-streaming) to guarantee
 	// correct tool-call parsing. Emit a single text block after completion.
 	if requestTools {
 		msg, err := a.chatModel.Chat(ctx, history, chatOpts...)
 		if err != nil {
 			out <- event.NewError(replyID, fmt.Errorf("react agent model call: %w", err))
+			out <- event.NewModelCallEnd(replyID, modelName)
 			return nil, fmt.Errorf("react agent model call: %w", err)
 		}
 		out <- event.NewTextBlockStart(replyID, 0)
 		out <- event.NewTextBlockDelta(replyID, 0, msg.GetTextContent())
 		out <- event.NewTextBlockEnd(replyID, 0)
+		out <- event.NewModelCallEnd(replyID, modelName)
 		_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
 			BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 			Messages:  append([]*message.Msg(nil), history...),
@@ -423,6 +438,7 @@ func (a *ReActAgent) runModelStream(
 	ch, err := a.chatModel.ChatStream(ctx, history, chatOpts...)
 	if err != nil {
 		out <- event.NewError(replyID, fmt.Errorf("react agent model stream: %w", err))
+		out <- event.NewModelCallEnd(replyID, modelName)
 		return nil, fmt.Errorf("react agent model stream: %w", err)
 	}
 
@@ -485,6 +501,7 @@ func (a *ReActAgent) runModelStream(
 	if streamUsage != nil {
 		msg.Metadata["usage"] = *streamUsage
 	}
+	out <- event.NewModelCallEnd(replyID, modelName)
 	_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 		Messages:  append([]*message.Msg(nil), history...),
@@ -622,6 +639,30 @@ func (a *ReActAgent) executeToolsStream(
 			}
 			if resultText != "" {
 				out <- event.NewToolResultTextDelta(replyID, idx, tc.ID, resultText)
+			}
+
+			// Emit data deltas for binary blocks (image, audio, video, data)
+			for _, b := range blocks {
+				switch d := b.(type) {
+				case *message.ImageBlock:
+					data := d.Base64
+					if data == "" {
+						data = d.URL
+					}
+					out <- event.NewToolResultDataDelta(replyID, idx, tc.ID, data, d.MimeType)
+				case *message.AudioBlock:
+					data := d.Base64
+					if data == "" {
+						data = d.URL
+					}
+					out <- event.NewToolResultDataDelta(replyID, idx, tc.ID, data, d.MimeType)
+				case *message.VideoBlock:
+					out <- event.NewToolResultDataDelta(replyID, idx, tc.ID, d.URL, "video/*")
+				case *message.DataBlock:
+					if d.Source != nil {
+						out <- event.NewToolResultDataDelta(replyID, idx, tc.ID, d.Source.Data, d.Source.MediaType)
+					}
+				}
 			}
 			out <- event.NewToolResultEnd(replyID, idx, tc.ID)
 

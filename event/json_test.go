@@ -16,12 +16,18 @@ func TestRoundTrip(t *testing.T) {
 	}{
 		{"reply_start", NewReplyStart(replyID, "test-agent")},
 		{"reply_end", NewReplyEnd(replyID, "test-agent")},
+		{"model_call_start", NewModelCallStart(replyID, "gpt-4")},
+		{"model_call_end", NewModelCallEnd(replyID, "gpt-4")},
 		{"text_block_delta", NewTextBlockDelta(replyID, 0, "hello")},
+		{"data_block_start", NewDataBlockStart(replyID, 0, "db1", "image/png")},
+		{"data_block_delta", NewDataBlockDelta(replyID, 0, "db1", "base64...", "image/png")},
+		{"data_block_end", NewDataBlockEnd(replyID, 0, "db1")},
 		{"thinking_block_delta", NewThinkingBlockDelta(replyID, 1, "reasoning...")},
 		{"tool_call_start", NewToolCallStart(replyID, 0, "tc1", "calculator")},
-		{"tool_call_delta", NewToolCallDelta(replyID, 0, "tc1", `{"a":`)},
+		{"tool_call_delta", NewToolCallDelta(replyID, 0, "tc1", "{\"a\":")},
 		{"tool_call_end", NewToolCallEnd(replyID, 0, "tc1")},
 		{"tool_result_text_delta", NewToolResultTextDelta(replyID, 0, "tc1", "42")},
+		{"tool_result_data_delta", NewToolResultDataDelta(replyID, 0, "tc1", "base64...", "image/png")},
 		{"require_user_confirm", NewRequireUserConfirm(replyID, "cfm-1", []ToolCallSummary{
 			{ID: "tc1", Name: "calculator", Input: map[string]any{"expr": "1+1"}},
 		})},
@@ -31,6 +37,7 @@ func TestRoundTrip(t *testing.T) {
 		{"external_execution_result", NewExternalExecutionResult(replyID, "cfm-2", []ExternalExecutionResult{
 			{ToolCallID: "tc1", Success: true, Output: "42"},
 		})},
+		{"exceed_max_iters", NewExceedMaxIters(replyID, 10)},
 		{"error", NewError(replyID, errors.New("something went wrong"))},
 		{"interrupt", NewInterrupt(replyID, "user")},
 	}

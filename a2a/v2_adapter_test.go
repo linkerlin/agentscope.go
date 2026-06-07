@@ -22,6 +22,9 @@ func (m *mockV2AgentForA2A) CallStream(ctx context.Context, msg *message.Msg) (<
 	close(ch)
 	return ch, nil
 }
+func (m *mockV2AgentForA2A) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	return m.Call(ctx, msg)
+}
 func (m *mockV2AgentForA2A) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	ch := make(chan event.AgentEvent, 3)
 	ch <- event.NewReplyStart("r1", "mock-v2")
@@ -108,6 +111,9 @@ func (m *mockV2AgentErr) Call(ctx context.Context, msg *message.Msg) (*message.M
 	return nil, context.Canceled
 }
 func (m *mockV2AgentErr) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {
+	return nil, context.Canceled
+}
+func (m *mockV2AgentErr) Reply(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
 	return nil, context.Canceled
 }
 func (m *mockV2AgentErr) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {

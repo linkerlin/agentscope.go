@@ -8,6 +8,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 // SessionManager manages in-flight agent runs per session.
@@ -28,6 +29,7 @@ type SessionManager struct {
 	runs      map[string]*sessionRun      // session_id -> in-flight run state
 	completed map[string][]event.AgentEvent // session_id -> final buffer after run ends
 	mu        sync.RWMutex
+	storage   service.Storage             // optional persistence layer for Msg upsert
 }
 
 // NewSessionManager creates a new SessionManager.
@@ -37,6 +39,12 @@ func NewSessionManager() *SessionManager {
 		runs:      make(map[string]*sessionRun),
 		completed: make(map[string][]event.AgentEvent),
 	}
+}
+
+// WithStorage attaches a Storage for automatic Msg persistence.
+func (sm *SessionManager) WithStorage(st service.Storage) *SessionManager {
+	sm.storage = st
+	return sm
 }
 
 // sessionRun holds the state for a single in-flight agent run.
@@ -53,6 +61,10 @@ type sessionRun struct {
 //
 // If a run is already active for this session, the caller blocks until the
 // previous run completes, then starts a new run.
+//
+// When storage is configured, Run automatically persists the input message
+// (via UpsertMessage) and the reconstructed assistant reply message
+// (assembled via Msg.AppendEvent from the event stream).
 func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	lock := sm.getLock(sessionID)
 	lock.Lock()
@@ -61,6 +73,12 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 	if !ok {
 		lock.Unlock()
 		return nil, fmt.Errorf("session_manager: agent does not support V2 streaming")
+	}
+
+	// Persist input message before starting the stream.
+	if sm.storage != nil && msg != nil && sessionID != "" {
+		storedMsg := service.MsgToStored(msg, sessionID)
+		_ = sm.storage.UpsertMessage(ctx, storedMsg)
 	}
 
 	ch, err := v2.ReplyStream(ctx, msg)
@@ -84,8 +102,11 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 	run.subscribers = append(run.subscribers, sub)
 	run.mu.Unlock()
 
-	// Fan-out goroutine: consumes ReplyStream and distributes to all subscribers.
+	// Fan-out goroutine: consumes ReplyStream, distributes to all subscribers,
+	// and incrementally builds the reply Msg for persistence.
 	go func() {
+		replyMsg := message.NewMsg().Role(message.RoleAssistant).Build()
+
 		defer lock.Unlock()
 		defer func() {
 			run.mu.Lock()
@@ -102,12 +123,19 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 			delete(sm.runs, sessionID)
 			sm.completed[sessionID] = finalBuf
 			sm.mu.Unlock()
+
+			// Persist the reconstructed reply message.
+			if sm.storage != nil && sessionID != "" {
+				storedMsg := service.MsgToStored(replyMsg, sessionID)
+				_ = sm.storage.UpsertMessage(ctx, storedMsg)
+			}
 		}()
 
 		for ev := range ch {
 			if ev == nil {
 				continue
 			}
+			replyMsg.AppendEvent(ev)
 			run.mu.Lock()
 			run.buffer = append(run.buffer, ev)
 			subs := make([]chan event.AgentEvent, len(run.subscribers))

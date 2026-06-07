@@ -59,6 +59,8 @@ func (m *mockStorage) GetCredential(ctx context.Context, id string) (*service.Cr
 func (m *mockStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*service.Credential, error) { return nil, nil }
 func (m *mockStorage) DeleteCredential(ctx context.Context, id string) error        { return nil }
 func (m *mockStorage) SaveMessage(ctx context.Context, msg *service.StoredMessage) error { return nil }
+func (m *mockStorage) GetMessage(ctx context.Context, id string) (*service.StoredMessage, error) { return nil, nil }
+func (m *mockStorage) UpsertMessage(ctx context.Context, msg *service.StoredMessage) error { return nil }
 func (m *mockStorage) ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*service.StoredMessage, error) { return nil, nil }
 func (m *mockStorage) DeleteMessagesBySession(ctx context.Context, sessionID string) error { return nil }
 

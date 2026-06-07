@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentScope Go · AG-UI</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div>
+        <h1>AgentScope Go</h1>
+        <p class="subtitle">AG-UI protocol · SSE stream</p>
+      </div>
+      <div class="session">
+        <span class="label">Session</span>
+        <code id="session-id"></code>
+      </div>
+    </header>
+
+    <main id="messages" class="messages" aria-live="polite"></main>
+
+    <footer class="composer">
+      <form id="chat-form">
+        <textarea id="input" rows="2" placeholder="输入消息… (demo 模式可试 tool)" autofocus></textarea>
+        <button type="submit" id="send-btn">发送</button>
+      </form>
+      <p class="hint">POST <code>/v2/chat/stream?protocol=agui</code></p>
+    </footer>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

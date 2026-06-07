@@ -190,6 +190,12 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		evForward    chan event.AgentEvent
 	)
 
+	useAGUI := useAGUIProtocol(r)
+	var aguiConv *DefaultAGUIConverter
+	if useAGUI {
+		aguiConv = NewDefaultAGUIConverter()
+	}
+
 	startStream := func(text string) {
 		if streamCancel != nil {
 			streamCancel()
@@ -276,7 +282,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 			if err := s.sessionState.SaveSnapshot(streamCtx, sessionID, v2); err != nil {
 				_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"save snapshot failed: %v"}`, err))})
 			}
-			if err := writeV2Event(ws, ev); err != nil {
+			if err := writeV2Event(ws, ev, sessionID, useAGUI, aguiConv); err != nil {
 				break
 			}
 			// Wait for resume message.
@@ -311,7 +317,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if _, isEnd := ev.(*event.ReplyEndEvent); isEnd {
-			if err := writeV2Event(ws, ev); err != nil {
+			if err := writeV2Event(ws, ev, sessionID, useAGUI, aguiConv); err != nil {
 				break
 			}
 			_ = s.sessionState.DeleteSnapshot(streamCtx, sessionID)
@@ -319,7 +325,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := writeV2Event(ws, ev); err != nil {
+		if err := writeV2Event(ws, ev, sessionID, useAGUI, aguiConv); err != nil {
 			break
 		}
 	}
@@ -329,13 +335,10 @@ done:
 	}
 }
 
-func writeV2Event(ws *wsSession, ev event.AgentEvent) error {
-	payload, _ := json.Marshal(ev)
-	data, _ := json.Marshal(v2Event{
-		EventType: ev.EventType(),
-		Timestamp: ev.Timestamp().Format("2006-01-02T15:04:05.000Z"),
-		ReplyID:   ev.ReplyID(),
-		Payload:   payload,
-	})
+func writeV2Event(ws *wsSession, ev event.AgentEvent, sessionID string, useAGUI bool, conv *DefaultAGUIConverter) error {
+	data, err := EncodeStreamEvent(ev, AGUIConvertOptions{ThreadID: sessionID}, useAGUI, conv)
+	if err != nil {
+		return err
+	}
 	return ws.writeJSON(json.RawMessage(data))
 }

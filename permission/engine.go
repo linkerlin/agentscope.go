@@ -1,6 +1,7 @@
 // Package permission provides a rule-based permission engine for agent tool execution.
-// It supports glob path matching, command substring matching, and HITL (Human-in-the-Loop)
-// suspend-resume via the ASK decision.
+// It supports glob path matching, command substring matching, safety checks for
+// dangerous paths and commands, and HITL (Human-in-the-Loop) suspend-resume via
+// the ASK decision.
 package permission
 
 import (
@@ -16,6 +17,7 @@ import (
 type Mode string
 
 const (
+	ModeDefault     Mode = "default"      // all operations require explicit permission
 	ModeExplore     Mode = "explore"      // read-only auto-allow
 	ModeAcceptEdits Mode = "accept_edits" // accept edit operations
 	ModeBypass      Mode = "bypass"       // allow everything
@@ -35,15 +37,30 @@ const (
 // Rule is a single permission rule.
 type Rule struct {
 	Name     string   `json:"name"`
-	Target   string   `json:"target"`   // "tool_name" | "file_path" | "command"
-	Pattern  string   `json:"pattern"`  // glob for file_path, substring for command/tool_name
-	Decision Decision `json:"decision"` // allow | deny | ask | passthrough
+	ToolName string   `json:"tool_name,omitempty"` // optional: exact tool name match
+	Target   string   `json:"target"`              // "tool_name" | "file_path" | "command"
+	Pattern  string   `json:"pattern"`             // glob for file_path, substring for command/tool_name
+	Decision Decision `json:"decision"`            // allow | deny | ask | passthrough
 }
+
+// Result holds the result for a single tool call.
+type Result struct {
+	ToolCallID     string
+	ToolName       string
+	Decision       Decision
+	Message        string
+	Reason         string
+	SuggestedRules []Rule
+}
+
+// Evaluation is an alias for Result for backward compatibility.
+type Evaluation = Result
 
 // Engine evaluates permission rules against tool calls.
 type Engine struct {
-	Mode  Mode
-	Rules []Rule
+	ctx           *Context
+	rules         []Rule
+	readOnlyTools map[string]bool
 }
 
 // NewEngine creates a permission engine with the given mode and rules.
@@ -51,105 +68,386 @@ func NewEngine(mode Mode, rules []Rule) *Engine {
 	if mode == "" {
 		mode = ModeExplore
 	}
-	return &Engine{Mode: mode, Rules: rules}
+	return &Engine{
+		ctx:           NewContext(mode),
+		rules:         rules,
+		readOnlyTools: defaultReadOnlyTools(),
+	}
 }
 
-// Evaluation holds the result for a single tool call.
-type Evaluation struct {
-	ToolCallID string
-	ToolName   string
-	Decision   Decision
-	Reason     string
+// NewEngineWithContext creates a permission engine with a full context.
+func NewEngineWithContext(ctx *Context, rules []Rule) *Engine {
+	if ctx == nil {
+		ctx = NewContext(ModeExplore)
+	}
+	return &Engine{
+		ctx:           ctx,
+		rules:         rules,
+		readOnlyTools: defaultReadOnlyTools(),
+	}
+}
+
+// WithReadOnlyTools sets which tool names are considered read-only.
+func (e *Engine) WithReadOnlyTools(names ...string) *Engine {
+	e.readOnlyTools = make(map[string]bool)
+	for _, n := range names {
+		e.readOnlyTools[n] = true
+	}
+	return e
+}
+
+func defaultReadOnlyTools() map[string]bool {
+	return map[string]bool{
+		"read_file":      true,
+		"list_directory": true,
+		"glob":           true,
+		"grep":           true,
+		"read":           true,
+	}
 }
 
 // Evaluate runs the permission engine against a slice of tool calls.
 // It returns a per-tool-call decision. If any decision is ASK, the caller
 // (typically the agent) should suspend and emit a RequireUserConfirmEvent.
-func (e *Engine) Evaluate(toolCalls []*message.ToolUseBlock) ([]Evaluation, error) {
+func (e *Engine) Evaluate(toolCalls []*message.ToolUseBlock) ([]Result, error) {
 	if len(toolCalls) == 0 {
 		return nil, nil
 	}
 
-	results := make([]Evaluation, len(toolCalls))
+	grouped := e.groupRules()
+	results := make([]Result, len(toolCalls))
 	for i, tc := range toolCalls {
-		decision, reason := e.evaluateOne(tc)
-		results[i] = Evaluation{
-			ToolCallID: tc.ID,
-			ToolName:   tc.Name,
-			Decision:   decision,
-			Reason:     reason,
-		}
+		results[i] = e.evaluateOne(tc, grouped)
 	}
 	return results, nil
 }
 
-func (e *Engine) evaluateOne(tc *message.ToolUseBlock) (Decision, string) {
-	// Extract target values from tool call arguments.
-	filePath := extractString(tc.Input, "file_path", "dir_path", "path")
-	command := extractString(tc.Input, "command")
-
-	for _, rule := range e.Rules {
-		matched := false
-		switch rule.Target {
-		case "tool_name":
-			matched = matchGlob(rule.Pattern, tc.Name)
-		case "file_path":
-			matched = matchGlob(rule.Pattern, filePath)
-		case "command":
-			matched = matchGlobOrRegex(rule.Pattern, command)
-		case "regex":
-			matched = matchRegex(rule.Pattern, tc.Name+" "+filePath+" "+command)
-		default:
-			matched = matchGlobOrRegex(rule.Pattern, tc.Name)
-		}
-		if matched {
-			return rule.Decision, fmt.Sprintf("matched rule %q", rule.Name)
-		}
+func (e *Engine) groupRules() map[Decision]map[string][]Rule {
+	groups := make(map[Decision]map[string][]Rule)
+	for _, d := range []Decision{DecisionDeny, DecisionAsk, DecisionAllow} {
+		groups[d] = make(map[string][]Rule)
 	}
-
-	// No rule matched — fall back to mode default.
-	return e.defaultDecision(tc), "no matching rule"
+	for _, r := range e.rules {
+		byDecision := groups[r.Decision]
+		if byDecision == nil {
+			continue
+		}
+		key := r.ToolName // empty = global
+		byDecision[key] = append(byDecision[key], r)
+	}
+	return groups
 }
 
-func (e *Engine) defaultDecision(tc *message.ToolUseBlock) Decision {
-	switch e.Mode {
-	case ModeBypass:
-		return DecisionAllow
-	case ModeDontAsk:
-		return DecisionAllow
-	case ModeExplore:
-		// In explore mode, deny write operations unless explicitly allowed.
-		if isWriteTool(tc.Name) {
-			return DecisionAsk
+func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[string][]Rule) Result {
+	filePath := extractString(tc.Input, "file_path", "dir_path", "path")
+	command := extractString(tc.Input, "command")
+	isReadOnly := e.readOnlyTools[tc.Name]
+
+	// 1. Deny rules (highest priority)
+	if r := e.matchRules(grouped[DecisionDeny], tc.Name, filePath, command); r != nil {
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionDeny,
+			Message:    fmt.Sprintf("Permission denied for %s", tc.Name),
+			Reason:     fmt.Sprintf("matched deny rule %q", r.Name),
 		}
-		return DecisionAllow
+	}
+
+	// 2. Ask rules
+	if r := e.matchRules(grouped[DecisionAsk], tc.Name, filePath, command); r != nil {
+		return Result{
+			ToolCallID:     tc.ID,
+			ToolName:       tc.Name,
+			Decision:       DecisionAsk,
+			Message:        fmt.Sprintf("Permission required for %s", tc.Name),
+			Reason:         fmt.Sprintf("matched ask rule %q", r.Name),
+			SuggestedRules: e.generateSuggestions(tc, filePath, command),
+		}
+	}
+
+	// 3. Tool-specific safety checks (bypass-immune)
+	if safety := e.checkSafety(tc.Name, filePath, command, isReadOnly); safety != nil {
+		// Copy tool call ID into safety result.
+		safety.ToolCallID = tc.ID
+		return *safety
+	}
+
+	// 4. Allow rules
+	if r := e.matchRules(grouped[DecisionAllow], tc.Name, filePath, command); r != nil {
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionAllow,
+			Message:    fmt.Sprintf("Permission granted for %s", tc.Name),
+			Reason:     fmt.Sprintf("matched allow rule %q", r.Name),
+		}
+	}
+
+	// 5. Mode defaults
+	return e.defaultResult(tc, isReadOnly, filePath, command)
+}
+
+func (e *Engine) matchRules(rules map[string][]Rule, toolName, filePath, command string) *Rule {
+	for _, key := range []string{toolName, ""} {
+		for i := range rules[key] {
+			r := &rules[key][i]
+			if e.ruleMatches(r, toolName, filePath, command) {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+func (e *Engine) ruleMatches(r *Rule, toolName, filePath, command string) bool {
+	matched := false
+	switch r.Target {
+	case "tool_name":
+		matched = matchGlob(r.Pattern, toolName)
+	case "file_path":
+		matched = matchGlob(r.Pattern, filePath)
+	case "command":
+		matched = matchGlobOrRegex(r.Pattern, command)
+	case "regex":
+		matched = matchRegex(r.Pattern, toolName+" "+filePath+" "+command)
+	default:
+		matched = matchGlobOrRegex(r.Pattern, toolName)
+	}
+	return matched
+}
+
+// checkSafety performs bypass-immune safety checks.
+func (e *Engine) checkSafety(toolName, filePath, command string, isReadOnly bool) *Result {
+	// EXPLORE mode: deny modifications (bypass-immune).
+	if e.ctx.Mode == ModeExplore && !isReadOnly {
+		return &Result{
+			ToolName: toolName,
+			Decision: DecisionDeny,
+			Message:  fmt.Sprintf("Permission denied for %s (explore mode is read-only)", toolName),
+			Reason:   "Explore mode does not allow modifications",
+		}
+	}
+
+	// Bash-specific safety checks.
+	if isBashTool(toolName) && command != "" {
+		if IsDangerousCommand(command) {
+			return &Result{
+				ToolName: toolName,
+				Decision: DecisionAsk,
+				Message:  fmt.Sprintf("Permission required: dangerous command pattern detected in %q", command),
+				Reason:   "Safety check: dangerous command pattern detected",
+			}
+		}
+		if IsReadOnlyCommand(command) {
+			return &Result{
+				ToolName: toolName,
+				Decision: DecisionAllow,
+				Message:  "Permission granted for read-only command",
+				Reason:   "Read-only command is allowed",
+			}
+		}
+		if IsDangerousRemoval(command) {
+			return &Result{
+				ToolName: toolName,
+				Decision: DecisionAsk,
+				Message:  fmt.Sprintf("Dangerous removal operation detected in %q", command),
+				Reason:   "Safety check: dangerous removal of critical system path",
+			}
+		}
+	}
+
+	// Write-specific dangerous path check.
+	if isWriteFileTool(toolName) && filePath != "" {
+		if IsDangerousPath(filePath, e.ctx.DangerousFiles, e.ctx.DangerousDirs) {
+			return &Result{
+				ToolName: toolName,
+				Decision: DecisionAsk,
+				Message:  fmt.Sprintf("Permission required: write operation on sensitive file %s", filePath),
+				Reason:   "Safety check: dangerous file or directory",
+			}
+		}
+	}
+
+	// ACCEPT_EDITS mode: auto-allow filesystem commands in working dirs.
+	if e.ctx.Mode == ModeAcceptEdits {
+		if isReadOnly {
+			return &Result{
+				ToolName: toolName,
+				Decision: DecisionAllow,
+				Message:  fmt.Sprintf("Permission granted for %s (accept edits mode - read-only tool)", toolName),
+				Reason:   "Accept edits mode allows read-only operations",
+			}
+		}
+		if filePath != "" && e.pathInWorkingDirs(filePath) {
+			return &Result{
+				ToolName: toolName,
+				Decision: DecisionAllow,
+				Message:  fmt.Sprintf("Permission granted for %s (accept edits mode - in working directory)", toolName),
+				Reason:   "File is in working directory and not a dangerous path",
+			}
+		}
+	}
+
+	return nil
+}
+
+func (e *Engine) pathInWorkingDirs(filePath string) bool {
+	if filePath == "" {
+		return false
+	}
+	absFile, err := filepath.Abs(filePath)
+	if err != nil {
+		absFile = filePath
+	}
+	for _, wd := range e.ctx.WorkingDirs {
+		absWd, err := filepath.Abs(wd)
+		if err != nil {
+			absWd = wd
+		}
+		sep := string(filepath.Separator)
+		if strings.HasPrefix(absFile, absWd+sep) || absFile == absWd {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePath, command string) Result {
+	switch e.ctx.Mode {
+	case ModeBypass:
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionAllow,
+			Message:    fmt.Sprintf("Permission granted for %s (bypass mode)", tc.Name),
+			Reason:     "Bypass mode allows all operations",
+		}
+	case ModeDontAsk:
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionDeny,
+			Message:    fmt.Sprintf("Permission denied for %s (dont_ask mode - user not available)", tc.Name),
+			Reason:     "User is not available to answer permission prompts",
+		}
+	case ModeExplore:
+		// Safety check already handled non-read-only.
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionAllow,
+			Message:    fmt.Sprintf("Permission granted for %s (explore mode)", tc.Name),
+			Reason:     "Explore mode allows read-only operations",
+		}
 	case ModeAcceptEdits:
 		if isEditTool(tc.Name) {
-			return DecisionAllow
+			return Result{
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
+				Decision:   DecisionAllow,
+				Message:    fmt.Sprintf("Permission granted for %s (accept edits mode)", tc.Name),
+				Reason:     "Accept edits mode allows file edits",
+			}
 		}
 		if isWriteTool(tc.Name) {
-			return DecisionAsk
+			return Result{
+				ToolCallID:     tc.ID,
+				ToolName:       tc.Name,
+				Decision:       DecisionAsk,
+				Message:        fmt.Sprintf("Permission required for %s", tc.Name),
+				Reason:         "Accept edits mode requires explicit permission for non-edit write operations",
+				SuggestedRules: e.generateSuggestions(tc, filePath, command),
+			}
 		}
-		return DecisionAllow
-	default:
-		return DecisionAsk
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionAllow,
+			Message:    fmt.Sprintf("Permission granted for %s (accept edits mode)", tc.Name),
+			Reason:     "Accept edits mode allows read-only operations",
+		}
+	default: // ModeDefault
+		return Result{
+			ToolCallID:     tc.ID,
+			ToolName:       tc.Name,
+			Decision:       DecisionAsk,
+			Message:        fmt.Sprintf("Permission required for %s", tc.Name),
+			Reason:         "Default mode requires explicit permission for each action",
+			SuggestedRules: e.generateSuggestions(tc, filePath, command),
+		}
 	}
+}
+
+func (e *Engine) generateSuggestions(tc *message.ToolUseBlock, filePath, command string) []Rule {
+	var suggestions []Rule
+	if command != "" {
+		parts := strings.Fields(command)
+		if len(parts) >= 2 {
+			suggestions = append(suggestions, Rule{
+				Name:     "suggested-bash-prefix",
+				ToolName: tc.Name,
+				Target:   "command",
+				Pattern:  parts[0] + " " + parts[1] + ":*",
+				Decision: DecisionAllow,
+			})
+		} else if len(parts) == 1 {
+			suggestions = append(suggestions, Rule{
+				Name:     "suggested-bash-cmd",
+				ToolName: tc.Name,
+				Target:   "command",
+				Pattern:  parts[0],
+				Decision: DecisionAllow,
+			})
+		}
+	}
+	if filePath != "" {
+		dir := filepath.Dir(filePath)
+		if dir != "" && dir != "." {
+			pattern := dir + string(filepath.Separator) + "*"
+			suggestions = append(suggestions, Rule{
+				Name:     "suggested-file-dir",
+				ToolName: tc.Name,
+				Target:   "file_path",
+				Pattern:  pattern,
+				Decision: DecisionAllow,
+			})
+		}
+	}
+	if len(suggestions) == 0 {
+		suggestions = append(suggestions, Rule{
+			Name:     "suggested-tool-level",
+			ToolName: tc.Name,
+			Target:   "tool_name",
+			Pattern:  tc.Name,
+			Decision: DecisionAllow,
+		})
+	}
+	return suggestions
+}
+
+func isBashTool(name string) bool {
+	switch name {
+	case "execute_shell_command", "shell_command", "bash":
+		return true
+	}
+	return false
+}
+
+func isWriteFileTool(name string) bool {
+	switch name {
+	case "write_text_file", "write_file", "insert_text_file", "edit_file":
+		return true
+	}
+	return false
 }
 
 func isWriteTool(name string) bool {
-	switch name {
-	case "write_text_file", "insert_text_file", "execute_shell_command":
-		return true
-	}
-	return false
+	return isWriteFileTool(name) || isBashTool(name)
 }
 
 func isEditTool(name string) bool {
-	switch name {
-	case "write_text_file", "insert_text_file":
-		return true
-	}
-	return false
+	return isWriteFileTool(name)
 }
 
 func extractString(m map[string]any, keys ...string) string {
@@ -169,16 +467,12 @@ func matchGlob(pattern, s string) bool {
 	}
 	matched, err := filepath.Match(pattern, s)
 	if err != nil {
-		// Invalid pattern — fall back to substring.
 		return strings.Contains(s, pattern)
 	}
 	return matched
 }
 
-// matchGlobOrRegex detects whether the pattern is a regex (starts with "^" or
-// contains regex metacharacters like ".*" or "$") and routes accordingly.
-// For non-regex, non-glob patterns it falls back to substring matching so that
-// e.g. "ls" matches "ls -la".
+// matchGlobOrRegex detects whether the pattern is a regex and routes accordingly.
 func matchGlobOrRegex(pattern, s string) bool {
 	if looksLikeRegex(pattern) {
 		return matchRegex(pattern, s)
@@ -186,7 +480,6 @@ func matchGlobOrRegex(pattern, s string) bool {
 	if matchGlob(pattern, s) {
 		return true
 	}
-	// If the pattern contains no glob wildcards, also try substring.
 	if !strings.ContainsAny(pattern, "*?[]") {
 		return strings.Contains(s, pattern)
 	}
@@ -211,7 +504,6 @@ func looksLikeRegex(pattern string) bool {
 func matchRegex(pattern, s string) bool {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		// Invalid regex — fall back to substring.
 		return strings.Contains(s, pattern)
 	}
 	return re.MatchString(s)

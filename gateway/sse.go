@@ -89,14 +89,18 @@ func (s *Server) handleV2ChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	useAGUI := useAGUIProtocol(r)
+	var aguiConv *DefaultAGUIConverter
+	if useAGUI {
+		aguiConv = NewDefaultAGUIConverter()
+	}
+	opts := AGUIConvertOptions{ThreadID: req.SessionID}
+
 	sendEvent := func(ev event.AgentEvent) bool {
-		payload, _ := json.Marshal(ev)
-		data, _ := json.Marshal(v2Event{
-			EventType: ev.EventType(),
-			Timestamp: ev.Timestamp().Format("2006-01-02T15:04:05.000Z"),
-			ReplyID:   ev.ReplyID(),
-			Payload:   payload,
-		})
+		data, err := EncodeStreamEvent(ev, opts, useAGUI, aguiConv)
+		if err != nil {
+			return false
+		}
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 		return true
@@ -127,7 +131,12 @@ func (s *Server) handleV2ChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send a terminal done event.
-	data, _ := json.Marshal(v2Event{EventType: "done", Timestamp: "", ReplyID: "", Payload: []byte("{}")})
-	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	if useAGUI {
+		data, _ := json.Marshal(map[string]any{"type": "STREAM_DONE"})
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	} else {
+		data, _ := json.Marshal(v2Event{EventType: "done", Timestamp: "", ReplyID: "", Payload: []byte("{}")})
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	}
 	flusher.Flush()
 }

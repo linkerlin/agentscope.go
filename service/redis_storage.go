@@ -325,6 +325,53 @@ func (s *RedisStorage) SaveMessage(ctx context.Context, msg *StoredMessage) erro
 	return s.client.RPush(ctx, keyMessages(msg.SessionID), data).Err()
 }
 
+func (s *RedisStorage) GetMessage(ctx context.Context, id string) (*StoredMessage, error) {
+	keys, err := s.client.Keys(ctx, "messages:*").Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: scan messages: %w", err)
+	}
+	for _, key := range keys {
+		items, err := s.client.LRange(ctx, key, 0, -1).Result()
+		if err != nil {
+			continue
+		}
+		for _, item := range items {
+			var m StoredMessage
+			if err := json.Unmarshal([]byte(item), &m); err != nil {
+				continue
+			}
+			if m.ID == id {
+				return &m, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("message not found: %s", id)
+}
+
+func (s *RedisStorage) UpsertMessage(ctx context.Context, msg *StoredMessage) error {
+	items, err := s.client.LRange(ctx, keyMessages(msg.SessionID), 0, -1).Result()
+	if err != nil {
+		return fmt.Errorf("redis: lrange messages: %w", err)
+	}
+	for i, item := range items {
+		var m StoredMessage
+		if err := json.Unmarshal([]byte(item), &m); err != nil {
+			continue
+		}
+		if m.ID == msg.ID {
+			data, err := json.Marshal(msg)
+			if err != nil {
+				return fmt.Errorf("redis: marshal message: %w", err)
+			}
+			if err := s.client.LSet(ctx, keyMessages(msg.SessionID), int64(i), data).Err(); err != nil {
+				return fmt.Errorf("redis: lset message: %w", err)
+			}
+			return nil
+		}
+	}
+	return s.SaveMessage(ctx, msg)
+}
+
 func (s *RedisStorage) ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*StoredMessage, error) {
 	start := int64(offset)
 	stop := int64(offset + limit - 1)

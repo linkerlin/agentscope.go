@@ -74,3 +74,63 @@ func TestCollectMessage_EmptyStream(t *testing.T) {
 		t.Fatalf("expected empty text, got %q", msg.GetTextContent())
 	}
 }
+
+func TestCollectMessage_ToolCall(t *testing.T) {
+	ch := make(chan event.AgentEvent, 6)
+	ch <- event.NewReplyStart("r1", "mock")
+	ch <- event.NewToolCallStart("r1", 0, "tc1", "calc")
+	ch <- event.NewToolCallDelta("r1", 0, "tc1", `{"expr":"1+1"}`)
+	ch <- event.NewToolCallEnd("r1", 0, "tc1")
+	ch <- event.NewReplyEnd("r1", "mock")
+	close(ch)
+
+	msg, err := CollectMessage(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := msg.GetToolUseCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(calls))
+	}
+	if calls[0].Name != "calc" {
+		t.Fatalf("unexpected tool name: %s", calls[0].Name)
+	}
+}
+
+func TestCollectMessage_ToolResultWithData(t *testing.T) {
+	ch := make(chan event.AgentEvent, 6)
+	ch <- event.NewReplyStart("r1", "mock")
+	ch <- event.NewToolResultStart("r1", 0, "tc1", "image_gen")
+	ch <- event.NewToolResultDataDelta("r1", 0, "tc1", "base64data", "image/png")
+	ch <- event.NewToolResultEnd("r1", 0, "tc1")
+	ch <- event.NewReplyEnd("r1", "mock")
+	close(ch)
+
+	msg, err := CollectMessage(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := msg.GetToolResults()
+	if len(results) != 1 {
+		t.Fatalf("expected 1 tool result, got %d", len(results))
+	}
+	if results[0].State != "completed" {
+		t.Fatalf("expected state completed, got %s", results[0].State)
+	}
+}
+
+func TestCollectMessage_SetsFinishedAt(t *testing.T) {
+	ch := make(chan event.AgentEvent, 3)
+	ch <- event.NewReplyStart("r1", "mock")
+	ch <- event.NewTextBlockDelta("r1", 0, "done")
+	ch <- event.NewReplyEnd("r1", "mock")
+	close(ch)
+
+	msg, err := CollectMessage(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.FinishedAt == nil {
+		t.Fatal("expected FinishedAt to be set by ReplyEndEvent")
+	}
+}

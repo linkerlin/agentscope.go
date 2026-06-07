@@ -265,3 +265,6 @@ func (g *GlobTool) collectAllWorkspace(ctx context.Context, currentDir string, r
 		}
 	}
 }
+
+// IsReadOnly returns true because GlobTool only searches files.
+func (g *GlobTool) IsReadOnly() bool { return true }

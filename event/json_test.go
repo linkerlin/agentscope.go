@@ -17,7 +17,7 @@ func TestRoundTrip(t *testing.T) {
 		{"reply_start", NewReplyStart(replyID, "test-agent")},
 		{"reply_end", NewReplyEnd(replyID, "test-agent")},
 		{"model_call_start", NewModelCallStart(replyID, "gpt-4")},
-		{"model_call_end", NewModelCallEnd(replyID, "gpt-4")},
+		{"model_call_end", NewModelCallEnd(replyID, "gpt-4", 10, 5)},
 		{"text_block_delta", NewTextBlockDelta(replyID, 0, "hello")},
 		{"data_block_start", NewDataBlockStart(replyID, 0, "db1", "image/png")},
 		{"data_block_delta", NewDataBlockDelta(replyID, 0, "db1", "base64...", "image/png")},

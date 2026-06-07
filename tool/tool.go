@@ -14,6 +14,20 @@ type Tool interface {
 	Execute(ctx context.Context, input map[string]any) (*Response, error)
 }
 
+// ReadOnlyChecker is an optional interface tools may implement to declare
+// whether they are read-only operations. The permission engine uses this
+// information for EXPLORE and ACCEPT_EDITS mode logic.
+type ReadOnlyChecker interface {
+	Tool
+	IsReadOnly() bool
+}
+
+// ExternalChecker marks tools that must be executed by an external client.
+type ExternalChecker interface {
+	Tool
+	IsExternalTool() bool
+}
+
 // FunctionTool wraps a Go function as a Tool
 type FunctionTool struct {
 	name        string

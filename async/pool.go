@@ -99,7 +99,31 @@ func (p *Pool) Submit(fn func() (any, error)) string {
 	return id
 }
 
-// Task retrieves the current state of a task by ID.
+// List returns snapshots of all tracked tasks.
+func (p *Pool) List() []*Task {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	out := make([]*Task, 0, len(p.tasks))
+	for _, t := range p.tasks {
+		cpy := *t
+		out = append(out, &cpy)
+	}
+	return out
+}
+
+// Cancel marks a pending task as cancelled.
+func (p *Pool) Cancel(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	t, ok := p.tasks[id]
+	if !ok || t.Status != StatusPending {
+		return false
+	}
+	t.Status = StatusCancelled
+	t.Ended = time.Now()
+	return true
+}
+
 func (p *Pool) Task(id string) (*Task, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

@@ -9,12 +9,14 @@ import (
 
 // rawMsg is a JSON-serializable representation of Msg.
 type rawMsg struct {
-	ID        string         `json:"id"`
-	Role      MsgRole        `json:"role"`
-	Name      string         `json:"name"`
-	Content   []rawBlock     `json:"content"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
+	ID         string         `json:"id"`
+	Role       MsgRole        `json:"role"`
+	Name       string         `json:"name"`
+	Content    []rawBlock     `json:"content"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+	FinishedAt *time.Time     `json:"finished_at,omitempty"`
+	Usage      *TokenUsage    `json:"usage,omitempty"`
 }
 
 // rawSource mirrors Source for JSON serialization.
@@ -241,11 +243,13 @@ func rawToBlock(r rawBlock) (ContentBlock, error) {
 // MarshalJSON implements json.Marshaler for Msg.
 func (m *Msg) MarshalJSON() ([]byte, error) {
 	r := rawMsg{
-		ID:        m.ID,
-		Role:      m.Role,
-		Name:      m.Name,
-		Metadata:  m.Metadata,
-		CreatedAt: m.CreatedAt,
+		ID:         m.ID,
+		Role:       m.Role,
+		Name:       m.Name,
+		Metadata:   m.Metadata,
+		CreatedAt:  m.CreatedAt,
+		FinishedAt: m.FinishedAt,
+		Usage:      m.Usage,
 	}
 	for _, b := range m.Content {
 		r.Content = append(r.Content, blockToRaw(b))
@@ -264,6 +268,8 @@ func (m *Msg) UnmarshalJSON(data []byte) error {
 	m.Name = r.Name
 	m.Metadata = r.Metadata
 	m.CreatedAt = r.CreatedAt
+	m.FinishedAt = r.FinishedAt
+	m.Usage = r.Usage
 	for _, rb := range r.Content {
 		b, err := rawToBlock(rb)
 		if err != nil {

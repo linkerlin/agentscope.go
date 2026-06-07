@@ -306,6 +306,65 @@ func TestMemoryStorage_DeleteSession_Cascades(t *testing.T) {
 	}
 }
 
+func TestMemoryStorage_GetMessage(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStorage()
+
+	m := &StoredMessage{ID: "m1", SessionID: "s1", Role: "user", Content: "hi", CreatedAt: time.Now()}
+	_ = s.SaveMessage(ctx, m)
+
+	got, err := s.GetMessage(ctx, "m1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "m1" {
+		t.Fatalf("id mismatch: %s", got.ID)
+	}
+
+	if _, err := s.GetMessage(ctx, "notfound"); err == nil {
+		t.Fatal("expected error for missing message")
+	}
+}
+
+func TestMemoryStorage_UpsertMessage_Replace(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStorage()
+
+	m := &StoredMessage{ID: "m1", SessionID: "s1", Role: "user", Content: "v1", CreatedAt: time.Now()}
+	_ = s.SaveMessage(ctx, m)
+
+	updated := &StoredMessage{ID: "m1", SessionID: "s1", Role: "assistant", Content: "v2", CreatedAt: time.Now()}
+	if err := s.UpsertMessage(ctx, updated); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, _ := s.ListMessagesBySession(ctx, "s1", 10, 0)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Content != "v2" {
+		t.Fatalf("expected updated content v2, got %s", msgs[0].Content)
+	}
+}
+
+func TestMemoryStorage_UpsertMessage_Append(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStorage()
+
+	m1 := &StoredMessage{ID: "m1", SessionID: "s1", Role: "user", Content: "v1", CreatedAt: time.Now()}
+	_ = s.SaveMessage(ctx, m1)
+
+	m2 := &StoredMessage{ID: "m2", SessionID: "s1", Role: "assistant", Content: "v2", CreatedAt: time.Now()}
+	if err := s.UpsertMessage(ctx, m2); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, _ := s.ListMessagesBySession(ctx, "s1", 10, 0)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+}
+
 func TestMemoryStorage_MessagePagination_Boundary(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStorage()

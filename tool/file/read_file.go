@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
@@ -74,6 +75,7 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 	}
 
 	var data []byte
+	var modTime time.Time
 	if r.ws != nil {
 		info, err := r.ws.Stat(ctx, path)
 		if err != nil {
@@ -82,9 +84,15 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 		if info.IsDir {
 			return nil, fmt.Errorf("path is a directory, use list_directory tool: %s", filePath)
 		}
-		data, err = r.ws.ReadFile(ctx, path)
-		if err != nil {
-			return nil, err
+		modTime = info.ModTime
+		if cached, ok := defaultReadCache.Get(path, modTime); ok {
+			data = cached
+		} else {
+			data, err = r.ws.ReadFile(ctx, path)
+			if err != nil {
+				return nil, err
+			}
+			defaultReadCache.Put(path, modTime, data)
 		}
 	} else {
 		info, err := os.Stat(path)
@@ -94,9 +102,15 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 		if info.IsDir() {
 			return nil, fmt.Errorf("path is a directory, use list_directory tool: %s", filePath)
 		}
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, err
+		modTime = info.ModTime()
+		if cached, ok := defaultReadCache.Get(path, modTime); ok {
+			data = cached
+		} else {
+			data, err = os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			defaultReadCache.Put(path, modTime, data)
 		}
 	}
 
@@ -256,3 +270,6 @@ func (l *ListDirectoryTool) Execute(ctx context.Context, input map[string]any) (
 
 	return tool.NewTextResponse(sb.String()), nil
 }
+
+// IsReadOnly returns true because ReadFileTool only reads files.
+func (r *ReadFileTool) IsReadOnly() bool { return true }

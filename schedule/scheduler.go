@@ -25,6 +25,7 @@ type Job struct {
 type Scheduler struct {
 	cron   *cron.Cron
 	jobs   map[string]cron.EntryID // jobID -> cron entryID
+	defs   map[string]*Job         // jobID -> job definition
 	mu     sync.RWMutex
 	handle func(ctx context.Context, job *Job) error
 }
@@ -34,6 +35,7 @@ func NewScheduler(handle func(ctx context.Context, job *Job) error) *Scheduler {
 	return &Scheduler{
 		cron:   cron.New(),
 		jobs:   make(map[string]cron.EntryID),
+		defs:   make(map[string]*Job),
 		handle: handle,
 	}
 }
@@ -69,6 +71,8 @@ func (s *Scheduler) Schedule(ctx context.Context, job *Job) error {
 	}
 	s.mu.Lock()
 	s.jobs[job.ID] = entryID
+	cp := *job
+	s.defs[job.ID] = &cp
 	s.mu.Unlock()
 	return nil
 }
@@ -83,6 +87,7 @@ func (s *Scheduler) Cancel(ctx context.Context, jobID string) error {
 	}
 	s.cron.Remove(entryID)
 	delete(s.jobs, jobID)
+	delete(s.defs, jobID)
 	s.mu.Unlock()
 	return nil
 }
@@ -97,4 +102,16 @@ func (s *Scheduler) NextRun(jobID string) (time.Time, error) {
 	}
 	entry := s.cron.Entry(entryID)
 	return entry.Next, nil
+}
+
+// ListJobs returns all scheduled job definitions.
+func (s *Scheduler) ListJobs() []*Job {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Job, 0, len(s.defs))
+	for _, j := range s.defs {
+		cp := *j
+		out = append(out, &cp)
+	}
+	return out
 }

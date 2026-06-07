@@ -193,3 +193,6 @@ func (s *ShellCommandTool) Execute(ctx context.Context, input map[string]any) (*
 	output := fmt.Sprintf("<returncode>%d</returncode><stdout>%s</stdout><stderr>%s</stderr>", returnCode, string(stdout), string(stderr))
 	return tool.NewTextResponse(output), nil
 }
+
+// IsReadOnly returns false because ShellCommandTool can execute arbitrary commands.
+func (s *ShellCommandTool) IsReadOnly() bool { return false }

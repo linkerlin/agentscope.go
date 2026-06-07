@@ -185,6 +185,33 @@ func (s *MemoryStorage) SaveMessage(ctx context.Context, msg *StoredMessage) err
 	return nil
 }
 
+func (s *MemoryStorage) GetMessage(ctx context.Context, id string) (*StoredMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, msgs := range s.messages {
+		for _, m := range msgs {
+			if m.ID == id {
+				return m, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("message not found: %s", id)
+}
+
+func (s *MemoryStorage) UpsertMessage(ctx context.Context, msg *StoredMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msgs := s.messages[msg.SessionID]
+	for i, m := range msgs {
+		if m.ID == msg.ID {
+			msgs[i] = msg
+			return nil
+		}
+	}
+	s.messages[msg.SessionID] = append(msgs, msg)
+	return nil
+}
+
 func (s *MemoryStorage) ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*StoredMessage, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

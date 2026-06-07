@@ -143,3 +143,6 @@ func (e *EditFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 
 	return tool.NewTextResponse(fmt.Sprintf("Successfully replaced %s in %s", replacementMsg, filePath)), nil
 }
+
+// IsReadOnly returns false because EditFileTool modifies files.
+func (e *EditFileTool) IsReadOnly() bool { return false }

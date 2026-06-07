@@ -56,7 +56,25 @@ func (btm *BackgroundTaskManager) NextRun(jobID string) (time.Time, error) {
 	return btm.scheduler.NextRun(jobID)
 }
 
-// handle is the callback executed by the cron scheduler when a job fires.
+// List returns all scheduled jobs.
+func (btm *BackgroundTaskManager) List() []*schedule.Job {
+	if btm.scheduler == nil {
+		return nil
+	}
+	return btm.scheduler.ListJobs()
+}
+
+// NextRunString returns the next run time as RFC3339 text.
+func (btm *BackgroundTaskManager) NextRunString(jobID string) (string, error) {
+	t, err := btm.NextRun(jobID)
+	if err != nil {
+		return "", err
+	}
+	if t.IsZero() {
+		return "", nil
+	}
+	return t.Format(time.RFC3339), nil
+}
 func (btm *BackgroundTaskManager) handle(ctx context.Context, job *schedule.Job) error {
 	a, err := btm.registry.Get(ctx, job.AgentID)
 	if err != nil {

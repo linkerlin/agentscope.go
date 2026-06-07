@@ -175,10 +175,12 @@ func (m *TracingMiddleware) Wrap(next Handler) Handler {
 	}
 }
 
-// OffloadMiddleware persists tool execution results to a workspace.
+// OffloadMiddleware persists tool execution results via an Offloader or Workspace fallback.
 type OffloadMiddleware struct {
-	ws      workspace.Workspace
-	baseDir string
+	offloader workspace.Offloader
+	ws        workspace.Workspace
+	baseDir   string
+	sessionID string
 }
 
 // NewOffloadMiddleware creates an offload middleware that writes results to the given workspace.
@@ -186,10 +188,15 @@ func NewOffloadMiddleware(ws workspace.Workspace, baseDir string) *OffloadMiddle
 	return &OffloadMiddleware{ws: ws, baseDir: baseDir}
 }
 
+// NewOffloadMiddlewareWithOffloader uses a formal Offloader protocol implementation.
+func NewOffloadMiddlewareWithOffloader(o workspace.Offloader, sessionID, baseDir string) *OffloadMiddleware {
+	return &OffloadMiddleware{offloader: o, baseDir: baseDir, sessionID: sessionID}
+}
+
 func (m *OffloadMiddleware) Wrap(next Handler) Handler {
 	return func(ctx context.Context, req *Request) (*Response, error) {
 		resp, err := next(ctx, req)
-		if err != nil || resp == nil || m.ws == nil {
+		if err != nil || resp == nil {
 			return resp, err
 		}
 
@@ -200,6 +207,13 @@ func (m *OffloadMiddleware) Wrap(next Handler) Handler {
 					"success":   r.Err == nil,
 					"timestamp": time.Now().Unix(),
 				})
+				if m.offloader != nil {
+					_, _ = m.offloader.OffloadToolResult(ctx, m.sessionID, r.Name, data)
+					continue
+				}
+				if m.ws == nil {
+					continue
+				}
 				path := filepath.Join(m.baseDir, fmt.Sprintf("%s_%d.json", r.Name, i))
 				_ = m.ws.WriteFile(ctx, path, data, 0644)
 			}

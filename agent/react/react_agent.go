@@ -18,6 +18,8 @@ import (
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/shutdown"
+	"github.com/linkerlin/agentscope.go/state"
+	tasktool "github.com/linkerlin/agentscope.go/tool/task"
 	"github.com/linkerlin/agentscope.go/tool"
 	"github.com/linkerlin/agentscope.go/tool/file"
 	"github.com/linkerlin/agentscope.go/tool/shell"
@@ -59,6 +61,7 @@ type ReActAgent struct {
 	permissionEngine *permission.Engine
 	workspace        workspace.Workspace
 	eventBus         *event.Bus
+	taskStore        *state.TaskStore
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
@@ -81,6 +84,7 @@ type ReActAgentBuilder struct {
 	permissionEngine *permission.Engine
 	workspace        workspace.Workspace
 	eventBus         *event.Bus
+	taskStore        *state.TaskStore
 }
 
 // Builder returns a new ReActAgentBuilder
@@ -193,6 +197,19 @@ func (b *ReActAgentBuilder) WithEventBus(bus *event.Bus) *ReActAgentBuilder {
 	return b
 }
 
+// WithTaskStore attaches a task store and registers TaskCreate/Get/List/Update tools.
+func (b *ReActAgentBuilder) WithTaskStore(store *state.TaskStore) *ReActAgentBuilder {
+	if store == nil {
+		store = state.NewTaskStore()
+	}
+	b.taskStore = store
+	b.tools = append(b.tools, tasktool.RegisterTools(store)...)
+	return b
+}
+
+// TaskStore returns the agent's task store (may be nil).
+func (a *ReActAgent) TaskStore() *state.TaskStore { return a.taskStore }
+
 func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 	if b.name == "" {
 		return nil, errors.New("react agent: name is required")
@@ -236,6 +253,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		permissionEngine: b.permissionEngine,
 		workspace:        b.workspace,
 		eventBus:         b.eventBus,
+		taskStore:        b.taskStore,
 	}
 	return a, nil
 }
@@ -790,6 +808,25 @@ func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[str
 	return t.Execute(ctx, input)
 }
 
+func (a *ReActAgent) isExternalTool(name string) bool {
+	t, ok := a.lookupTool(name)
+	if !ok {
+		return false
+	}
+	if ext, ok := t.(tool.ExternalChecker); ok {
+		return ext.IsExternalTool()
+	}
+	return false
+}
+
+func (a *ReActAgent) lookupTool(name string) (tool.Tool, bool) {
+	if a.toolkit != nil {
+		return a.toolkit.Registry.Get(name)
+	}
+	t, ok := a.toolMap[name]
+	return t, ok
+}
+
 // bindWorkspaceToTool uses reflection-free type assertions to bind a workspace
 // to tools that expose WithWorkspace methods.
 func bindWorkspaceToTool(t tool.Tool, ws workspace.Workspace) {
@@ -801,6 +838,12 @@ func bindWorkspaceToTool(t tool.Tool, ws workspace.Workspace) {
 	case *file.InsertTextFileTool:
 		wt.WithWorkspace(ws)
 	case *file.ListDirectoryTool:
+		wt.WithWorkspace(ws)
+	case *file.EditFileTool:
+		wt.WithWorkspace(ws)
+	case *file.GlobTool:
+		wt.WithWorkspace(ws)
+	case *file.GrepTool:
 		wt.WithWorkspace(ws)
 	case *shell.ShellCommandTool:
 		wt.WithWorkspace(ws)

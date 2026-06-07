@@ -31,6 +31,8 @@ type Storage interface {
 
 	// Messages
 	SaveMessage(ctx context.Context, msg *StoredMessage) error
+	GetMessage(ctx context.Context, id string) (*StoredMessage, error)
+	UpsertMessage(ctx context.Context, msg *StoredMessage) error
 	ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*StoredMessage, error)
 	DeleteMessagesBySession(ctx context.Context, sessionID string) error
 

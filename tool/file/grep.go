@@ -465,3 +465,6 @@ func intValue(v any) int {
 		return 0
 	}
 }
+
+// IsReadOnly returns true because GrepTool only searches file contents.
+func (g *GrepTool) IsReadOnly() bool { return true }

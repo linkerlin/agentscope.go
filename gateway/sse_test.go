@@ -72,6 +72,31 @@ func TestServer_V2ChatStream(t *testing.T) {
 	}
 }
 
+func TestServer_V2ChatStream_AGUI(t *testing.T) {
+	srv := NewServer(&mockV2Agent{})
+	srv.RegisterV2Routes()
+
+	body, _ := json.Marshal(chatRequest{Text: "hi"})
+	req := httptest.NewRequest(http.MethodPost, "/v2/chat/stream?protocol=agui", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	respBody := rec.Body.String()
+	if !strings.Contains(respBody, "TEXT_MESSAGE_CONTENT") {
+		t.Fatalf("expected AG-UI event in stream, got:\n%s", respBody)
+	}
+	if !strings.Contains(respBody, "STREAM_DONE") {
+		t.Fatalf("expected STREAM_DONE terminal event, got:\n%s", respBody)
+	}
+	if strings.Contains(respBody, `"event_type":"done"`) {
+		t.Fatalf("native done event should not appear in AG-UI mode, got:\n%s", respBody)
+	}
+}
+
 func TestServer_V2ChatStream_NotV2Agent(t *testing.T) {
 	// Use a plain agent that does NOT implement V2Agent.
 	plain := &mockPlainAgent{}

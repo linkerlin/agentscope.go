@@ -7,14 +7,32 @@ import (
 	"github.com/google/uuid"
 )
 
+// TokenUsage represents token usage reported by an LLM API call.
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
+}
+
+// Add returns a new TokenUsage with the fields summed.
+func (u TokenUsage) Add(other TokenUsage) TokenUsage {
+	return TokenUsage{
+		PromptTokens:     u.PromptTokens + other.PromptTokens,
+		CompletionTokens: u.CompletionTokens + other.CompletionTokens,
+		TotalTokens:      u.TotalTokens + other.TotalTokens,
+	}
+}
+
 // Msg represents a message in the agent conversation
 type Msg struct {
-	ID        string
-	Role      MsgRole
-	Name      string
-	Content   []ContentBlock
-	Metadata  map[string]any
-	CreatedAt time.Time
+	ID         string
+	Role       MsgRole
+	Name       string
+	Content    []ContentBlock
+	Metadata   map[string]any
+	CreatedAt  time.Time
+	FinishedAt *time.Time
+	Usage      *TokenUsage
 }
 
 // GetTextContent concatenates all text blocks into a single string

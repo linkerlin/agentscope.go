@@ -3,6 +3,7 @@ package message
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestMsgJSON_DataBlock(t *testing.T) {
@@ -294,5 +295,77 @@ func TestMsgJSON_SpecialCharactersInText(t *testing.T) {
 	}
 	if parsed.GetTextContent() != text {
 		t.Fatalf("unexpected text: %q", parsed.GetTextContent())
+	}
+}
+
+func TestMsgJSON_FinishedAtAndUsage(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	usage := &TokenUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15}
+	msg := NewMsg().Role(RoleAssistant).TextContent("hi").Build()
+	msg.FinishedAt = &now
+	msg.Usage = usage
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal to raw failed: %v", err)
+	}
+	if raw["finished_at"] == nil {
+		t.Fatal("expected finished_at in JSON")
+	}
+	if raw["usage"] == nil {
+		t.Fatal("expected usage in JSON")
+	}
+
+	var parsed Msg
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if parsed.FinishedAt == nil {
+		t.Fatal("expected FinishedAt after round-trip")
+	}
+	if !parsed.FinishedAt.Equal(now) {
+		t.Fatalf("expected FinishedAt %v, got %v", now, *parsed.FinishedAt)
+	}
+	if parsed.Usage == nil {
+		t.Fatal("expected Usage after round-trip")
+	}
+	if parsed.Usage.PromptTokens != 10 || parsed.Usage.CompletionTokens != 5 || parsed.Usage.TotalTokens != 15 {
+		t.Fatalf("unexpected usage: %+v", parsed.Usage)
+	}
+}
+
+func TestMsgJSON_WithoutFinishedAtAndUsage(t *testing.T) {
+	msg := NewMsg().Role(RoleUser).TextContent("hello").Build()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal to raw failed: %v", err)
+	}
+	if raw["finished_at"] != nil {
+		t.Fatal("expected no finished_at when nil")
+	}
+	if raw["usage"] != nil {
+		t.Fatal("expected no usage when nil")
+	}
+
+	var parsed Msg
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if parsed.FinishedAt != nil {
+		t.Fatal("expected nil FinishedAt")
+	}
+	if parsed.Usage != nil {
+		t.Fatal("expected nil Usage")
 	}
 }

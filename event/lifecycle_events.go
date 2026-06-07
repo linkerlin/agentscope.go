@@ -45,14 +45,18 @@ func NewModelCallStart(replyID, modelName string) *ModelCallStartEvent {
 // ModelCallEndEvent marks the end of a model API call.
 type ModelCallEndEvent struct {
 	baseEvent
-	ModelName string `json:"model_name"`
+	ModelName      string `json:"model_name"`
+	InputTokens    int    `json:"input_tokens,omitempty"`
+	OutputTokens   int    `json:"output_tokens,omitempty"`
 }
 
 // NewModelCallEnd creates a ModelCallEndEvent.
-func NewModelCallEnd(replyID, modelName string) *ModelCallEndEvent {
+func NewModelCallEnd(replyID, modelName string, inputTokens, outputTokens int) *ModelCallEndEvent {
 	return &ModelCallEndEvent{
-		baseEvent: NewBase(TypeModelCallEnd, replyID),
-		ModelName: modelName,
+		baseEvent:    NewBase(TypeModelCallEnd, replyID),
+		ModelName:    modelName,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
 	}
 }
 

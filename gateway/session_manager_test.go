@@ -11,6 +11,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 // smMockAgent is a configurable V2Agent for SessionManager tests.
@@ -364,5 +365,88 @@ func TestSessionManager_ActiveCount(t *testing.T) {
 
 	if sm.ActiveCount() != 0 {
 		t.Fatalf("expected 0 active after completion, got %d", sm.ActiveCount())
+	}
+}
+
+// trackingStorage is a minimal Storage that records UpsertMessage calls.
+type trackingStorage struct {
+	service.MemoryStorage
+	upserts []*service.StoredMessage
+}
+
+func (t *trackingStorage) UpsertMessage(ctx context.Context, msg *service.StoredMessage) error {
+	t.upserts = append(t.upserts, msg)
+	return t.MemoryStorage.UpsertMessage(ctx, msg)
+}
+
+func TestSessionManager_WithStorage_PersistsMessages(t *testing.T) {
+	store := &trackingStorage{MemoryStorage: *service.NewMemoryStorage()}
+	sm := NewSessionManager().WithStorage(store)
+
+	evts := []event.AgentEvent{
+		event.NewReplyStart("r1", "mock"),
+		event.NewTextBlockStart("r1", 0),
+		event.NewTextBlockDelta("r1", 0, "hello"),
+		event.NewTextBlockEnd("r1", 0),
+		event.NewReplyEnd("r1", "mock"),
+	}
+	a := makeMockAgent(evts, 0)
+
+	inputMsg := message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()
+	ch, err := sm.Run(context.Background(), "s1", a, inputMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	} // drain
+
+	// Should have upserted both input and reply messages.
+	if len(store.upserts) != 2 {
+		t.Fatalf("expected 2 upserts (input + reply), got %d", len(store.upserts))
+	}
+
+	// Verify input message.
+	inputStored := store.upserts[0]
+	if inputStored.Role != "user" || inputStored.Content != "hi" {
+		t.Fatalf("unexpected input stored: %+v", inputStored)
+	}
+
+	// Verify reply message was reconstructed from event stream.
+	replyStored := store.upserts[1]
+	if replyStored.Role != "assistant" {
+		t.Fatalf("expected assistant role, got %s", replyStored.Role)
+	}
+	if replyStored.Content != "hello" {
+		t.Fatalf("expected reply content 'hello', got %s", replyStored.Content)
+	}
+	if replyStored.FinishedAt == nil {
+		t.Fatal("expected FinishedAt to be set on reply")
+	}
+}
+
+func TestSessionManager_WithStorage_PersistsToolCall(t *testing.T) {
+	store := &trackingStorage{MemoryStorage: *service.NewMemoryStorage()}
+	sm := NewSessionManager().WithStorage(store)
+
+	evts := []event.AgentEvent{
+		event.NewReplyStart("r1", "mock"),
+		event.NewToolCallStart("r1", 0, "tc1", "calc"),
+		event.NewToolCallDelta("r1", 0, "tc1", `{"expr":"1+1"}`),
+		event.NewToolCallEnd("r1", 0, "tc1"),
+		event.NewReplyEnd("r1", "mock"),
+	}
+	a := makeMockAgent(evts, 0)
+
+	ch, err := sm.Run(context.Background(), "s1", a, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+
+	// Reply message should have tool_use block in Blocks.
+	replyStored := store.upserts[0]
+	if replyStored.Blocks == "" {
+		t.Fatal("expected Blocks to contain tool_use block")
 	}
 }

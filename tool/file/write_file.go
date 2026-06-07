@@ -293,3 +293,6 @@ func (i *InsertTextFileTool) Execute(ctx context.Context, input map[string]any) 
 	snippet := viewLines(newLines, viewStart, viewEnd)
 	return tool.NewTextResponse(fmt.Sprintf("Insert content into %s at line %d successfully. The content between lines %d-%d is:\n```\n%s```", filePath, lineNumber, viewStart, viewEnd, snippet)), nil
 }
+
+// IsReadOnly returns false because WriteFileTool writes files.
+func (w *WriteFileTool) IsReadOnly() bool { return false }

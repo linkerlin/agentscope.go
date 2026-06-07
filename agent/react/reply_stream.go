@@ -419,13 +419,14 @@ func (a *ReActAgent) runModelStream(
 		msg, err := a.chatModel.Chat(ctx, history, chatOpts...)
 		if err != nil {
 			out <- event.NewError(replyID, fmt.Errorf("react agent model call: %w", err))
-			out <- event.NewModelCallEnd(replyID, modelName)
+			out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
 			return nil, fmt.Errorf("react agent model call: %w", err)
 		}
 		out <- event.NewTextBlockStart(replyID, 0)
 		out <- event.NewTextBlockDelta(replyID, 0, msg.GetTextContent())
 		out <- event.NewTextBlockEnd(replyID, 0)
-		out <- event.NewModelCallEnd(replyID, modelName)
+		u := extractUsage(msg)
+		out <- event.NewModelCallEnd(replyID, modelName, u.PromptTokens, u.CompletionTokens)
 		_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
 			BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 			Messages:  append([]*message.Msg(nil), history...),
@@ -438,7 +439,7 @@ func (a *ReActAgent) runModelStream(
 	ch, err := a.chatModel.ChatStream(ctx, history, chatOpts...)
 	if err != nil {
 		out <- event.NewError(replyID, fmt.Errorf("react agent model stream: %w", err))
-		out <- event.NewModelCallEnd(replyID, modelName)
+		out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
 		return nil, fmt.Errorf("react agent model stream: %w", err)
 	}
 
@@ -501,7 +502,12 @@ func (a *ReActAgent) runModelStream(
 	if streamUsage != nil {
 		msg.Metadata["usage"] = *streamUsage
 	}
-	out <- event.NewModelCallEnd(replyID, modelName)
+	inputTokens, outputTokens := 0, 0
+	if streamUsage != nil {
+		inputTokens = streamUsage.PromptTokens
+		outputTokens = streamUsage.CompletionTokens
+	}
+	out <- event.NewModelCallEnd(replyID, modelName, inputTokens, outputTokens)
 	_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 		Messages:  append([]*message.Msg(nil), history...),
@@ -528,7 +534,7 @@ func (a *ReActAgent) executeToolsStream(
 		var asking []event.ToolCallSummary
 		for _, ev := range evals {
 			if ev.Decision == permission.DecisionDeny {
-				return nil, fmt.Errorf("permission denied for tool %s: %s", ev.ToolName, ev.Reason)
+				return nil, fmt.Errorf("permission denied for %s: %s", ev.ToolName, ev.Message)
 			}
 			if ev.Decision == permission.DecisionAsk {
 				asking = append(asking, event.ToolCallSummary{
@@ -592,9 +598,91 @@ func (a *ReActAgent) executeToolsStream(
 	}
 
 	results := make([]result, len(toolCalls))
+	externalDone := make(map[int]bool)
+
+	// External tools: suspend until client executes and injects results.
+	var externalCalls []event.ToolCallSummary
+	externalIdx := map[string]int{}
+	for idx, tc := range toolCalls {
+		if a.isExternalTool(tc.Name) {
+			externalCalls = append(externalCalls, event.ToolCallSummary{
+				ID: tc.ID, Name: tc.Name, Input: tc.Input,
+			})
+			externalIdx[tc.ID] = idx
+		}
+	}
+	if len(externalCalls) > 0 {
+		confirmID := uuid.New().String()
+		out <- event.NewRequireExternalExecution(replyID, confirmID, externalCalls)
+		tnow := time.Now()
+		a.runtimeMu.Lock()
+		if a.runtimeState != nil {
+			a.runtimeState.SuspendedAt = &tnow
+			a.runtimeState.SuspendedEvent = event.TypeRequireExternalExecution
+			a.runtimeState.WaitConfirmID = confirmID
+		}
+		a.runtimeMu.Unlock()
+
+		ev, err := a.waitForExternalEvent(ctx, confirmID)
+		if err != nil {
+			return nil, fmt.Errorf("external execution wait: %w", err)
+		}
+		a.runtimeMu.Lock()
+		if a.runtimeState != nil {
+			a.runtimeState.SuspendedAt = nil
+			a.runtimeState.SuspendedEvent = ""
+			a.runtimeState.WaitConfirmID = ""
+		}
+		a.runtimeMu.Unlock()
+
+		ext, ok := ev.(*event.ExternalExecutionResultEvent)
+		if !ok {
+			return nil, fmt.Errorf("expected ExternalExecutionResultEvent, got %T", ev)
+		}
+		byID := map[string]event.ExternalExecutionResult{}
+		for _, r := range ext.Results {
+			byID[r.ToolCallID] = r
+		}
+		for _, tc := range externalCalls {
+			idx := externalIdx[tc.ID]
+			out <- event.NewToolCallStart(replyID, idx, tc.ID, tc.Name)
+			out <- event.NewToolCallEnd(replyID, idx, tc.ID)
+			out <- event.NewToolResultStart(replyID, idx, tc.ID, tc.Name)
+
+			r, found := byID[tc.ID]
+			var blocks []message.ContentBlock
+			toolErr := false
+			if !found || !r.Success {
+				toolErr = true
+				msg := r.Error
+				if msg == "" {
+					msg = "external execution failed"
+				}
+				blocks = []message.ContentBlock{message.NewTextBlock(msg)}
+			} else {
+				blocks = []message.ContentBlock{message.NewTextBlock(r.Output)}
+				if r.Output != "" {
+					out <- event.NewToolResultTextDelta(replyID, idx, tc.ID, r.Output)
+				}
+			}
+			out <- event.NewToolResultEnd(replyID, idx, tc.ID)
+			results[idx] = result{
+				blocks:     blocks,
+				resultMsg:  message.NewMsg().Role(message.RoleTool).Content(message.NewToolResultBlock(tc.ID, blocks, toolErr)).Build(),
+				toolName:   tc.Name,
+				toolInput:  tc.Input,
+				toolCallID: tc.ID,
+			}
+			externalDone[idx] = true
+		}
+	}
+
 	var g sync.WaitGroup
 
 	for idx, tc := range toolCalls {
+		if externalDone[idx] {
+			continue
+		}
 		tc := tc
 		idx := idx
 		g.Add(1)

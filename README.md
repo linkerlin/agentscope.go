@@ -50,7 +50,8 @@ func main() {
 
 | 提供商 | 包路径 | 说明 |
 |--------|--------|------|
-| OpenAI | `github.com/linkerlin/agentscope.go/model/openai` | GPT-4o / GPT-4o-mini / o1 / o3 等 |
+| OpenAI Chat | `github.com/linkerlin/agentscope.go/model/openai` | GPT-4o / GPT-4o-mini / o1 / o3 等（Chat Completions API） |
+| OpenAI Response | `github.com/linkerlin/agentscope.go/model/openai_response` | o3 / o4-mini 等（Responses API，支持 reasoning 流） |
 | Anthropic | `github.com/linkerlin/agentscope.go/model/anthropic` | Claude 3.5 Sonnet / Opus / Haiku 原生 HTTP + SSE |
 | Gemini | `github.com/linkerlin/agentscope.go/model/gemini` | Gemini 1.5 Flash / Pro 原生 HTTP + SSE |
 | DashScope (阿里云) | `github.com/linkerlin/agentscope.go/model/dashscope` | 通义千问系列（OpenAI 兼容） |
@@ -71,14 +72,19 @@ func main() {
 | `agent` | `Agent` 基础接口与 `Base` 统一生命周期（Hook、流式事件、Usage 统计） |
 | `agent/react` | ReAct Agent 实现，内嵌 `agent.Base` |
 | `memory` | `Memory` 接口 + 内存实现 + ReMe 长期记忆 |
-| `tool` | `Tool` 接口 + `FunctionTool` 适配器 + `tool.Response` 规范多媒体结果 |
+| `tool` | `Tool` 接口 + 内置工具（Read/Write/Edit/Glob/Grep/Shell/Subagent） |
 | `formatter` | 独立的模型请求/响应格式化抽象层（OpenAI / Anthropic / Gemini / DashScope / Ollama） |
-| `pipeline` | 顺序多 Agent 编排（Pipeline） |
+| `pipeline` | 多 Agent 编排：Pipeline（顺序）+ Parallel（并发） |
 | `msghub` | 广播式多 Agent 消息调度（Hub） |
-| `workflow` | 高级多 Agent 编排：并行（Parallel）、条件（Condition）、循环（Loop）、MapReduce |
+| `workflow` | 高级多 Agent 编排：条件（Condition）、循环（Loop）、MapReduce |
 | `reflection` | Agent 自省/反思模式：Writer + Critic 循环迭代优化 |
-| `a2a` | A2A 协议最小实现：AgentCard、任务发送、流式订阅 |
-| `gateway` | HTTP + SSE Gateway，支持浏览器实时对话 |
+| `a2a` | A2A 协议实现：AgentCard、Task、SSE、Registry |
+| `gateway` | HTTP + SSE + WebSocket Gateway，支持多租户认证 + Session 持久化 |
+| `service` | 多租户 Service 层：Storage + Auth + Credential 加密 |
+| `schedule` | Cron 定时任务调度器 |
+| `async` | 异步任务执行池 |
+| `loader` | 文档加载器（TextLoader / DirLoader） |
+| `observability` | OpenTelemetry + LangSmith 可观测性 |
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
@@ -264,6 +270,19 @@ import "github.com/linkerlin/agentscope.go/model/vllm"
 
 chatModel, _ := vllm.Builder("http://localhost:8000/v1", "sk-...").
     ModelName("meta-llama/Meta-Llama-3-8B-Instruct").
+    Build()
+```
+
+### OpenAI Response API
+
+```go
+import "github.com/linkerlin/agentscope.go/model/openai_response"
+
+chatModel, _ := openai_response.Builder().
+    APIKey(os.Getenv("OPENAI_API_KEY")).
+    ModelName("o3").
+    ThinkingEnable(true).
+    ReasoningEffort("medium").
     Build()
 ```
 

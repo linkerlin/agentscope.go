@@ -81,14 +81,45 @@ for ev := range ch {
 | **事件驱动** | 20+ 细粒度事件类型，真流式输出 |
 | **挂起-恢复** | HITL（Human-in-the-Loop）支持，Agent 可在工具调用前等待用户确认 |
 | **ReMe Memory** | 领先 Python 参考实现的长期记忆系统，支持 5 种向量后端 + Hybrid Search |
-| **Workspace 沙箱** | Local / Docker / E2B（待实现）三种执行环境隔离 |
+| **Workspace 沙箱** | Local / Docker / E2B 三种执行环境隔离 |
 | **权限引擎** | glob/regex/substring 规则匹配，支持 ALLOW/DENY/ASK/PASSTHROUGH |
-| **多租户 Gateway** | HTTP + SSE + WebSocket，支持 API Key / JWT 认证 |
+| **多租户 Gateway** | HTTP + SSE + WebSocket，支持 API Key / JWT 认证 + Session 持久化 |
 | **MCP 集成** | Client + Server 适配器，支持动态 schema 发现 |
+| **内置工具** | Read / Write / Edit / Insert / Glob / Grep / Shell / Subagent |
+| **模型后端** | 10 个后端：OpenAI, Anthropic, Gemini, DashScope, Ollama, DeepSeek, vLLM, Moonshot, xAI, OpenAI Response |
+| **多 Agent 编排** | Pipeline / Parallel / MsgHub / Workflow / Reflection / MapReduce |
+| **异步任务池** | 固定 goroutine 池 + 任务状态跟踪 |
+| **文档加载器** | TextLoader / DirLoader（RAG 前置） |
+| **可观测性** | OpenTelemetry + LangSmith 双链路追踪 |
+| **结构化输出** | json_object / json_schema 响应格式 |
+| **跨语言互操作** | 与 Python v2 事件 JSON 格式对齐，契约测试验证 |
+
+---
+
+## 模型后端
+
+```go
+import (
+    "github.com/linkerlin/agentscope.go/model/openai"
+    "github.com/linkerlin/agentscope.go/model/anthropic"
+    "github.com/linkerlin/agentscope.go/model/deepseek"
+    "github.com/linkerlin/agentscope.go/model/moonshot"
+    "github.com/linkerlin/agentscope.go/model/xai"
+    "github.com/linkerlin/agentscope.go/model/vllm"
+)
+
+// 所有后端遵循相同的 Builder 模式
+model, _ := openai.Builder().APIKey(key).ModelName("gpt-4o").Build()
+model, _ := deepseek.Builder().APIKey(key).Build()
+model, _ := moonshot.Builder().APIKey(key).Build()
+model, _ := vllm.Builder().APIKey(key).BaseURL("http://localhost:8000/v1").Build()
+```
 
 ---
 
 ## 下一步
 
+- [教程](tutorial.md) — 从入门到生产的 5 步教程
 - [核心概念](concepts.md) — 理解事件系统、AgentState、Workspace
+- [API 参考](api-reference.md) — 完整接口速查
 - [部署指南](deployment.md) — 单机、Docker、K8s 部署

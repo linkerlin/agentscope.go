@@ -68,6 +68,11 @@ type Server struct {
 	sessions      map[string]*wsSession
 	rooms         map[string]map[string]*wsSession
 	mu            sync.RWMutex
+
+	// Multi-agent & session management (V2 service layer)
+	registry          *AgentRegistry
+	sessionMgr        *SessionManager
+	backgroundTaskMgr *BackgroundTaskManager
 }
 
 // NewServer creates a gateway HTTP server for the given agent.
@@ -104,6 +109,26 @@ func (s *Server) WithStorage(st service.Storage) *Server {
 // This overrides any manager created by WithStorage.
 func (s *Server) WithSessionStateManager(m *SessionStateManager) *Server {
 	s.sessionState = m
+	return s
+}
+
+// WithRegistry attaches an AgentRegistry for multi-agent support.
+func (s *Server) WithRegistry(r *AgentRegistry) *Server {
+	s.registry = r
+	return s
+}
+
+// WithSessionManager attaches a SessionManager for per-session
+// serialisation, fan-out and replay.
+func (s *Server) WithSessionManager(m *SessionManager) *Server {
+	s.sessionMgr = m
+	return s
+}
+
+// WithBackgroundTaskManager attaches a BackgroundTaskManager for cron-based
+// agent execution.
+func (s *Server) WithBackgroundTaskManager(m *BackgroundTaskManager) *Server {
+	s.backgroundTaskMgr = m
 	return s
 }
 
@@ -257,6 +282,22 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	data, _ := json.Marshal(streamEvent{Done: true})
 	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
+}
+
+// resolveAgent returns the agent to use for a request.
+// If the request specifies an "agent_id" query parameter or JSON field,
+// the registry is consulted (with fallback to the default agent).
+func (s *Server) resolveAgent(r *http.Request, agentID string) (agent.Agent, error) {
+	if agentID == "" {
+		agentID = r.URL.Query().Get("agent_id")
+	}
+	if agentID == "" {
+		return s.agent, nil
+	}
+	if s.registry == nil {
+		return nil, fmt.Errorf("agent_id specified but no registry configured")
+	}
+	return s.registry.Get(r.Context(), agentID)
 }
 
 func parseChatRequest(body io.ReadCloser) (*chatRequest, error) {

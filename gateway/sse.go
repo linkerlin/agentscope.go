@@ -22,6 +22,7 @@ type v2Event struct {
 type v2ChatRequest struct {
 	Text      string `json:"text"`
 	SessionID string `json:"session_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }
 
 func parseV2ChatRequest(body json.RawMessage) (*v2ChatRequest, error) {
@@ -53,14 +54,26 @@ func (s *Server) handleV2ChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v2, ok := s.agent.(agent.V2Agent)
+	a, err := s.resolveAgent(r, req.AgentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	v2, ok := a.(agent.V2Agent)
 	if !ok {
 		http.Error(w, "agent does not support V2 streaming", http.StatusNotImplemented)
 		return
 	}
 
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(req.Text).Build()
-	ch, err := v2.ReplyStream(r.Context(), msg)
+
+	var ch <-chan event.AgentEvent
+	if s.sessionMgr != nil && req.SessionID != "" {
+		ch, err = s.sessionMgr.Run(r.Context(), req.SessionID, a, msg)
+	} else {
+		ch, err = v2.ReplyStream(r.Context(), msg)
+	}
 	if err != nil {
 		http.Error(w, fmt.Sprintf("reply stream error: %v", err), http.StatusInternalServerError)
 		return

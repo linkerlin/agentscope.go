@@ -130,7 +130,14 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	v2, ok := s.agent.(agent.V2Agent)
+	agentID := r.URL.Query().Get("agent_id")
+	a, err := s.resolveAgent(r, agentID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	v2, ok := a.(agent.V2Agent)
 	if !ok {
 		http.Error(w, "agent does not support V2 streaming", http.StatusNotImplemented)
 		return
@@ -197,7 +204,14 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 
 		streamCtx, streamCancel = context.WithCancel(r.Context())
 		msg := message.NewMsg().Role(message.RoleUser).TextContent(text).Build()
-		evCh, err := v2.ReplyStream(streamCtx, msg)
+
+		var evCh <-chan event.AgentEvent
+		var err error
+		if s.sessionMgr != nil && sessionID != "" {
+			evCh, err = s.sessionMgr.Run(streamCtx, sessionID, a, msg)
+		} else {
+			evCh, err = v2.ReplyStream(streamCtx, msg)
+		}
 		if err != nil {
 			_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"%v"}`, err))})
 			return

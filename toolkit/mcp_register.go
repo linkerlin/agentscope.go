@@ -3,7 +3,6 @@ package toolkit
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/linkerlin/agentscope.go/toolkit/mcp"
 )
@@ -94,10 +93,7 @@ func (tk *Toolkit) RegisterMCPManager(ctx context.Context, mgr *mcp.Manager, opt
 
 	var registered []string
 	for _, t := range tools {
-		shortName := t.Name()
-		if strings.Contains(shortName, "/") {
-			shortName = strings.SplitN(shortName, "/", 2)[1]
-		}
+		shortName := mcp.UnderlyingToolName(t.Name())
 		if !shouldRegisterMCP(shortName, cfg.enableTools, cfg.disableTools) {
 			continue
 		}

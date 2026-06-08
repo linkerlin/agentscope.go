@@ -1,0 +1,16 @@
+id: claude-opus-4-7
+provider: anthropic
+display_name: Claude Opus 4.7
+context_size: 1000000
+output_size: 128000
+input_types:
+- text
+- thinking
+- image
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 128000

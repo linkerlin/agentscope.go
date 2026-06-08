@@ -52,7 +52,7 @@ func (m *mockV2Agent) InjectEvent(ctx context.Context, ev event.AgentEvent) erro
 }
 
 func TestE2E_MultiTenantWorkspace(t *testing.T) {
-	srv := buildGateway(&mockV2Agent{})
+	srv, _ := buildGateway(&mockV2Agent{})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 

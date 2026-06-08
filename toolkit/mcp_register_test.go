@@ -44,7 +44,7 @@ func TestToolkit_RegisterMCPClient(t *testing.T) {
 		t.Fatalf("expected 2 tools, got %d", len(tools))
 	}
 	for _, tool := range tools {
-		if tool.Name() != "local/echo" && tool.Name() != "local/add" {
+		if tool.Name() != "mcp__local__echo" && tool.Name() != "mcp__local__add" {
 			t.Fatalf("unexpected tool name: %s", tool.Name())
 		}
 	}
@@ -83,7 +83,7 @@ func TestToolkit_RegisterMCPClient_EnableTools(t *testing.T) {
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(tools))
 	}
-	if tools[0].Name() != "local/echo" {
+	if tools[0].Name() != "mcp__local__echo" {
 		t.Fatalf("unexpected tool: %s", tools[0].Name())
 	}
 }
@@ -102,7 +102,7 @@ func TestToolkit_RegisterMCPClient_DisableTools(t *testing.T) {
 	if len(tools) != 1 {
 		t.Fatalf("expected 1 tool, got %d", len(tools))
 	}
-	if tools[0].Name() != "local/echo" {
+	if tools[0].Name() != "mcp__local__echo" {
 		t.Fatalf("unexpected tool: %s", tools[0].Name())
 	}
 }
@@ -117,7 +117,7 @@ func TestToolkit_RegisterMCPClient_Execute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := tk.ExecuteTool(ctx, "local/echo", map[string]any{})
+	resp, err := tk.ExecuteTool(ctx, "mcp__local__echo", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestToolkit_RegisterMCPManager_EnableTools(t *testing.T) {
 	if len(registered) != 1 {
 		t.Fatalf("expected 1 registered tool, got %d", len(registered))
 	}
-	if registered[0] != "local/echo" {
+	if registered[0] != "mcp__local__echo" {
 		t.Fatalf("unexpected tool: %s", registered[0])
 	}
 }

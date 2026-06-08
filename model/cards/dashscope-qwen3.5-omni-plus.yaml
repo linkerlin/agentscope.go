@@ -1,0 +1,23 @@
+id: qwen3.5-omni-plus
+provider: dashscope
+display_name: Qwen3.5-Omni-Plus
+context_size: 262144
+output_size: 65536
+input_types:
+- text
+- bmp
+- image
+- tiff
+- heic
+- mp3
+- wav
+- flac
+- mp4
+output_types:
+- text
+- thinking
+- wav
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 65536

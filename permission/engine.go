@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/tool"
 )
 
 // Mode defines the default behavior when no explicit rule matches.
@@ -61,6 +62,7 @@ type Engine struct {
 	ctx           *Context
 	rules         []Rule
 	readOnlyTools map[string]bool
+	toolResolver  func(string) tool.Tool
 }
 
 // NewEngine creates a permission engine with the given mode and rules.
@@ -106,7 +108,17 @@ func defaultReadOnlyTools() map[string]bool {
 	}
 }
 
-// Evaluate runs the permission engine against a slice of tool calls.
+// SetToolResolver wires tool lookup for per-tool permission hooks (PyV2 check_permissions / match_rule).
+func (e *Engine) SetToolResolver(resolver func(string) tool.Tool) {
+	e.toolResolver = resolver
+}
+
+func (e *Engine) resolveTool(name string) tool.Tool {
+	if e.toolResolver == nil {
+		return nil
+	}
+	return e.toolResolver(name)
+}
 // It returns a per-tool-call decision. If any decision is ASK, the caller
 // (typically the agent) should suspend and emit a RequireUserConfirmEvent.
 func (e *Engine) Evaluate(toolCalls []*message.ToolUseBlock) ([]Result, error) {
@@ -141,10 +153,21 @@ func (e *Engine) groupRules() map[Decision]map[string][]Rule {
 func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[string][]Rule) Result {
 	filePath := extractString(tc.Input, "file_path", "dir_path", "path")
 	command := extractString(tc.Input, "command")
+	t := e.resolveTool(tc.Name)
 	isReadOnly := e.readOnlyTools[tc.Name]
+	if t != nil {
+		if ro, ok := t.(tool.ReadOnlyChecker); ok && ro.IsReadOnly() {
+			isReadOnly = true
+		}
+	}
+
+	input := tc.Input
+	if input == nil {
+		input = map[string]any{}
+	}
 
 	// 1. Deny rules (highest priority)
-	if r := e.matchRules(grouped[DecisionDeny], tc.Name, filePath, command); r != nil {
+	if r := e.matchRules(grouped[DecisionDeny], tc.Name, filePath, command, input, t); r != nil {
 		return Result{
 			ToolCallID: tc.ID,
 			ToolName:   tc.Name,
@@ -155,26 +178,47 @@ func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[
 	}
 
 	// 2. Ask rules
-	if r := e.matchRules(grouped[DecisionAsk], tc.Name, filePath, command); r != nil {
+	if r := e.matchRules(grouped[DecisionAsk], tc.Name, filePath, command, input, t); r != nil {
 		return Result{
 			ToolCallID:     tc.ID,
 			ToolName:       tc.Name,
 			Decision:       DecisionAsk,
 			Message:        fmt.Sprintf("Permission required for %s", tc.Name),
 			Reason:         fmt.Sprintf("matched ask rule %q", r.Name),
-			SuggestedRules: e.generateSuggestions(tc, filePath, command),
+			SuggestedRules: e.generateSuggestions(tc, filePath, command, t),
 		}
 	}
 
-	// 3. Tool-specific safety checks (bypass-immune)
+	// 3. Tool-specific permission checks (PyV2 check_permissions)
+	if t != nil {
+		if decider, ok := t.(tool.PermissionDecider); ok {
+			dec, msg, reason, passthrough := decider.CheckPermissions(input, e.ctx)
+			if !passthrough {
+				engineDec := fromToolDecision(dec)
+				result := Result{
+					ToolCallID: tc.ID,
+					ToolName:   tc.Name,
+					Decision:   engineDec,
+					Message:    msg,
+					Reason:     reason,
+				}
+				if engineDec == DecisionAsk {
+					result.SuggestedRules = e.generateSuggestions(tc, filePath, command, t)
+				}
+				return result
+			}
+		}
+	}
+
+	// 4. Tool-specific safety checks (bypass-immune)
 	if safety := e.checkSafety(tc.Name, filePath, command, isReadOnly); safety != nil {
 		// Copy tool call ID into safety result.
 		safety.ToolCallID = tc.ID
 		return *safety
 	}
 
-	// 4. Allow rules
-	if r := e.matchRules(grouped[DecisionAllow], tc.Name, filePath, command); r != nil {
+	// 5. Allow rules
+	if r := e.matchRules(grouped[DecisionAllow], tc.Name, filePath, command, input, t); r != nil {
 		return Result{
 			ToolCallID: tc.ID,
 			ToolName:   tc.Name,
@@ -184,15 +228,15 @@ func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[
 		}
 	}
 
-	// 5. Mode defaults
-	return e.defaultResult(tc, isReadOnly, filePath, command)
+	// 6. Mode defaults
+	return e.defaultResult(tc, isReadOnly, filePath, command, t)
 }
 
-func (e *Engine) matchRules(rules map[string][]Rule, toolName, filePath, command string) *Rule {
+func (e *Engine) matchRules(rules map[string][]Rule, toolName, filePath, command string, input map[string]any, t tool.Tool) *Rule {
 	for _, key := range []string{toolName, ""} {
 		for i := range rules[key] {
 			r := &rules[key][i]
-			if e.ruleMatches(r, toolName, filePath, command) {
+			if e.ruleMatches(r, toolName, filePath, command, input, t) {
 				return r
 			}
 		}
@@ -200,7 +244,15 @@ func (e *Engine) matchRules(rules map[string][]Rule, toolName, filePath, command
 	return nil
 }
 
-func (e *Engine) ruleMatches(r *Rule, toolName, filePath, command string) bool {
+func (e *Engine) ruleMatches(r *Rule, toolName, filePath, command string, input map[string]any, t tool.Tool) bool {
+	if t != nil {
+		if matcher, ok := t.(tool.RuleMatcher); ok {
+			if r.Pattern == "" {
+				return true
+			}
+			return matcher.MatchRule(r.Pattern, input)
+		}
+	}
 	matched := false
 	switch r.Target {
 	case "tool_name":
@@ -313,7 +365,7 @@ func (e *Engine) pathInWorkingDirs(filePath string) bool {
 	return false
 }
 
-func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePath, command string) Result {
+func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePath, command string, t tool.Tool) Result {
 	switch e.ctx.Mode {
 	case ModeBypass:
 		return Result{
@@ -357,7 +409,7 @@ func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePa
 				Decision:       DecisionAsk,
 				Message:        fmt.Sprintf("Permission required for %s", tc.Name),
 				Reason:         "Accept edits mode requires explicit permission for non-edit write operations",
-				SuggestedRules: e.generateSuggestions(tc, filePath, command),
+				SuggestedRules: e.generateSuggestions(tc, filePath, command, t),
 			}
 		}
 		return Result{
@@ -374,12 +426,20 @@ func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePa
 			Decision:       DecisionAsk,
 			Message:        fmt.Sprintf("Permission required for %s", tc.Name),
 			Reason:         "Default mode requires explicit permission for each action",
-			SuggestedRules: e.generateSuggestions(tc, filePath, command),
+			SuggestedRules: e.generateSuggestions(tc, filePath, command, t),
 		}
 	}
 }
 
-func (e *Engine) generateSuggestions(tc *message.ToolUseBlock, filePath, command string) []Rule {
+func (e *Engine) generateSuggestions(tc *message.ToolUseBlock, filePath, command string, t tool.Tool) []Rule {
+	if t != nil {
+		if gen, ok := t.(tool.SuggestionGenerator); ok {
+			suggestions := gen.GenerateSuggestions(tc.Input)
+			if len(suggestions) > 0 {
+				return fromToolSuggestions(suggestions)
+			}
+		}
+	}
 	var suggestions []Rule
 	if command != "" {
 		parts := strings.Fields(command)
@@ -457,6 +517,33 @@ func extractString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func fromToolDecision(dec tool.PermissionDecision) Decision {
+	switch dec {
+	case tool.PermAllow:
+		return DecisionAllow
+	case tool.PermDeny:
+		return DecisionDeny
+	case tool.PermAsk:
+		return DecisionAsk
+	default:
+		return DecisionAsk
+	}
+}
+
+func fromToolSuggestions(in []tool.SuggestedRule) []Rule {
+	out := make([]Rule, 0, len(in))
+	for _, s := range in {
+		out = append(out, Rule{
+			Name:     s.Name,
+			ToolName: s.ToolName,
+			Target:   s.Target,
+			Pattern:  s.Pattern,
+			Decision: fromToolDecision(s.Decision),
+		})
+	}
+	return out
 }
 
 // matchGlob performs a simple glob match. It uses filepath.Match for full

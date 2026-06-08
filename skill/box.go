@@ -138,6 +138,7 @@ func (b *Box) RegisterSkillLoadTool() error {
 	}
 	_ = b.tk.Groups.AddTool("skill_load_tools", lt.Name())
 	_ = b.tk.Groups.SetGroupActive("skill_load_tools", true)
+	b.provider.Instruction = LoadSkillInstruction
 	return nil
 }
 
@@ -296,14 +297,14 @@ func (cb *CodeExecutionBuilder) Enable() error {
 	_ = cb.box.tk.Groups.SetGroupActive(groupName, true)
 
 	injectPrompt := shellEnabled || cb.codeExecPrompt != ""
-	cb.box.provider.Instruction = DefaultSkillInstruction
+	cb.box.provider.Instruction = LoadSkillInstruction
 	if injectPrompt {
 		uploadDir := cb.box.ensureUploadDir()
 		inst := cb.codeExecPrompt
 		if inst == "" {
 			inst = defaultCodeExecutionInstruction(uploadDir)
 		}
-		cb.box.provider.Instruction = DefaultSkillInstruction + "\n" + inst
+		cb.box.provider.Instruction = LoadSkillInstruction + "\n" + inst
 	}
 	return nil
 }

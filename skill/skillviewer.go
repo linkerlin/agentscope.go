@@ -77,3 +77,21 @@ func (t *SkillViewerTool) Execute(_ context.Context, input map[string]any) (*too
 }
 
 func (t *SkillViewerTool) IsReadOnly() bool { return true }
+
+func (t *SkillViewerTool) CheckPermissions(_ map[string]any, _ any) (tool.PermissionDecision, string, string, bool) {
+	return tool.PermAllow, "The skill viewer is always allowed to be called.", "skill viewer", false
+}
+
+func (t *SkillViewerTool) MatchRule(pattern string, _ map[string]any) bool {
+	return pattern == ""
+}
+
+func (t *SkillViewerTool) GenerateSuggestions(_ map[string]any) []tool.SuggestedRule {
+	return []tool.SuggestedRule{{
+		Name:     "suggested-tool-level",
+		ToolName: t.Name(),
+		Target:   "tool_name",
+		Pattern:  t.Name(),
+		Decision: tool.PermAllow,
+	}}
+}

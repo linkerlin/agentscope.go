@@ -8,46 +8,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/linkerlin/agentscope.go/agent"
-	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/gateway"
-	"github.com/linkerlin/agentscope.go/model/dashscope"
 )
 
 //go:embed static/*
 var staticFiles embed.FS
 
 func main() {
-	var ag agent.Agent
-	if apiKey := os.Getenv("DASHSCOPE_API_KEY"); apiKey != "" {
-		modelName := envOr("DASHSCOPE_MODEL", "qwen3.7-plus")
-		baseURL := envOr("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-		chatModel, err := dashscope.Builder().
-			APIKey(apiKey).
-			ModelName(modelName).
-			BaseURL(baseURL).
-			Build()
-		if err != nil {
-			panic(err)
-		}
-		realAgent, err := react.Builder().
-			Name("WebUIAgent").
-			SysPrompt("You are a helpful assistant. Be concise.").
-			Model(chatModel).
-			Build()
-		if err != nil {
-			panic(err)
-		}
-		ag = realAgent
-		fmt.Println("Using DashScope:", modelName)
-		fmt.Println("  Base URL:", baseURL)
-	} else {
-		ag = newDemoAgent()
-		fmt.Println("DASHSCOPE_API_KEY not set — using built-in demo agent")
-		fmt.Println("  Tip: send a message containing \"tool\" to preview tool-call UI")
-	}
-
-	srv := gateway.NewServer(ag)
+	_, srv := buildApp()
 	srv.RegisterV2Routes()
 
 	staticRoot, err := fs.Sub(staticFiles, "static")
@@ -67,7 +35,8 @@ func main() {
 
 	addr := envOr("PORT", "8080")
 	fmt.Printf("AG-UI Web UI: http://localhost:%s\n", addr)
-	fmt.Printf("  SSE endpoint: POST /v2/chat/stream?protocol=agui\n")
+	fmt.Printf("  Streamable HTTP: POST/GET/DELETE /v2/chat?protocol=agui\n")
+	fmt.Printf("  Page load: GET /v2/chat auto-reconnect (session id in localStorage)\n")
 	if err := http.ListenAndServe(":"+addr, handler); err != nil {
 		panic(err)
 	}

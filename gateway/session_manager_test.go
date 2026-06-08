@@ -450,3 +450,39 @@ func TestSessionManager_WithStorage_PersistsToolCall(t *testing.T) {
 		t.Fatal("expected Blocks to contain tool_use block")
 	}
 }
+
+func TestSessionManager_Terminate(t *testing.T) {
+	sm := NewSessionManager()
+	a := makeMockAgent([]event.AgentEvent{
+		event.NewTextBlockDelta("r1", 0, "slow"),
+		event.NewReplyEnd("r1", ""),
+	}, 500*time.Millisecond)
+
+	ch, err := sm.Run(context.Background(), "sess-term", a, message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !sm.IsActive("sess-term") {
+		t.Fatal("expected active run before terminate")
+	}
+	if !sm.Terminate("sess-term") {
+		t.Fatal("expected terminate to succeed")
+	}
+
+	deadline := time.After(2 * time.Second)
+	for sm.IsActive("sess-term") {
+		select {
+		case <-deadline:
+			t.Fatal("run did not finish after terminate")
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	for range ch {
+	}
+
+	if sm.Terminate("sess-term") {
+		t.Fatal("terminate after run ended should be no-op")
+	}
+}

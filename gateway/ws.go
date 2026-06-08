@@ -209,7 +209,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		}
 
 		streamCtx, streamCancel = context.WithCancel(r.Context())
-		msg := message.NewMsg().Role(message.RoleUser).TextContent(text).Build()
+		msg := message.NewMsg().Role(message.RoleUser).TextContent(injectOffloadHints(s, sessionID, text)).Build()
 
 		var evCh <-chan event.AgentEvent
 		var err error

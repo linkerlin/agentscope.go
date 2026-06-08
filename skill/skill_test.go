@@ -122,7 +122,7 @@ func TestPromptProvider(t *testing.T) {
 	if !strings.Contains(prompt, "<name>s1</name>") {
 		t.Fatalf("expected skill name in prompt, got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "</available_skills>") {
+	if !strings.Contains(prompt, "</agent-skills>") {
 		t.Fatal("expected closing tag")
 	}
 }

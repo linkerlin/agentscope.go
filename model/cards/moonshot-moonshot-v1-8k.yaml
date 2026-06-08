@@ -1,0 +1,13 @@
+id: moonshot-v1-8k
+provider: moonshot
+display_name: Kimi Moonshot v1 8K
+context_size: 8192
+output_size: 8192
+input_types:
+- text
+output_types:
+- text
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 8192

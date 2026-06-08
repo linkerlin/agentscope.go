@@ -1,0 +1,16 @@
+id: claude-sonnet-4-6
+provider: anthropic
+display_name: Claude Sonnet 4.6
+context_size: 1000000
+output_size: 65536
+input_types:
+- text
+- thinking
+- image
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 65536

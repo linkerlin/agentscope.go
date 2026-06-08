@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/linkerlin/agentscope.go/runcontext"
 	"github.com/linkerlin/agentscope.go/tool"
 	"github.com/linkerlin/agentscope.go/workspace"
 )
@@ -208,7 +209,11 @@ func (m *OffloadMiddleware) Wrap(next Handler) Handler {
 					"timestamp": time.Now().Unix(),
 				})
 				if m.offloader != nil {
-					_, _ = m.offloader.OffloadToolResult(ctx, m.sessionID, r.Name, data)
+					sid := m.sessionID
+					if sid == "" {
+						sid = runcontext.SessionID(ctx)
+					}
+					_, _ = m.offloader.OffloadToolResult(ctx, sid, r.Name, data)
 					continue
 				}
 				if m.ws == nil {

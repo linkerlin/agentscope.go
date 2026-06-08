@@ -10,6 +10,7 @@ import (
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/interruption"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 )
 
@@ -25,6 +26,7 @@ type Base struct {
 
 	hooks       []hook.Hook
 	streamHooks []hook.StreamHook
+	mwChain     *middleware.Chain
 
 	Mu     sync.RWMutex
 	Closed bool
@@ -38,7 +40,7 @@ type Base struct {
 }
 
 // NewBase creates a new Base with the given metadata and hooks.
-func NewBase(id, name, description, sysPrompt string, meta map[string]any, hooks []hook.Hook, streamHooks []hook.StreamHook) *Base {
+func NewBase(id, name, description, sysPrompt string, meta map[string]any, hooks []hook.Hook, streamHooks []hook.StreamHook, mws ...middleware.Middleware) *Base {
 	b := &Base{
 		ID:          id,
 		Name:        name,
@@ -47,14 +49,18 @@ func NewBase(id, name, description, sysPrompt string, meta map[string]any, hooks
 		Meta:        meta,
 		hooks:       hook.SortByPriority(hooks),
 		streamHooks: hook.SortStreamHooks(streamHooks),
+		mwChain:     middleware.Classify(mws),
 	}
 	b.usage.Store(model.ChatUsage{})
 	b.ResetInterrupt()
 	return b
 }
 
-// AgentName returns the agent's display name.
+// AgentName implements middleware.Agent.
 func (b *Base) AgentName() string { return b.Name }
+
+// MiddlewareChain returns the classified middleware chain (may be nil).
+func (b *Base) MiddlewareChain() *middleware.Chain { return b.mwChain }
 
 // Interrupt signals the agent to stop its current execution at the next
 // checkpoint. This is safe to call from any goroutine.
@@ -203,6 +209,41 @@ func (b *Base) FireHooks(
 	return msgs, nil, nil
 }
 
+// FireOnError fires HookOnError hooks and optional stream error events.
+// Returns nil when a hook sets HandleError; otherwise returns the original err.
+func (b *Base) FireOnError(
+	ctx context.Context,
+	err error,
+	messages []*message.Msg,
+	toolName string,
+	toolInput map[string]any,
+) error {
+	if err == nil {
+		return nil
+	}
+	if len(b.hooks) > 0 {
+		for _, h := range b.hooks {
+			hCtx := &hook.HookContext{
+				AgentName: b.Name,
+				Point:     hook.HookOnError,
+				Messages:  messages,
+				ToolName:  toolName,
+				ToolInput: toolInput,
+				Metadata:  make(map[string]any),
+				Err:       err,
+			}
+			result, hookErr := h.OnEvent(ctx, hCtx)
+			if hookErr != nil {
+				return hookErr
+			}
+			if result != nil && result.HandleError {
+				return nil
+			}
+		}
+	}
+	return err
+}
+
 // HasStreamHooks reports whether any stream hooks are registered.
 func (b *Base) HasStreamHooks() bool {
 	return len(b.streamHooks) > 0
@@ -223,16 +264,34 @@ func (b *Base) FireStreamEvent(ctx context.Context, ev hook.Event) (hook.Event, 
 }
 
 // Call wraps the full agent reply lifecycle: pre_reply -> reply -> post_reply.
-// It fires PreReply hooks, allows them to modify the input message, then invokes
-// reply with the potentially modified message. After reply returns, it fires
-// PostReply hooks.
+// When on_reply middleware is registered, the entire lifecycle is wrapped in an onion chain.
 func (b *Base) Call(ctx context.Context, msg *message.Msg, reply func(context.Context, *message.Msg) (*message.Msg, error)) (*message.Msg, error) {
+	core := func(ctx context.Context) (*message.Msg, error) {
+		return b.callWithHooks(ctx, msg, reply)
+	}
+	if b.mwChain != nil && len(b.mwChain.Reply) > 0 {
+		input := &middleware.ReplyInput{Messages: []*message.Msg{msg}}
+		handler := middleware.ChainReply(b.mwChain, b, input, core)
+		resp, err := handler(ctx)
+		if err != nil {
+			return nil, b.FireOnError(ctx, err, []*message.Msg{msg}, "", nil)
+		}
+		return resp, nil
+	}
+	resp, err := core(ctx)
+	if err != nil {
+		return nil, b.FireOnError(ctx, err, []*message.Msg{msg}, "", nil)
+	}
+	return resp, nil
+}
+
+func (b *Base) callWithHooks(ctx context.Context, msg *message.Msg, reply func(context.Context, *message.Msg) (*message.Msg, error)) (*message.Msg, error) {
 	messages := []*message.Msg{msg}
 
 	// PreReply
 	msgs, hr, err := b.FireHooks(ctx, hook.HookPreReply, messages, nil, "", nil)
 	if err != nil {
-		return nil, err
+		return nil, b.FireOnError(ctx, err, messages, "", nil)
 	}
 	if hr != nil && (hr.Interrupt || hr.Override != nil) {
 		return hr.Override, nil
@@ -261,7 +320,7 @@ func (b *Base) Observe(ctx context.Context, msg *message.Msg, observe func(conte
 	// PreObserve
 	msgs, hr, err := b.FireHooks(ctx, hook.HookPreObserve, messages, nil, "", nil)
 	if err != nil {
-		return err
+		return b.FireOnError(ctx, err, messages, "", nil)
 	}
 	if hr != nil && hr.Interrupt {
 		return nil
@@ -272,7 +331,7 @@ func (b *Base) Observe(ctx context.Context, msg *message.Msg, observe func(conte
 	}
 
 	if err := observe(ctx, input); err != nil {
-		return err
+		return b.FireOnError(ctx, err, msgs, "", nil)
 	}
 
 	// PostObserve

@@ -15,6 +15,7 @@ import (
 	"github.com/linkerlin/agentscope.go/interruption"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/shutdown"
@@ -77,6 +78,7 @@ type ReActAgentBuilder struct {
 	maxIterations  int
 	hooks          []hook.Hook
 	streamHooks    []hook.StreamHook
+	middlewares    []middleware.Middleware
 	meta           map[string]any
 	shutdownConfig shutdown.GracefulShutdownConfig
 
@@ -178,6 +180,16 @@ func (b *ReActAgentBuilder) StreamHooks(hooks ...hook.StreamHook) *ReActAgentBui
 	return b
 }
 
+// Middlewares registers agent-level lifecycle middleware (on_reply / on_reasoning / on_acting / on_model_call / on_system_prompt).
+func (b *ReActAgentBuilder) Middlewares(mws ...middleware.Middleware) *ReActAgentBuilder {
+	for _, mw := range mws {
+		if mw != nil {
+			b.middlewares = append(b.middlewares, mw)
+		}
+	}
+	return b
+}
+
 // PermissionEngine sets the V2 permission engine for HITL tool confirmation.
 func (b *ReActAgentBuilder) PermissionEngine(pe *permission.Engine) *ReActAgentBuilder {
 	b.permissionEngine = pe
@@ -232,6 +244,12 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		}
 	}
 
+	if b.permissionEngine != nil {
+		b.permissionEngine.SetToolResolver(func(name string) tool.Tool {
+			return toolMap[name]
+		})
+	}
+
 	a := &ReActAgent{
 		Base: agent.NewBase(
 			b.agentID,
@@ -241,6 +259,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 			cloneMeta(b.meta),
 			b.hooks,
 			b.streamHooks,
+			b.middlewares...,
 		),
 		chatModel:        b.chatModel,
 		tools:            b.tools,
@@ -740,9 +759,17 @@ func (a *ReActAgent) buildHistory(ctx context.Context, userMsg *message.Msg) ([]
 	var history []*message.Msg
 
 	if a.Base.SysPrompt != "" {
+		prompt := a.Base.SysPrompt
+		if chain := a.Base.MiddlewareChain(); chain != nil {
+			var err error
+			prompt, err = middleware.ApplySystemPrompt(ctx, a.Base, chain, prompt)
+			if err != nil {
+				return nil, err
+			}
+		}
 		history = append(history, message.NewMsg().
 			Role(message.RoleSystem).
-			TextContent(a.Base.SysPrompt).
+			TextContent(prompt).
 			Build())
 	}
 
@@ -790,6 +817,19 @@ func (a *ReActAgent) toolSpecs() []model.ToolSpec {
 // executeTool finds and runs the named tool. If a workspace is configured,
 // it attempts to bind the workspace to the tool before execution.
 func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
+	final := func(ctx context.Context) (*tool.Response, error) {
+		return a.actingImpl(ctx, name, input)
+	}
+	chain := a.Base.MiddlewareChain()
+	if chain != nil && len(chain.Acting) > 0 {
+		actingInput := &middleware.ActingInput{ToolName: name, ToolInput: input}
+		handler := middleware.ChainActing(chain, a.Base, actingInput, final)
+		return handler(ctx)
+	}
+	return final(ctx)
+}
+
+func (a *ReActAgent) actingImpl(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
 	if a.toolkit != nil {
 		if a.workspace != nil {
 			if t, ok := a.toolkit.Registry.Get(name); ok {

@@ -1,0 +1,14 @@
+id: qwen3.6-max-preview
+provider: dashscope
+display_name: Qwen3.6-Max-Preview
+context_size: 240000
+output_size: 64000
+input_types:
+- text
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 64000

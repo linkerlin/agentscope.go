@@ -1,0 +1,21 @@
+id: kimi-k2.6
+provider: moonshot
+display_name: Kimi K2.6
+context_size: 262144
+output_size: 32768
+input_types:
+- text
+- thinking
+- image
+- mp4
+- mpeg
+- quicktime
+- avi
+- webm
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 32768

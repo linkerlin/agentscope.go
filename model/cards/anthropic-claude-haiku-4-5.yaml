@@ -1,0 +1,16 @@
+id: claude-haiku-4-5
+provider: anthropic
+display_name: Claude Haiku 4.5
+context_size: 200000
+output_size: 65536
+input_types:
+- text
+- thinking
+- image
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 65536

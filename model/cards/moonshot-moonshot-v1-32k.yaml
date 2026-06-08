@@ -1,0 +1,13 @@
+id: moonshot-v1-32k
+provider: moonshot
+display_name: Kimi Moonshot v1 32K
+context_size: 32768
+output_size: 32768
+input_types:
+- text
+output_types:
+- text
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 32768

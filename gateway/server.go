@@ -73,6 +73,8 @@ type Server struct {
 	registry          *AgentRegistry
 	sessionMgr        *SessionManager
 	backgroundTaskMgr *BackgroundTaskManager
+	modelCardsDir     string
+	toolOffload       *ToolOffloadManager
 }
 
 // NewServer creates a gateway HTTP server for the given agent.
@@ -125,6 +127,22 @@ func (s *Server) WithSessionManager(m *SessionManager) *Server {
 	return s
 }
 
+// WithToolOffloadManager attaches a tool offload manager for background tool hints.
+func (s *Server) WithToolOffloadManager(m *ToolOffloadManager) *Server {
+	s.toolOffload = m
+	return s
+}
+
+func (s *Server) toolOffloadMgr() *ToolOffloadManager {
+	if s.toolOffload != nil {
+		return s.toolOffload
+	}
+	if s.backgroundTaskMgr != nil {
+		return s.backgroundTaskMgr.ToolOffload()
+	}
+	return nil
+}
+
 // WithBackgroundTaskManager attaches a BackgroundTaskManager for cron-based
 // agent execution.
 func (s *Server) WithBackgroundTaskManager(m *BackgroundTaskManager) *Server {
@@ -159,6 +177,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 // resume endpoint for suspend-resume workflows to the gateway server.
 // These routes are protected if an authenticator is configured.
 func (s *Server) RegisterV2Routes() {
+	s.mux.HandleFunc("/v2/chat", s.requireAuth(s.handleV2Chat))
 	s.mux.HandleFunc("/v2/chat/stream", s.requireAuth(s.handleV2ChatStream))
 	s.mux.HandleFunc("/v2/chat/ws", s.requireAuth(s.handleChatWSV2))
 	s.mux.HandleFunc("/v2/resume", s.requireAuth(s.handleV2Resume))

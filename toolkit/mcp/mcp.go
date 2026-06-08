@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/linkerlin/agentscope.go/model"
@@ -21,6 +22,8 @@ type ToolInfo struct {
 	Name        string
 	Description string
 	Parameters  map[string]any // JSON Schema object
+	ReadOnly    bool
+	MCPName     string // MCP server label/name
 }
 
 // Client MCP 客户端抽象（可接 stdio、HTTP、mock）
@@ -106,16 +109,51 @@ type toolAdapter struct {
 	info   ToolInfo
 }
 
+// FormatToolName builds a PyV2-compatible MCP tool name: mcp__{server}__{tool}.
+func FormatToolName(server, tool string) string {
+	return fmt.Sprintf("mcp__%s__%s", server, tool)
+}
+
+// ParseToolName splits mcp__{server}__{tool} into server and tool.
+// Returns ok=false for legacy label/tool names.
+func ParseToolName(full string) (server, tool string, ok bool) {
+	const prefix = "mcp__"
+	if !strings.HasPrefix(full, prefix) {
+		return "", full, false
+	}
+	rest := full[len(prefix):]
+	idx := strings.Index(rest, "__")
+	if idx <= 0 || idx >= len(rest)-2 {
+		return "", full, false
+	}
+	return rest[:idx], rest[idx+2:], true
+}
+
+// UnderlyingToolName returns the raw MCP tool name for enable/disable filters.
+func UnderlyingToolName(full string) string {
+	if _, tool, ok := ParseToolName(full); ok {
+		return tool
+	}
+	if before, after, ok := strings.Cut(full, "/"); ok && before != "" && after != "" {
+		return after
+	}
+	return full
+}
+
 // NewToolAdapter 将 MCP ToolInfo 包装为 tool.Tool
 func NewToolAdapter(label string, c Client, info ToolInfo) tool.Tool {
+	if info.MCPName == "" {
+		info.MCPName = label
+	}
 	return &toolAdapter{label: label, client: c, info: info}
 }
 
 func (t *toolAdapter) Name() string {
-	if t.label != "" {
-		return t.label + "/" + t.info.Name
+	server := t.info.MCPName
+	if server == "" {
+		server = t.label
 	}
-	return t.info.Name
+	return FormatToolName(server, t.info.Name)
 }
 
 func (t *toolAdapter) Description() string { return t.info.Description }
@@ -134,4 +172,36 @@ func (t *toolAdapter) Execute(ctx context.Context, input map[string]any) (*tool.
 		return nil, err
 	}
 	return tool.NewTextResponse(result), nil
+}
+
+func (t *toolAdapter) IsMCPTool() bool { return true }
+
+func (t *toolAdapter) MCPName() string {
+	if t.info.MCPName != "" {
+		return t.info.MCPName
+	}
+	return t.label
+}
+
+func (t *toolAdapter) IsReadOnly() bool { return t.info.ReadOnly }
+
+func (t *toolAdapter) CheckPermissions(_ map[string]any, _ any) (tool.PermissionDecision, string, string, bool) {
+	if t.info.ReadOnly {
+		return tool.PermAllow, "This is a read-only MCP tool. Allowing execution.", "read-only mcp tool", false
+	}
+	return tool.PermAsk, "MCP tools must be explicitly allowed by the user.", "mcp tool default", false
+}
+
+func (t *toolAdapter) MatchRule(pattern string, _ map[string]any) bool {
+	return pattern == ""
+}
+
+func (t *toolAdapter) GenerateSuggestions(_ map[string]any) []tool.SuggestedRule {
+	return []tool.SuggestedRule{{
+		Name:     "suggested-tool-level",
+		ToolName: t.Name(),
+		Target:   "tool_name",
+		Pattern:  t.Name(),
+		Decision: tool.PermAllow,
+	}}
 }

@@ -11,11 +11,12 @@
     <header class="header">
       <div>
         <h1>AgentScope Go</h1>
-        <p class="subtitle">AG-UI protocol · SSE stream</p>
+        <p class="subtitle">AG-UI protocol · Streamable HTTP</p>
       </div>
       <div class="session">
         <span class="label">Session</span>
         <code id="session-id"></code>
+        <span id="reconnect-status" class="reconnect-status" aria-live="polite"></span>
       </div>
     </header>
 
@@ -26,7 +27,7 @@
         <textarea id="input" rows="2" placeholder="输入消息… (demo 模式可试 tool)" autofocus></textarea>
         <button type="submit" id="send-btn">发送</button>
       </form>
-      <p class="hint">POST <code>/v2/chat/stream?protocol=agui</code></p>
+      <p class="hint">加载时 <code>GET /v2/chat</code> 自动重连 · 发送 <code>POST /v2/chat</code></p>
     </footer>
   </div>
   <script src="/app.js"></script>

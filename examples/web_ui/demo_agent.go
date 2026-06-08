@@ -118,7 +118,9 @@ func (d *demoAgent) stream(ctx context.Context, msg *message.Msg, ch chan<- even
 		return
 	}
 	reply := fmt.Sprintf("Hello! This is the AG-UI demo agent. You said: %s", userText)
-	if strings.Contains(strings.ToLower(userText), "tool") {
+	if strings.Contains(userText, "system-notification") || strings.Contains(userText, "Background task") {
+		reply += " (Background offload notification detected in your message.)"
+	} else if strings.Contains(strings.ToLower(userText), "tool") {
 		reply += " Tool call completed — see the card above."
 	} else {
 		reply += " Try sending a message containing \"tool\" to see tool-call events."

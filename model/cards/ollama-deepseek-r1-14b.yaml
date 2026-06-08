@@ -1,0 +1,14 @@
+id: deepseek-r1:14b
+provider: ollama
+display_name: DeepSeek R1 14B
+context_size: 131072
+output_size: 8192
+input_types:
+- text
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 8192

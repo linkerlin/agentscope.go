@@ -5,8 +5,17 @@ import (
 	"strings"
 )
 
-// DefaultSkillInstruction 默认的系统提示头部
-const DefaultSkillInstruction = `## Available Skills
+// DefaultSkillInstruction 默认的系统提示头部（对齐 PyV2 SkillViewer 用法）
+const DefaultSkillInstruction = `<agent-skills>
+Skills are a collection of instructions, scripts, and resources to extend your capabilities.
+
+**IMPORTANT**: Skills are NOT tools, and you cannot call a skill directly. To use a skill, you MUST use the ` + "`Skill`" + ` tool to read the skill's full instructions, and then follow those instructions to use the tools and resources provided by the skill.
+
+# Available Skills:
+`
+
+// LoadSkillInstruction 供 SkillBox + load_skill_through_path 使用的提示头部
+const LoadSkillInstruction = `## Available Skills
 
 <usage>
 Skills provide specialized capabilities and domain knowledge. Use them when they match your current task.
@@ -57,7 +66,7 @@ func (p *PromptProvider) GetSkillPrompt() string {
 	for _, s := range skills {
 		sb.WriteString(formatSkill(p.Template, s))
 	}
-	sb.WriteString("</available_skills>")
+	sb.WriteString("</agent-skills>")
 	return sb.String()
 }
 

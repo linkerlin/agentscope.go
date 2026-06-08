@@ -26,41 +26,29 @@ func main() {
 		log.Fatal(err)
 	}
 
-	calculatorTool := tool.NewFunctionTool(
-		"calculator",
-		"Perform basic arithmetic operations",
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"operation": map[string]any{
-					"type":        "string",
-					"enum":        []string{"add", "subtract", "multiply", "divide"},
-					"description": "The arithmetic operation to perform",
-				},
-				"a": map[string]any{"type": "number", "description": "First operand"},
-				"b": map[string]any{"type": "number", "description": "Second operand"},
-			},
-			"required": []string{"operation", "a", "b"},
-		},
-		func(ctx context.Context, input map[string]any) (*tool.Response, error) {
-			op, _ := input["operation"].(string)
-			a, _ := input["a"].(float64)
-			b, _ := input["b"].(float64)
+	type calcInput struct {
+		Operation string  `json:"operation" desc:"The arithmetic operation to perform"`
+		A         float64 `json:"a" desc:"First operand"`
+		B         float64 `json:"b" desc:"Second operand"`
+	}
+
+	calculatorTool := tool.NewFunctionToolAuto("calculator", "Perform basic arithmetic operations",
+		func(ctx context.Context, input calcInput) (*tool.Response, error) {
 			var result any
-			switch op {
+			switch input.Operation {
 			case "add":
-				result = a + b
+				result = input.A + input.B
 			case "subtract":
-				result = a - b
+				result = input.A - input.B
 			case "multiply":
-				result = a * b
+				result = input.A * input.B
 			case "divide":
-				if b == 0 {
+				if input.B == 0 {
 					return nil, fmt.Errorf("division by zero")
 				}
-				result = a / b
+				result = input.A / input.B
 			default:
-				return nil, fmt.Errorf("unknown operation: %s", op)
+				return nil, fmt.Errorf("unknown operation: %s", input.Operation)
 			}
 			return tool.NewTextResponse(result), nil
 		},

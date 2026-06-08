@@ -77,13 +77,47 @@ func (g *MCPGateway) handleMCPs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (g *MCPGateway) handleMCPTool(w http.ResponseWriter, r *http.Request) {
-	// /mcps/{name}/tools/{tool}
 	parts := splitPath(r.URL.Path)
-	if len(parts) < 4 || parts[0] != "mcps" || parts[2] != "tools" {
+	if len(parts) < 2 || parts[0] != "mcps" {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	name, toolName := parts[1], parts[3]
+	name := parts[1]
+
+	// DELETE /mcps/{name}
+	if len(parts) == 2 && r.Method == http.MethodDelete {
+		g.mu.Lock()
+		delete(g.servers, name)
+		g.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// GET /mcps/{name}/tools
+	if len(parts) == 3 && parts[2] == "tools" && r.Method == http.MethodGet {
+		g.mu.RLock()
+		client, ok := g.servers[name]
+		g.mu.RUnlock()
+		if !ok {
+			http.Error(w, "mcp server not found", http.StatusNotFound)
+			return
+		}
+		tools, err := client.ListTools(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(tools)
+		return
+	}
+
+	// POST /mcps/{name}/tools/{tool}
+	if len(parts) < 4 || parts[2] != "tools" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	toolName := parts[3]
 	g.mu.RLock()
 	client, ok := g.servers[name]
 	g.mu.RUnlock()

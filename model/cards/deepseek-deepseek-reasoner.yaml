@@ -1,0 +1,14 @@
+id: deepseek-reasoner
+provider: deepseek
+display_name: DeepSeek Reasoner
+context_size: 1000000
+output_size: 384000
+input_types:
+- text
+output_types:
+- text
+- thinking
+deprecated: true
+parameter_schema:
+  max_tokens:
+    maximum: 384000

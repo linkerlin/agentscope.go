@@ -1,0 +1,14 @@
+id: grok-3-mini
+provider: xai
+display_name: Grok 3 Mini
+context_size: 131072
+output_size: 16000
+input_types:
+- text
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 16000

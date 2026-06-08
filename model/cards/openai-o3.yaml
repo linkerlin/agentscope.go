@@ -1,0 +1,15 @@
+id: o3
+provider: openai
+display_name: o3
+context_size: 200000
+output_size: 100000
+input_types:
+- text
+- image
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 100000

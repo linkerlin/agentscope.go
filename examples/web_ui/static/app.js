@@ -1,13 +1,39 @@
-const sessionId = crypto.randomUUID();
+const SESSION_STORAGE_KEY = "agentscope-go.session-id";
+
+function getOrCreateSessionId() {
+  let id = localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(SESSION_STORAGE_KEY, id);
+  }
+  return id;
+}
+
+const sessionId = getOrCreateSessionId();
 document.getElementById("session-id").textContent = sessionId;
 
 const messagesEl = document.getElementById("messages");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send-btn");
+const reconnectStatusEl = document.getElementById("reconnect-status");
 
 /** @type {AbortController | null} */
 let activeStream = null;
+
+const MEANINGFUL_AGUI_EVENTS = new Set([
+  "RUN_STARTED",
+  "RUN_FINISHED",
+  "RUN_ERROR",
+  "STEP_STARTED",
+  "REASONING_MESSAGE_START",
+  "REASONING_MESSAGE_CONTENT",
+  "TEXT_MESSAGE_CONTENT",
+  "TOOL_CALL_START",
+  "TOOL_CALL_ARGS",
+  "TOOL_CALL_RESULT",
+  "CUSTOM",
+]);
 
 form.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -16,6 +42,10 @@ form.addEventListener("submit", (e) => {
   input.value = "";
   sendMessage(text);
 });
+
+function setReconnectStatus(text) {
+  if (reconnectStatusEl) reconnectStatusEl.textContent = text;
+}
 
 function appendUserBubble(text) {
   const el = document.createElement("div");
@@ -98,7 +128,7 @@ function handleAGUIEvent(run, ev) {
 
     case "RUN_FINISHED":
       run.textEl.classList.remove("typing");
-      run.meta.textContent = (run.meta.textContent || "").replace("streaming…", "done");
+      run.meta.textContent = (run.meta.textContent || "").replace(/streaming…|重连中…/g, "done");
       break;
 
     case "RUN_ERROR":
@@ -169,20 +199,127 @@ function handleAGUIEvent(run, ev) {
   }
 }
 
+/**
+ * Reads an SSE response body and dispatches AG-UI events.
+ * @returns {boolean} whether any meaningful event was received
+ */
+async function consumeEventStream(res, run, { signal, onEvent } = {}) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let meaningful = false;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() || "";
+
+    for (const chunk of chunks) {
+      const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        const ev = JSON.parse(line.slice(6));
+        if (MEANINGFUL_AGUI_EVENTS.has(ev.type)) {
+          meaningful = true;
+        }
+        handleAGUIEvent(run, ev);
+        onEvent?.(ev);
+      } catch (parseErr) {
+        console.warn("SSE parse error", parseErr, line);
+      }
+    }
+    if (signal?.aborted) {
+      reader.cancel();
+      break;
+    }
+  }
+
+  return meaningful;
+}
+
+async function reconnectOnLoad() {
+  setReconnectStatus("重连中…");
+  sendBtn.disabled = true;
+
+  const controller = new AbortController();
+  activeStream = controller;
+
+  const run = createAssistantRun();
+  run.meta.textContent = "Assistant · 重连中…";
+
+  try {
+    const url = `/v2/chat?protocol=agui&session_id=${encodeURIComponent(sessionId)}`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        "Agent-Session-Id": sessionId,
+      },
+      signal: controller.signal,
+    });
+
+    if (res.status === 404 || res.status === 503) {
+      run.wrap.remove();
+      setReconnectStatus("");
+      return;
+    }
+
+    if (!res.ok) {
+      run.wrap.remove();
+      setReconnectStatus(`重连失败 (${res.status})`);
+      return;
+    }
+
+    const meaningful = await consumeEventStream(res, run, { signal: controller.signal });
+
+    if (!meaningful) {
+      run.wrap.remove();
+      setReconnectStatus("");
+      return;
+    }
+
+    run.textEl.classList.remove("typing");
+    if (!run.meta.textContent.includes("done")) {
+      run.meta.textContent = (run.meta.textContent || "").replace("重连中…", "重连 · 进行中");
+    }
+    setReconnectStatus("已重连");
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      console.warn("reconnect failed", err);
+      run.wrap.remove();
+      setReconnectStatus("重连失败");
+    }
+  } finally {
+    run.textEl.classList.remove("typing");
+    sendBtn.disabled = false;
+    if (activeStream === controller) {
+      activeStream = null;
+    }
+  }
+}
+
 async function sendMessage(text) {
   if (activeStream) activeStream.abort();
 
   appendUserBubble(text);
   const run = createAssistantRun();
   sendBtn.disabled = true;
+  setReconnectStatus("");
 
   const controller = new AbortController();
   activeStream = controller;
 
   try {
-    const res = await fetch("/v2/chat/stream?protocol=agui", {
+    const res = await fetch("/v2/chat?protocol=agui", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "Agent-Session-Id": sessionId,
+      },
       body: JSON.stringify({ text, session_id: sessionId }),
       signal: controller.signal,
     });
@@ -192,29 +329,7 @@ async function sendMessage(text) {
       throw new Error(`${res.status}: ${errText}`);
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const chunks = buffer.split("\n\n");
-      buffer = chunks.pop() || "";
-
-      for (const chunk of chunks) {
-        const line = chunk.split("\n").find((l) => l.startsWith("data: "));
-        if (!line) continue;
-        try {
-          const ev = JSON.parse(line.slice(6));
-          handleAGUIEvent(run, ev);
-        } catch (parseErr) {
-          console.warn("SSE parse error", parseErr, line);
-        }
-      }
-    }
+    await consumeEventStream(res, run, { signal: controller.signal });
   } catch (err) {
     if (err.name !== "AbortError") {
       run.textEl.classList.remove("typing");
@@ -226,3 +341,5 @@ async function sendMessage(text) {
     activeStream = null;
   }
 }
+
+reconnectOnLoad();

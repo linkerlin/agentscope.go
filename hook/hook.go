@@ -11,8 +11,10 @@ import (
 type HookPoint string
 
 const (
-	HookBeforeModel  HookPoint = "before_model"
-	HookAfterModel   HookPoint = "after_model"
+	// HookBeforeModel (pre_model): messages formatted, before model API call.
+	HookBeforeModel HookPoint = "before_model"
+	// HookAfterModel (post_model): raw model output, before parsing downstream.
+	HookAfterModel HookPoint = "after_model"
 	HookBeforeTool   HookPoint = "before_tool"
 	HookAfterTool    HookPoint = "after_tool"
 	HookBeforeFinish HookPoint = "before_finish"
@@ -24,6 +26,9 @@ const (
 	HookPostReply   HookPoint = "post_reply"
 	HookPreObserve  HookPoint = "pre_observe"
 	HookPostObserve HookPoint = "post_observe"
+
+	// HookOnError (on_error): any lifecycle error before propagating to caller.
+	HookOnError HookPoint = "on_error"
 )
 
 // HookContext contains execution state passed to hooks
@@ -36,6 +41,7 @@ type HookContext struct {
 	ToolInput map[string]any
 	Metadata  map[string]any
 	ChatOpts  []model.ChatOption
+	Err       error
 }
 
 // HookResult allows a hook to modify agent execution
@@ -46,6 +52,8 @@ type HookResult struct {
 	StopAgent         bool
 	GotoReasoning     bool
 	GotoReasoningMsgs []*message.Msg
+	// HandleError swallows the error in HookOnError when true (return Override or nil).
+	HandleError bool
 }
 
 // Hook is called at various points during agent execution

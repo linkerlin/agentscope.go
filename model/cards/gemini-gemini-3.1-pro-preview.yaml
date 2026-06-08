@@ -1,0 +1,19 @@
+id: gemini-3.1-pro-preview
+provider: gemini
+display_name: Gemini 3.1 Pro Preview
+context_size: 1048576
+output_size: 65536
+input_types:
+- text
+- image
+- mp3
+- wav
+- mp4
+- pdf
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 65536

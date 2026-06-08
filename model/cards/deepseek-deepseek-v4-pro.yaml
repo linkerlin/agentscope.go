@@ -1,0 +1,15 @@
+id: deepseek-v4-pro
+provider: deepseek
+display_name: DeepSeek V4 Pro
+context_size: 1000000
+output_size: 384000
+input_types:
+- text
+- thinking
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 384000

@@ -1,0 +1,15 @@
+id: grok-4.3
+provider: xai
+display_name: Grok 4.3
+context_size: 1000000
+output_size: 30000
+input_types:
+- text
+- image
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 30000

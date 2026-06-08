@@ -28,12 +28,21 @@ type ExternalChecker interface {
 	IsExternalTool() bool
 }
 
+// MCPChecker marks tools backed by an MCP server (PyV2 MCPTool).
+type MCPChecker interface {
+	Tool
+	IsMCPTool() bool
+	MCPName() string
+}
+
 // FunctionTool wraps a Go function as a Tool
 type FunctionTool struct {
-	name        string
-	description string
-	parameters  map[string]any
-	fn          func(ctx context.Context, input map[string]any) (*Response, error)
+	name            string
+	description     string
+	parameters      map[string]any
+	fn              func(ctx context.Context, input map[string]any) (*Response, error)
+	readOnly        bool
+	concurrencySafe bool
 }
 
 // NewFunctionTool creates a Tool from a Go function that returns *Response.
@@ -64,3 +73,5 @@ func (f *FunctionTool) Spec() model.ToolSpec {
 func (f *FunctionTool) Execute(ctx context.Context, input map[string]any) (*Response, error) {
 	return f.fn(ctx, input)
 }
+
+func (f *FunctionTool) IsReadOnly() bool { return f.readOnly }

@@ -29,7 +29,7 @@ func TestManagerTools(t *testing.T) {
 	if err != nil || len(tools) != 1 {
 		t.Fatal(err, len(tools))
 	}
-	if tools[0].Name() != "s1/add" {
+	if tools[0].Name() != "mcp__s1__add" {
 		t.Fatal(tools[0].Name())
 	}
 	v, err := tools[0].Execute(context.Background(), map[string]any{"a": 1})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/linkerlin/agentscope.go/runcontext"
 	"github.com/linkerlin/agentscope.go/tool"
 	"github.com/linkerlin/agentscope.go/toolkit"
 )
@@ -123,6 +124,7 @@ type ToolOffloadMiddleware struct {
 }
 
 // NewToolOffloadMiddleware creates middleware bound to a session.
+// When sessionID is empty, the session is read from ContextWithSessionID at execution time.
 func NewToolOffloadMiddleware(m *ToolOffloadManager, sessionID string) *ToolOffloadMiddleware {
 	if m == nil {
 		m = NewToolOffloadManager()
@@ -132,6 +134,13 @@ func NewToolOffloadMiddleware(m *ToolOffloadManager, sessionID string) *ToolOffl
 		sessionID: sessionID,
 		timeout:   m.timeout,
 	}
+}
+
+func (m *ToolOffloadMiddleware) resolveSessionID(ctx context.Context) string {
+	if m.sessionID != "" {
+		return m.sessionID
+	}
+	return runcontext.SessionID(ctx)
 }
 
 func (m *ToolOffloadMiddleware) Wrap(next toolkit.Handler) toolkit.Handler {
@@ -153,8 +162,9 @@ func (m *ToolOffloadMiddleware) Wrap(next toolkit.Handler) toolkit.Handler {
 		case res := <-ch:
 			return res.resp, res.err
 		case <-waitCtx.Done():
-			taskID := m.manager.registerTask(m.sessionID, req.ToolName)
-			go m.collectBackgroundResult(taskID, req.ToolName, ch)
+			sessID := m.resolveSessionID(ctx)
+			taskID := m.manager.registerTask(sessID, req.ToolName)
+			go m.collectBackgroundResult(sessID, taskID, req.ToolName, ch)
 			placeholder := fmt.Sprintf(
 				"<system-reminder>Tool '%s' is taking longer than expected and has been moved to the background (task_id=%s). "+
 					"The result will be injected into the context automatically when finished.</system-reminder>",
@@ -167,7 +177,7 @@ func (m *ToolOffloadMiddleware) Wrap(next toolkit.Handler) toolkit.Handler {
 	}
 }
 
-func (m *ToolOffloadMiddleware) collectBackgroundResult(taskID, toolName string, ch <-chan execResult) {
+func (m *ToolOffloadMiddleware) collectBackgroundResult(sessionID, taskID, toolName string, ch <-chan execResult) {
 	defer m.manager.finishTask(taskID)
 	res := <-ch
 	var hint string
@@ -187,7 +197,7 @@ func (m *ToolOffloadMiddleware) collectBackgroundResult(taskID, toolName string,
 			toolName,
 		)
 	}
-	m.manager.PushResult(m.sessionID, hint)
+	m.manager.PushResult(sessionID, hint)
 }
 
 type execResult struct {

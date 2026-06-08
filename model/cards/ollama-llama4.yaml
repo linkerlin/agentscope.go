@@ -1,0 +1,16 @@
+id: llama4
+provider: ollama
+display_name: Llama 4 Scout
+context_size: 10485760
+output_size: 8192
+input_types:
+- text
+- image
+output_types:
+- text
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 8192
+  thinking_enable:
+    hidden: true

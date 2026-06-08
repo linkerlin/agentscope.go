@@ -1,0 +1,10 @@
+provider: dashscope
+id: qwen3.7-plus
+display_name: Qwen 3.7 Plus
+context_size: 131072
+output_size: 8192
+input_types:
+  - text
+output_types:
+  - text
+deprecated: false

@@ -1,0 +1,16 @@
+id: gpt-5.4
+provider: openai
+display_name: GPT-5.4
+context_size: 1050000
+output_size: 128000
+input_types:
+- text
+- image
+output_types:
+- text
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 128000
+  thinking_enable:
+    hidden: true

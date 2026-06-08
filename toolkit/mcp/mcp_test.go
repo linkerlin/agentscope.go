@@ -52,8 +52,41 @@ func TestToolAdapter_DescriptionAndSpec(t *testing.T) {
 		t.Fatalf("unexpected description: %s", ta.Description())
 	}
 	spec := ta.Spec()
-	if spec.Name != "s1/add" || spec.Description != "adds numbers" {
+	if spec.Name != "mcp__s1__add" || spec.Description != "adds numbers" {
 		t.Fatalf("unexpected spec: %+v", spec)
+	}
+	if ta.Name() != "mcp__s1__add" {
+		t.Fatalf("unexpected name: %s", ta.Name())
+	}
+	mcpTool, ok := ta.(interface {
+		IsMCPTool() bool
+		MCPName() string
+	})
+	if !ok || !mcpTool.IsMCPTool() || mcpTool.MCPName() != "s1" {
+		t.Fatalf("expected MCPChecker on adapter")
+	}
+}
+
+func TestFormatAndParseToolName(t *testing.T) {
+	full := FormatToolName("server", "tool")
+	if full != "mcp__server__tool" {
+		t.Fatalf("unexpected formatted name: %s", full)
+	}
+	srv, tool, ok := ParseToolName(full)
+	if !ok || srv != "server" || tool != "tool" {
+		t.Fatalf("unexpected parse: %q %q %v", srv, tool, ok)
+	}
+	if UnderlyingToolName(full) != "tool" {
+		t.Fatalf("unexpected underlying name")
+	}
+}
+
+func TestToolAdapter_ReadOnly(t *testing.T) {
+	mc := &mockClient{}
+	ta := NewToolAdapter("s1", mc, ToolInfo{Name: "read", ReadOnly: true})
+	ro, ok := ta.(interface{ IsReadOnly() bool })
+	if !ok || !ro.IsReadOnly() {
+		t.Fatal("expected read-only adapter")
 	}
 }
 

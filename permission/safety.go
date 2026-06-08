@@ -37,33 +37,15 @@ func IsDangerousPath(path string, files, dirs []string) bool {
 	return false
 }
 
-// IsDangerousCommand checks if a command matches any dangerous pattern.
+// IsDangerousCommand checks if a command matches any dangerous pattern,
+// including subshell bodies in compound commands.
 func IsDangerousCommand(cmd string) bool {
-	for _, part := range SplitCompoundCommand(cmd) {
-		part = strings.TrimSpace(part)
-		for _, pattern := range DefaultDangerousCommands {
-			if strings.Contains(part, pattern) {
-				return true
-			}
-		}
-	}
-	return false
+	return AnyDangerousCommand(cmd)
 }
 
 // IsReadOnlyCommand checks if a command is a known safe read-only operation.
 func IsReadOnlyCommand(cmd string) bool {
-	cmd = strings.TrimSpace(cmd)
-	// Simple heuristic: check if the command starts with a known read-only command.
-	for _, safe := range DefaultReadOnlyCommands {
-		if strings.HasPrefix(cmd, safe) {
-			// Ensure it's not a prefix of a longer command (e.g. "lsd" shouldn't match "ls")
-			rest := strings.TrimPrefix(cmd, safe)
-			if rest == "" || strings.HasPrefix(rest, " ") {
-				return true
-			}
-		}
-	}
-	return false
+	return AllReadOnlyCommands(cmd)
 }
 
 // IsDangerousRemoval checks if an rm/rmdir command targets a critical system path.

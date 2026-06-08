@@ -1,0 +1,11 @@
+provider: openai
+id: gpt-4o-mini
+display_name: GPT-4o Mini
+context_size: 128000
+output_size: 16384
+input_types:
+  - text
+  - image
+output_types:
+  - text
+deprecated: false

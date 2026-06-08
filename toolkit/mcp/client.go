@@ -106,10 +106,15 @@ func convertTool(t mcp.Tool) ToolInfo {
 	if len(t.InputSchema.Defs) > 0 {
 		schemaMap["$defs"] = t.InputSchema.Defs
 	}
+	readOnly := false
+	if t.Annotations.ReadOnlyHint != nil && *t.Annotations.ReadOnlyHint {
+		readOnly = true
+	}
 	return ToolInfo{
 		Name:        t.Name,
 		Description: t.Description,
 		Parameters:  schemaMap,
+		ReadOnly:    readOnly,
 	}
 }
 

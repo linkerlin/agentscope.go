@@ -1,0 +1,18 @@
+id: openai_response/o3
+provider: openai_response
+display_name: o3 (Responses API)
+context_size: 200000
+output_size: 100000
+input_types:
+- text
+- thinking
+- image
+output_types:
+- text
+- thinking
+deprecated: false
+parameter_schema:
+  max_tokens:
+    maximum: 100000
+  temperature:
+    hidden: true

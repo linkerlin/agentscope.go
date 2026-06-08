@@ -52,8 +52,11 @@ type sessionRun struct {
 	replyID     string
 	buffer      []event.AgentEvent    // all events produced so far
 	subscribers []chan event.AgentEvent // active subscriber channels
-	mu          sync.RWMutex
-	done        bool
+	agent       agent.Agent
+	cancel      context.CancelFunc
+	mu           sync.RWMutex
+	done         bool
+	terminating  bool
 }
 
 // Run executes an agent reply for the given session and returns a channel
@@ -81,8 +84,10 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 		_ = sm.storage.UpsertMessage(ctx, storedMsg)
 	}
 
-	ch, err := v2.ReplyStream(ctx, msg)
+	runCtx, cancel := context.WithCancel(ContextWithSessionID(ctx, sessionID))
+	ch, err := v2.ReplyStream(runCtx, msg)
 	if err != nil {
+		cancel()
 		lock.Unlock()
 		return nil, fmt.Errorf("session_manager: reply stream error: %w", err)
 	}
@@ -90,6 +95,8 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 	run := &sessionRun{
 		buffer:      make([]event.AgentEvent, 0, 64),
 		subscribers: make([]chan event.AgentEvent, 0, 4),
+		agent:       a,
+		cancel:      cancel,
 	}
 
 	sm.mu.Lock()
@@ -107,6 +114,7 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 	go func() {
 		replyMsg := message.NewMsg().Role(message.RoleAssistant).Build()
 
+		defer cancel()
 		defer lock.Unlock()
 		defer func() {
 			run.mu.Lock()
@@ -215,6 +223,56 @@ func (sm *SessionManager) Subscribe(sessionID string) <-chan event.AgentEvent {
 	}()
 
 	return sub
+}
+
+// Terminate cancels an in-flight run for the session (Streamable HTTP DELETE).
+// It cancels the run context and signals Interrupt on the agent when supported.
+// Returns true when an active run was found and termination was requested.
+func (sm *SessionManager) Terminate(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	sm.mu.RLock()
+	run, ok := sm.runs[sessionID]
+	sm.mu.RUnlock()
+	if !ok || run == nil {
+		return false
+	}
+
+	run.mu.Lock()
+	if run.done || run.terminating {
+		run.mu.Unlock()
+		return false
+	}
+	run.terminating = true
+	cancel := run.cancel
+	ag := run.agent
+	run.mu.Unlock()
+
+	interruptAgent(ag)
+	if cancel != nil {
+		cancel()
+	}
+	return true
+}
+
+// ClearCompleted removes the replay buffer for a finished session run.
+func (sm *SessionManager) ClearCompleted(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	sm.mu.Lock()
+	delete(sm.completed, sessionID)
+	sm.mu.Unlock()
+}
+
+func interruptAgent(a agent.Agent) {
+	if a == nil {
+		return
+	}
+	if ir, ok := a.(interface{ Interrupt() }); ok {
+		ir.Interrupt()
+	}
 }
 
 // IsActive returns true if the given session has an in-flight run.

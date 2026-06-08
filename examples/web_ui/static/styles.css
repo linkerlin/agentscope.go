@@ -74,6 +74,13 @@ body {
   word-break: break-all;
 }
 
+.reconnect-status {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--ok);
+  min-height: 1em;
+}
+
 .messages {
   flex: 1;
   display: flex;

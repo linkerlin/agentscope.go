@@ -40,4 +40,12 @@ type Storage interface {
 	SaveSnapshot(ctx context.Context, snap *AgentSnapshot) error
 	GetSnapshot(ctx context.Context, sessionID string) (*AgentSnapshot, error)
 	DeleteSnapshot(ctx context.Context, sessionID string) error
+
+	// Schedules
+	SaveSchedule(ctx context.Context, sched *Schedule) error
+	GetSchedule(ctx context.Context, id string) (*Schedule, error)
+	ListSchedulesByUser(ctx context.Context, userID string) ([]*Schedule, error)
+	ListAllSchedules(ctx context.Context) ([]*Schedule, error)
+	DeleteSchedule(ctx context.Context, id string) error
+	ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*Session, error)
 }

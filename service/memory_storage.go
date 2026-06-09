@@ -9,24 +9,28 @@ import (
 
 // MemoryStorage is an in-memory implementation of Storage for development and testing.
 type MemoryStorage struct {
-	mu          sync.RWMutex
-	users       map[string]*User
-	sessions    map[string]*Session
-	agents      map[string]*AgentConfig
-	credentials map[string]*Credential
-	messages    map[string][]*StoredMessage // sessionID -> messages
-	snapshots   map[string]*AgentSnapshot
+	mu                 sync.RWMutex
+	users              map[string]*User
+	sessions           map[string]*Session
+	agents             map[string]*AgentConfig
+	credentials        map[string]*Credential
+	messages           map[string][]*StoredMessage // sessionID -> messages
+	snapshots          map[string]*AgentSnapshot
+	schedules          map[string]*Schedule
+	sessionsBySchedule map[string][]string // scheduleID -> session IDs
 }
 
 // NewMemoryStorage creates a new MemoryStorage.
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{
-		users:       make(map[string]*User),
-		sessions:    make(map[string]*Session),
-		agents:      make(map[string]*AgentConfig),
-		credentials: make(map[string]*Credential),
-		messages:    make(map[string][]*StoredMessage),
-		snapshots:   make(map[string]*AgentSnapshot),
+		users:              make(map[string]*User),
+		sessions:           make(map[string]*Session),
+		agents:             make(map[string]*AgentConfig),
+		credentials:        make(map[string]*Credential),
+		messages:           make(map[string][]*StoredMessage),
+		snapshots:          make(map[string]*AgentSnapshot),
+		schedules:          make(map[string]*Schedule),
+		sessionsBySchedule: make(map[string][]string),
 	}
 }
 
@@ -70,7 +74,20 @@ func (s *MemoryStorage) SaveSession(ctx context.Context, session *Session) error
 	defer s.mu.Unlock()
 	session.UpdatedAt = time.Now()
 	s.sessions[session.ID] = session
+	if session.SourceScheduleID != "" {
+		s.indexScheduleSession(session.SourceScheduleID, session.ID)
+	}
 	return nil
+}
+
+func (s *MemoryStorage) indexScheduleSession(scheduleID, sessionID string) {
+	ids := s.sessionsBySchedule[scheduleID]
+	for _, id := range ids {
+		if id == sessionID {
+			return
+		}
+	}
+	s.sessionsBySchedule[scheduleID] = append(ids, sessionID)
 }
 
 func (s *MemoryStorage) GetSession(ctx context.Context, id string) (*Session, error) {
@@ -257,6 +274,74 @@ func (s *MemoryStorage) DeleteSnapshot(ctx context.Context, sessionID string) er
 	defer s.mu.Unlock()
 	delete(s.snapshots, sessionID)
 	return nil
+}
+
+func (s *MemoryStorage) SaveSchedule(ctx context.Context, sched *Schedule) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if sched.CreatedAt.IsZero() {
+		sched.CreatedAt = now
+	}
+	sched.UpdatedAt = now
+	s.schedules[sched.ID] = sched
+	return nil
+}
+
+func (s *MemoryStorage) GetSchedule(ctx context.Context, id string) (*Schedule, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sched, ok := s.schedules[id]
+	if !ok {
+		return nil, fmt.Errorf("schedule not found: %s", id)
+	}
+	return sched, nil
+}
+
+func (s *MemoryStorage) ListSchedulesByUser(ctx context.Context, userID string) ([]*Schedule, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Schedule
+	for _, sched := range s.schedules {
+		if sched.UserID == userID {
+			out = append(out, sched)
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryStorage) ListAllSchedules(ctx context.Context) ([]*Schedule, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Schedule, 0, len(s.schedules))
+	for _, sched := range s.schedules {
+		out = append(out, sched)
+	}
+	return out, nil
+}
+
+func (s *MemoryStorage) DeleteSchedule(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.schedules, id)
+	delete(s.sessionsBySchedule, id)
+	return nil
+}
+
+func (s *MemoryStorage) ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sched, ok := s.schedules[scheduleID]
+	if !ok || sched.UserID != userID {
+		return nil, fmt.Errorf("schedule not found: %s", scheduleID)
+	}
+	var out []*Session
+	for _, sid := range s.sessionsBySchedule[scheduleID] {
+		if se, ok := s.sessions[sid]; ok && se.UserID == userID {
+			out = append(out, se)
+		}
+	}
+	return out, nil
 }
 
 // Compile-time check.

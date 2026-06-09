@@ -7,6 +7,8 @@ import (
 	goopenai "github.com/sashabaranov/go-openai"
 
 	"github.com/linkerlin/agentscope.go/memory"
+	"github.com/linkerlin/agentscope.go/model"
+	modelembed "github.com/linkerlin/agentscope.go/model/embedding"
 )
 
 // OpenAIEmbedder uses the OpenAI API to generate text embeddings.
@@ -78,6 +80,14 @@ func (e *OpenAIEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 		out[i] = d.Embedding
 	}
 	return out, nil
+}
+
+// AsModel wraps the embedder as model.EmbeddingModel for gateway/API use.
+func (e *OpenAIEmbedder) AsModel(dimensions int) model.EmbeddingModel {
+	if e == nil {
+		return nil
+	}
+	return modelembed.FromMemory(e, e.modelName, dimensions)
 }
 
 var _ memory.EmbeddingModel = (*OpenAIEmbedder)(nil)

@@ -20,17 +20,22 @@ func (s *Server) RegisterServiceRoutes() {
 	s.mux.HandleFunc("GET /api/v1/agents", s.requireAuth(s.handleListAgents))
 	s.mux.HandleFunc("POST /api/v1/agents", s.requireAuth(s.handleCreateAgent))
 	s.mux.HandleFunc("GET /api/v1/agents/{id}", s.requireAuth(s.handleGetAgent))
+	s.mux.HandleFunc("PATCH /api/v1/agents/{id}", s.requireAuth(s.handleUpdateAgent))
 	s.mux.HandleFunc("DELETE /api/v1/agents/{id}", s.requireAuth(s.handleDeleteAgent))
 
 	// Sessions
 	s.mux.HandleFunc("GET /api/v1/sessions", s.requireAuth(s.handleListSessions))
 	s.mux.HandleFunc("POST /api/v1/sessions", s.requireAuth(s.handleCreateSession))
 	s.mux.HandleFunc("GET /api/v1/sessions/{id}", s.requireAuth(s.handleGetSession))
+	s.mux.HandleFunc("PATCH /api/v1/sessions/{id}", s.requireAuth(s.handleUpdateSession))
+	s.mux.HandleFunc("GET /api/v1/sessions/{id}/messages", s.requireAuth(s.handleListSessionMessages))
 	s.mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.requireAuth(s.handleDeleteSession))
 
 	// Credentials
 	s.mux.HandleFunc("GET /api/v1/credentials", s.requireAuth(s.handleListCredentials))
 	s.mux.HandleFunc("POST /api/v1/credentials", s.requireAuth(s.handleCreateCredential))
+	s.mux.HandleFunc("GET /api/v1/credentials/{id}", s.requireAuth(s.handleGetCredential))
+	s.mux.HandleFunc("PATCH /api/v1/credentials/{id}", s.requireAuth(s.handleUpdateCredential))
 	s.mux.HandleFunc("DELETE /api/v1/credentials/{id}", s.requireAuth(s.handleDeleteCredential))
 }
 
@@ -48,10 +53,19 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 type createAgentRequest struct {
-	Name        string         `json:"name"`
-	ModelID     string         `json:"model_id"`
-	Description string         `json:"description,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Name         string         `json:"name"`
+	ModelID      string         `json:"model_id"`
+	Description  string         `json:"description,omitempty"`
+	SystemPrompt string         `json:"system_prompt,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+}
+
+type updateAgentRequest struct {
+	Name         *string        `json:"name,omitempty"`
+	ModelID      *string        `json:"model_id,omitempty"`
+	Description  *string        `json:"description,omitempty"`
+	SystemPrompt *string        `json:"system_prompt,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -67,13 +81,14 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	userID := service.UserIDFromContext(r.Context())
 	cfg := &service.AgentConfig{
-		ID:          generateID("agent"),
-		UserID:      userID,
-		Name:        req.Name,
-		ModelID:     req.ModelID,
-		Description: req.Description,
-		Metadata:    req.Metadata,
-		CreatedAt:   time.Now(),
+		ID:           generateID("agent"),
+		UserID:       userID,
+		Name:         req.Name,
+		ModelID:      req.ModelID,
+		Description:  req.Description,
+		SystemPrompt: req.SystemPrompt,
+		Metadata:     req.Metadata,
+		CreatedAt:    time.Now(),
 	}
 	if err := s.storage.SaveAgentConfig(r.Context(), cfg); err != nil {
 		http.Error(w, fmt.Sprintf("save agent failed: %v", err), http.StatusInternalServerError)
@@ -100,6 +115,48 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(cfg)
 }
 
+func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cfg, err := s.storage.GetAgentConfig(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get agent failed: %v", err), http.StatusNotFound)
+		return
+	}
+	userID := service.UserIDFromContext(r.Context())
+	if cfg.UserID != userID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req updateAgentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Name != nil {
+		cfg.Name = *req.Name
+	}
+	if req.ModelID != nil {
+		cfg.ModelID = *req.ModelID
+	}
+	if req.Description != nil {
+		cfg.Description = *req.Description
+	}
+	if req.SystemPrompt != nil {
+		cfg.SystemPrompt = *req.SystemPrompt
+	}
+	if req.Metadata != nil {
+		cfg.Metadata = req.Metadata
+	}
+	cfg.UpdatedAt = time.Now()
+	if err := s.storage.SaveAgentConfig(r.Context(), cfg); err != nil {
+		http.Error(w, fmt.Sprintf("update agent failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cfg)
+}
+
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	// Verify ownership before delete.
@@ -108,11 +165,29 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("get agent failed: %v", err), http.StatusNotFound)
 		return
 	}
-	if cfg.UserID != service.UserIDFromContext(r.Context()) {
+	userID := service.UserIDFromContext(r.Context())
+	if cfg.UserID != userID {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if err := s.storage.DeleteAgentConfig(r.Context(), id); err != nil {
+
+	ctx := r.Context()
+	if s.backgroundTaskMgr != nil {
+		schedules, _ := s.backgroundTaskMgr.ListSchedules(ctx, userID)
+		for _, sch := range schedules {
+			if sch.AgentID == id {
+				_ = s.backgroundTaskMgr.DeleteSchedule(ctx, userID, sch.ID)
+			}
+		}
+	}
+	sessions, _ := s.storage.ListSessionsByUser(ctx, userID)
+	for _, se := range sessions {
+		if se.AgentID == id {
+			_ = s.storage.DeleteSession(ctx, se.ID)
+		}
+	}
+
+	if err := s.storage.DeleteAgentConfig(ctx, id); err != nil {
 		http.Error(w, fmt.Sprintf("delete agent failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -128,12 +203,22 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("list sessions failed: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if agentID := r.URL.Query().Get("agent_id"); agentID != "" {
+		filtered := make([]*service.Session, 0, len(sessions))
+		for _, se := range sessions {
+			if se.AgentID == agentID {
+				filtered = append(filtered, se)
+			}
+		}
+		sessions = filtered
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(sessions)
 }
 
 type createSessionRequest struct {
-	Title string `json:"title"`
+	Title   string `json:"title"`
+	AgentID string `json:"agent_id,omitempty"`
 }
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +236,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	sess := &service.Session{
 		ID:        generateID("sess"),
 		UserID:    userID,
+		AgentID:   req.AgentID,
 		Title:     req.Title,
 		CreatedAt: time.Now(),
 	}
@@ -176,6 +262,97 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(sess)
+}
+
+type updateSessionRequest struct {
+	Title       *string `json:"title,omitempty"`
+	AgentID     *string `json:"agent_id,omitempty"`
+	WorkspaceID *string `json:"workspace_id,omitempty"`
+}
+
+type listSessionMessagesResponse struct {
+	Messages  []*service.StoredMessage `json:"messages"`
+	Total     int                      `json:"total"`
+	IsRunning bool                     `json:"is_running"`
+}
+
+func (s *Server) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := s.storage.GetSession(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get session failed: %v", err), http.StatusNotFound)
+		return
+	}
+	userID := service.UserIDFromContext(r.Context())
+	if sess.UserID != userID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req updateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Title != nil {
+		sess.Title = *req.Title
+	}
+	if req.AgentID != nil {
+		sess.AgentID = *req.AgentID
+	}
+	if req.WorkspaceID != nil {
+		sess.WorkspaceID = *req.WorkspaceID
+	}
+	sess.UpdatedAt = time.Now()
+	if err := s.storage.SaveSession(r.Context(), sess); err != nil {
+		http.Error(w, fmt.Sprintf("update session failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sess)
+}
+
+func (s *Server) handleListSessionMessages(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sess, err := s.storage.GetSession(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get session failed: %v", err), http.StatusNotFound)
+		return
+	}
+	if sess.UserID != service.UserIDFromContext(r.Context()) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	offset := parseQueryInt(r, "offset", 0)
+	limit := parseQueryInt(r, "limit", 50)
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	msgs, err := s.storage.ListMessagesBySession(r.Context(), id, limit, offset)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("list messages failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if msgs == nil {
+		msgs = []*service.StoredMessage{}
+	}
+
+	isRunning := false
+	if s.sessionMgr != nil {
+		isRunning = s.sessionMgr.IsActive(id)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(listSessionMessagesResponse{
+		Messages:  msgs,
+		Total:     len(msgs),
+		IsRunning: isRunning,
+	})
 }
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +392,11 @@ type createCredentialRequest struct {
 	Value    string `json:"value"`
 }
 
+type updateCredentialRequest struct {
+	Label *string `json:"label,omitempty"`
+	Value *string `json:"value,omitempty"`
+}
+
 func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 	var req createCredentialRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -250,6 +432,63 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(cred)
+}
+
+func (s *Server) handleGetCredential(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cred, err := s.storage.GetCredential(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get credential failed: %v", err), http.StatusNotFound)
+		return
+	}
+	if cred.UserID != service.UserIDFromContext(r.Context()) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cred)
+}
+
+func (s *Server) handleUpdateCredential(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	cred, err := s.storage.GetCredential(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("get credential failed: %v", err), http.StatusNotFound)
+		return
+	}
+	userID := service.UserIDFromContext(r.Context())
+	if cred.UserID != userID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	var req updateCredentialRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Label != nil {
+		cred.Label = *req.Label
+	}
+	if req.Value != nil {
+		encrypted := *req.Value
+		if s.cipher != nil {
+			enc, err := s.cipher.Encrypt(*req.Value)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("encryption failed: %v", err), http.StatusInternalServerError)
+				return
+			}
+			encrypted = enc
+		}
+		cred.Encrypted = encrypted
+	}
+	cred.UpdatedAt = time.Now()
+	if err := s.storage.SaveCredential(r.Context(), cred); err != nil {
+		http.Error(w, fmt.Sprintf("update credential failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(cred)
 }
 

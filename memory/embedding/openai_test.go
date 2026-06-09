@@ -62,18 +62,41 @@ func TestOpenAIEmbedder_DefaultModel(t *testing.T) {
 	}
 }
 
-func TestLocalEmbedder_NotImplemented(t *testing.T) {
-	e := NewLocalEmbedder("http://localhost:11434", "nomic-embed-text", 768)
+func TestLocalEmbedder_Ollama(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embed" {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		vecs := make([][]float64, len(body.Input))
+		for i := range body.Input {
+			vecs[i] = []float64{0.1, 0.2, 0.3}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": vecs})
+	}))
+	defer srv.Close()
+
+	e := NewLocalEmbedder(srv.URL, "nomic-embed-text", 3)
 	ctx := context.Background()
 
-	_, err := e.Embed(ctx, "test")
-	if err == nil {
-		t.Fatal("expected error for unimplemented local embedder")
+	vec, err := e.Embed(ctx, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vec) != 3 {
+		t.Fatalf("expected 3 dims, got %d", len(vec))
 	}
 
-	_, err = e.EmbedBatch(ctx, []string{"a", "b"})
-	if err == nil {
-		t.Fatal("expected error for unimplemented local embedder batch")
+	batch, err := e.EmbedBatch(ctx, []string{"a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("expected 2 vectors, got %d", len(batch))
 	}
 }
 

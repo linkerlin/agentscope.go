@@ -127,7 +127,7 @@ func (a *ReActAgent) replyStreamInternal(
 		return nil, err
 	}
 
-	toolSpecs := a.toolSpecs()
+	toolSpecs := a.toolSpecs(ctx)
 	var chatOpts []model.ChatOption
 	if len(toolSpecs) > 0 {
 		chatOpts = append(chatOpts, model.WithTools(toolSpecs))
@@ -174,6 +174,16 @@ func (a *ReActAgent) replyStreamInternal(
 		if hr != nil && hr.Override != nil {
 			finalResponse = hr.Override
 			break
+		}
+
+		if err := a.CompressContext(ctx, inputMsg, toolSpecs); err != nil {
+			out <- event.NewError(replyID, err)
+			return nil, err
+		}
+		history, err = a.syncHistoryWithMemory(ctx, inputMsg, history)
+		if err != nil {
+			out <- event.NewError(replyID, err)
+			return nil, err
 		}
 
 		// Run model in streaming mode, emitting events directly
@@ -344,7 +354,7 @@ func (a *ReActAgent) resumeReplyStreamInternal(
 	history = append(history, toolResultMsg)
 
 	// Perform one final reasoning round with the tool results.
-	toolSpecs := a.toolSpecs()
+	toolSpecs := a.toolSpecs(ctx)
 	var chatOpts []model.ChatOption
 	if len(toolSpecs) > 0 {
 		chatOpts = append(chatOpts, model.WithTools(toolSpecs))
@@ -604,7 +614,7 @@ func (a *ReActAgent) executeToolsStream(
 	var externalCalls []event.ToolCallSummary
 	externalIdx := map[string]int{}
 	for idx, tc := range toolCalls {
-		if a.isExternalTool(tc.Name) {
+		if a.isExternalTool(ctx, tc.Name) {
 			externalCalls = append(externalCalls, event.ToolCallSummary{
 				ID: tc.ID, Name: tc.Name, Input: tc.Input,
 			})
@@ -661,9 +671,16 @@ func (a *ReActAgent) executeToolsStream(
 				blocks = []message.ContentBlock{message.NewTextBlock(msg)}
 			} else {
 				blocks = []message.ContentBlock{message.NewTextBlock(r.Output)}
-				if r.Output != "" {
-					out <- event.NewToolResultTextDelta(replyID, idx, tc.ID, r.Output)
+			}
+			blocks = a.compressToolResultBlocks(ctx, tc.ID, blocks, toolErr)
+			var resultText string
+			for _, b := range blocks {
+				if tb, ok := b.(*message.TextBlock); ok {
+					resultText += tb.Text
 				}
+			}
+			if resultText != "" {
+				out <- event.NewToolResultTextDelta(replyID, idx, tc.ID, resultText)
 			}
 			out <- event.NewToolResultEnd(replyID, idx, tc.ID)
 			results[idx] = result{
@@ -717,6 +734,7 @@ func (a *ReActAgent) executeToolsStream(
 			} else {
 				blocks = []message.ContentBlock{message.NewTextBlock("")}
 			}
+			blocks = a.compressToolResultBlocks(ctx, tc.ID, blocks, toolErr != nil)
 
 			// Emit tool result text delta (aggregated for now; future: per-chunk)
 			var resultText string

@@ -2,38 +2,29 @@ package embedding
 
 import (
 	"context"
-	"fmt"
 
+	modelembed "github.com/linkerlin/agentscope.go/model/embedding"
 	"github.com/linkerlin/agentscope.go/memory"
 )
 
-// LocalEmbedder is a placeholder for local/self-hosted embedding models
-// (e.g. Ollama, sentence-transformers, etc.).
-// It satisfies the memory.EmbeddingModel interface but returns an error
-// until a concrete local backend is wired in.
+// LocalEmbedder delegates to OllamaEmbedder for self-hosted embedding models.
 type LocalEmbedder struct {
-	endpoint  string
-	modelName string
-	dimension int
+	inner *modelembed.OllamaEmbedder
 }
 
-// NewLocalEmbedder creates a placeholder local embedder.
+// NewLocalEmbedder creates an Ollama-backed local embedder.
 func NewLocalEmbedder(endpoint, modelName string, dimension int) *LocalEmbedder {
-	return &LocalEmbedder{
-		endpoint:  endpoint,
-		modelName: modelName,
-		dimension: dimension,
-	}
+	return &LocalEmbedder{inner: modelembed.NewOllamaEmbedder(endpoint, modelName, dimension)}
 }
 
-// Embed returns an error indicating that the local backend is not yet implemented.
+// Embed generates an embedding vector for a single text.
 func (e *LocalEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	return nil, fmt.Errorf("embedding: local embedder not implemented yet (endpoint=%s model=%s)", e.endpoint, e.modelName)
+	return e.inner.EmbedSingle(ctx, text)
 }
 
-// EmbedBatch returns an error indicating that the local backend is not yet implemented.
+// EmbedBatch generates embedding vectors for multiple texts.
 func (e *LocalEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	return nil, fmt.Errorf("embedding: local embedder not implemented yet")
+	return e.inner.EmbedBatch(ctx, texts)
 }
 
 var _ memory.EmbeddingModel = (*LocalEmbedder)(nil)

@@ -389,6 +389,51 @@ func TestMemoryStorage_MessagePagination_Boundary(t *testing.T) {
 	}
 }
 
+func TestMemoryStorage_ScheduleCRUD(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStorage()
+
+	sched := &Schedule{
+		ID:        "sch1",
+		UserID:    "u1",
+		AgentID:   "a1",
+		CronExpr:  "0 9 * * *",
+		Payload:   "hello",
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	}
+	if err := s.SaveSchedule(ctx, sched); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSchedule(ctx, "sch1")
+	if err != nil || got.Payload != "hello" {
+		t.Fatalf("get schedule: %+v err=%v", got, err)
+	}
+	list, err := s.ListSchedulesByUser(ctx, "u1")
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list schedules: %+v err=%v", list, err)
+	}
+
+	_ = s.SaveSession(ctx, &Session{
+		ID:               "s1",
+		UserID:           "u1",
+		AgentID:          "a1",
+		SourceScheduleID: "sch1",
+		CreatedAt:        time.Now(),
+	})
+	sessions, err := s.ListSessionsBySchedule(ctx, "u1", "sch1")
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("list schedule sessions: %+v err=%v", sessions, err)
+	}
+
+	if err := s.DeleteSchedule(ctx, "sch1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSchedule(ctx, "sch1"); err == nil {
+		t.Fatal("expected schedule deleted")
+	}
+}
+
 func TestMemoryStorage_SnapshotOverwrite(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStorage()

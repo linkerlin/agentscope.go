@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -63,6 +64,20 @@ func (m *mockStorage) GetMessage(ctx context.Context, id string) (*service.Store
 func (m *mockStorage) UpsertMessage(ctx context.Context, msg *service.StoredMessage) error { return nil }
 func (m *mockStorage) ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*service.StoredMessage, error) { return nil, nil }
 func (m *mockStorage) DeleteMessagesBySession(ctx context.Context, sessionID string) error { return nil }
+func (m *mockStorage) SaveSchedule(ctx context.Context, sched *service.Schedule) error { return nil }
+func (m *mockStorage) GetSchedule(ctx context.Context, id string) (*service.Schedule, error) {
+	return nil, fmt.Errorf("schedule not found: %s", id)
+}
+func (m *mockStorage) ListSchedulesByUser(ctx context.Context, userID string) ([]*service.Schedule, error) {
+	return nil, nil
+}
+func (m *mockStorage) ListAllSchedules(ctx context.Context) ([]*service.Schedule, error) {
+	return nil, nil
+}
+func (m *mockStorage) DeleteSchedule(ctx context.Context, id string) error { return nil }
+func (m *mockStorage) ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*service.Session, error) {
+	return nil, nil
+}
 
 // stateTestV2Agent is a minimal V2Agent stub used only in this test file.
 type stateTestV2Agent struct {

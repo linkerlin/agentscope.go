@@ -2,14 +2,15 @@ package gateway
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/schedule"
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 // BackgroundTaskManager wires the schedule.Scheduler to the AgentRegistry
@@ -18,6 +19,7 @@ type BackgroundTaskManager struct {
 	scheduler   *schedule.Scheduler
 	registry    *AgentRegistry
 	sessionMgr  *SessionManager
+	storage     service.Storage
 	toolOffload *ToolOffloadManager
 }
 
@@ -40,9 +42,32 @@ func (btm *BackgroundTaskManager) ToolOffload() *ToolOffloadManager {
 	return btm.toolOffload
 }
 
-// Start begins the cron scheduler.
+// WithStorage enables schedule persistence and session linkage.
+func (btm *BackgroundTaskManager) WithStorage(st service.Storage) *BackgroundTaskManager {
+	btm.storage = st
+	return btm
+}
+
+// Start loads persisted schedules and begins the cron scheduler.
 func (btm *BackgroundTaskManager) Start() {
+	btm.loadPersistedSchedules(context.Background())
 	btm.scheduler.Start()
+}
+
+func (btm *BackgroundTaskManager) loadPersistedSchedules(ctx context.Context) {
+	if btm.storage == nil {
+		return
+	}
+	schedules, err := btm.storage.ListAllSchedules(ctx)
+	if err != nil {
+		return
+	}
+	for _, s := range schedules {
+		if !s.Enabled {
+			continue
+		}
+		_ = btm.scheduler.Schedule(ctx, scheduleToJob(s))
+	}
 }
 
 // Stop halts the cron scheduler.
@@ -50,14 +75,82 @@ func (btm *BackgroundTaskManager) Stop() {
 	btm.scheduler.Stop()
 }
 
-// Schedule adds or replaces a cron job.
+// Schedule adds or replaces a cron job in memory only.
 func (btm *BackgroundTaskManager) Schedule(ctx context.Context, job *schedule.Job) error {
 	return btm.scheduler.Schedule(ctx, job)
 }
 
-// Cancel removes a scheduled job.
+// UpsertSchedule persists and registers a schedule.
+func (btm *BackgroundTaskManager) UpsertSchedule(ctx context.Context, sched *service.Schedule) error {
+	if sched == nil {
+		return fmt.Errorf("schedule: nil record")
+	}
+	if btm.storage != nil {
+		if err := btm.storage.SaveSchedule(ctx, sched); err != nil {
+			return err
+		}
+	}
+	if !sched.Enabled {
+		_ = btm.scheduler.Cancel(ctx, sched.ID)
+		if btm.storage != nil {
+			return btm.storage.SaveSchedule(ctx, sched)
+		}
+		return nil
+	}
+	return btm.scheduler.Schedule(ctx, scheduleToJob(sched))
+}
+
+// GetSchedule returns a schedule by ID from storage or the in-memory scheduler.
+func (btm *BackgroundTaskManager) GetSchedule(ctx context.Context, id string) (*service.Schedule, error) {
+	if btm.storage != nil {
+		return btm.storage.GetSchedule(ctx, id)
+	}
+	for _, j := range btm.List() {
+		if j.ID == id {
+			return jobToSchedule(j, nil), nil
+		}
+	}
+	return nil, fmt.Errorf("schedule not found: %s", id)
+}
+
+// ListSchedules returns schedules for a user.
+func (btm *BackgroundTaskManager) ListSchedules(ctx context.Context, userID string) ([]*service.Schedule, error) {
+	if btm.storage == nil {
+		jobs := btm.List()
+		out := make([]*service.Schedule, 0, len(jobs))
+		for _, j := range jobs {
+			if userID == "" || j.UserID == userID {
+				out = append(out, jobToSchedule(j, nil))
+			}
+		}
+		return out, nil
+	}
+	return btm.storage.ListSchedulesByUser(ctx, userID)
+}
+
+// Cancel removes a scheduled job from the in-memory cron scheduler.
 func (btm *BackgroundTaskManager) Cancel(ctx context.Context, jobID string) error {
 	return btm.scheduler.Cancel(ctx, jobID)
+}
+
+// DeleteSchedule removes a schedule and its linked sessions for the owner.
+func (btm *BackgroundTaskManager) DeleteSchedule(ctx context.Context, userID, scheduleID string) error {
+	if btm.storage != nil {
+		sched, err := btm.storage.GetSchedule(ctx, scheduleID)
+		if err != nil {
+			return err
+		}
+		if sched.UserID != userID {
+			return fmt.Errorf("schedule not found: %s", scheduleID)
+		}
+		sessions, _ := btm.storage.ListSessionsBySchedule(ctx, userID, scheduleID)
+		for _, se := range sessions {
+			_ = btm.storage.DeleteSession(ctx, se.ID)
+		}
+		_ = btm.scheduler.Cancel(ctx, scheduleID)
+		return btm.storage.DeleteSchedule(ctx, scheduleID)
+	}
+	return btm.Cancel(ctx, scheduleID)
 }
 
 // NextRun returns the next scheduled execution time for a job.
@@ -124,6 +217,16 @@ func (btm *BackgroundTaskManager) setJobStatus(jobID, errMsg string, lastRun tim
 		j.LastError = errMsg
 		j.LastRun = lastRun
 	})
+	if btm.storage == nil {
+		return
+	}
+	sched, err := btm.storage.GetSchedule(context.Background(), jobID)
+	if err != nil {
+		return
+	}
+	sched.LastError = errMsg
+	sched.LastRun = lastRun
+	_ = btm.storage.SaveSchedule(context.Background(), sched)
 }
 
 func (btm *BackgroundTaskManager) runOnce(ctx context.Context, job *schedule.Job) error {
@@ -134,8 +237,23 @@ func (btm *BackgroundTaskManager) runOnce(ctx context.Context, job *schedule.Job
 
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(job.Payload).Build()
 
-	if btm.sessionMgr != nil && job.SessionID != "" {
-		ch, err := btm.sessionMgr.Run(ctx, job.SessionID, a, msg)
+	sessionID := job.SessionID
+	if sessionID == "" && btm.storage != nil {
+		sessionID = uuid.New().String()
+		se := &service.Session{
+			ID:               sessionID,
+			UserID:           job.UserID,
+			AgentID:          job.AgentID,
+			Title:            "schedule:" + job.ID,
+			SourceScheduleID: job.ID,
+			CreatedAt:        time.Now(),
+			UpdatedAt:        time.Now(),
+		}
+		_ = btm.storage.SaveSession(ctx, se)
+	}
+
+	if btm.sessionMgr != nil && sessionID != "" {
+		ch, err := btm.sessionMgr.Run(ctx, sessionID, a, msg)
 		if err != nil {
 			return fmt.Errorf("background_task: session run: %w", err)
 		}
@@ -156,102 +274,4 @@ func (btm *BackgroundTaskManager) runOnce(ctx context.Context, job *schedule.Job
 
 	_, err = a.Call(ctx, msg)
 	return err
-}
-
-// scheduleRequest is the JSON body for creating a scheduled job.
-type scheduleRequest struct {
-	ID         string        `json:"id"`
-	UserID     string        `json:"user_id"`
-	AgentID    string        `json:"agent_id"`
-	SessionID  string        `json:"session_id,omitempty"`
-	CronExpr   string        `json:"cron_expr"`
-	Payload    string        `json:"payload"`
-	MaxRetries int           `json:"max_retries,omitempty"`
-	RetryDelay string        `json:"retry_delay,omitempty"` // Go duration, e.g. "5s"
-	Timeout    string        `json:"timeout,omitempty"`
-}
-
-// scheduleResponse is the JSON response for a scheduled job.
-type scheduleResponse struct {
-	ID      string    `json:"id"`
-	NextRun time.Time `json:"next_run,omitempty"`
-	Error   string    `json:"error,omitempty"`
-}
-
-func (s *Server) handleScheduleCreate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.backgroundTaskMgr == nil {
-		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	var req scheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if req.ID == "" || req.AgentID == "" || req.CronExpr == "" {
-		http.Error(w, "id, agent_id and cron_expr are required", http.StatusBadRequest)
-		return
-	}
-
-	job := &schedule.Job{
-		ID:         req.ID,
-		UserID:     req.UserID,
-		AgentID:    req.AgentID,
-		SessionID:  req.SessionID,
-		CronExpr:   req.CronExpr,
-		Payload:    req.Payload,
-		Enabled:    true,
-		MaxRetries: req.MaxRetries,
-	}
-	if req.RetryDelay != "" {
-		if d, err := time.ParseDuration(req.RetryDelay); err == nil {
-			job.RetryDelay = d
-		}
-	}
-	if req.Timeout != "" {
-		if d, err := time.ParseDuration(req.Timeout); err == nil {
-			job.Timeout = d
-		}
-	}
-	if err := s.backgroundTaskMgr.Schedule(r.Context(), job); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	next, _ := s.backgroundTaskMgr.NextRun(req.ID)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(scheduleResponse{ID: req.ID, NextRun: next})
-}
-
-func (s *Server) handleScheduleDelete(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if s.backgroundTaskMgr == nil {
-		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	jobID := r.URL.Query().Get("id")
-	if jobID == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
-		return
-	}
-	if err := s.backgroundTaskMgr.Cancel(r.Context(), jobID); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// RegisterScheduleRoutes adds the background-task schedule endpoints.
-func (s *Server) RegisterScheduleRoutes() {
-	s.mux.HandleFunc("/schedule", s.requireAuth(s.handleScheduleCreate))
-	s.mux.HandleFunc("/schedule/delete", s.requireAuth(s.handleScheduleDelete))
 }

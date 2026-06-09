@@ -84,7 +84,7 @@ func (s *Server) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts c
 		useAGUI:   useAGUIProtocol(r),
 	}
 
-	a, err := s.resolveAgent(r, params.agentID)
+	a, err := s.resolveAgentForRequest(r, params.agentID, params.sessionID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -97,7 +97,7 @@ func (s *Server) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts c
 	}
 
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(injectOffloadHints(s, params.sessionID, params.text)).Build()
-	ch, err := s.startAgentEventStream(r, a, v2, params.sessionID, msg)
+	ch, err := s.startAgentEventStream(r, a, v2, params.agentID, params.sessionID, msg)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("reply stream error: %v", err), http.StatusInternalServerError)
 		return
@@ -173,13 +173,14 @@ func (s *Server) startAgentEventStream(
 	r *http.Request,
 	a agent.Agent,
 	v2 agent.V2Agent,
-	sessionID string,
+	agentID, sessionID string,
 	msg *message.Msg,
 ) (<-chan event.AgentEvent, error) {
+	ctx := s.enrichContextWithWorkspaceTools(r.Context(), agentID, sessionID)
 	if s.sessionMgr != nil && sessionID != "" {
-		return s.sessionMgr.Run(r.Context(), sessionID, a, msg)
+		return s.sessionMgr.Run(ctx, sessionID, a, msg)
 	}
-	return v2.ReplyStream(r.Context(), msg)
+	return v2.ReplyStream(ctx, msg)
 }
 
 func (s *Server) writeChatSSE(

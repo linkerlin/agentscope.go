@@ -3,6 +3,8 @@ package gateway
 import (
 	"fmt"
 	"io"
+	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -15,4 +17,16 @@ func generateID(prefix string) string {
 func readAllAndClose(body io.ReadCloser) ([]byte, error) {
 	defer body.Close()
 	return io.ReadAll(body)
+}
+
+func parseQueryInt(r *http.Request, key string, defaultVal int) int {
+	raw := r.URL.Query().Get(key)
+	if raw == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return defaultVal
+	}
+	return n
 }

@@ -107,6 +107,9 @@ func (s *RedisStorage) SaveSession(ctx context.Context, session *Session) error 
 	pipe := s.client.Pipeline()
 	pipe.Set(ctx, keySession(session.ID), data, 0)
 	pipe.SAdd(ctx, keySessionsByUser(session.UserID), session.ID)
+	if session.SourceScheduleID != "" {
+		pipe.SAdd(ctx, keyScheduleSessions(session.SourceScheduleID), session.ID)
+	}
 	_, err = pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("redis: save session: %w", err)
@@ -423,6 +426,144 @@ func (s *RedisStorage) DeleteSnapshot(ctx context.Context, sessionID string) err
 	return s.client.Del(ctx, keySnapshot(sessionID)).Err()
 }
 
+// --- Schedules ---
+
+func (s *RedisStorage) SaveSchedule(ctx context.Context, sched *Schedule) error {
+	now := time.Now()
+	if sched.CreatedAt.IsZero() {
+		sched.CreatedAt = now
+	}
+	sched.UpdatedAt = now
+	data, err := json.Marshal(sched)
+	if err != nil {
+		return fmt.Errorf("redis: marshal schedule: %w", err)
+	}
+	pipe := s.client.Pipeline()
+	pipe.Set(ctx, keySchedule(sched.ID), data, 0)
+	pipe.SAdd(ctx, keySchedulesByUser(sched.UserID), sched.ID)
+	pipe.SAdd(ctx, keySchedulesGlobal(), sched.ID)
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("redis: save schedule: %w", err)
+	}
+	return nil
+}
+
+func (s *RedisStorage) GetSchedule(ctx context.Context, id string) (*Schedule, error) {
+	data, err := s.client.Get(ctx, keySchedule(id)).Result()
+	if err == redis.Nil {
+		return nil, fmt.Errorf("schedule not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("redis: get schedule: %w", err)
+	}
+	var sched Schedule
+	if err := json.Unmarshal([]byte(data), &sched); err != nil {
+		return nil, fmt.Errorf("redis: unmarshal schedule: %w", err)
+	}
+	return &sched, nil
+}
+
+func (s *RedisStorage) ListSchedulesByUser(ctx context.Context, userID string) ([]*Schedule, error) {
+	ids, err := s.client.SMembers(ctx, keySchedulesByUser(userID)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: list schedules: %w", err)
+	}
+	if len(ids) == 0 {
+		return []*Schedule{}, nil
+	}
+	vals, err := s.client.MGet(ctx, makeKeys(keySchedule, ids)...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: mget schedules: %w", err)
+	}
+	var out []*Schedule
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		var sched Schedule
+		if err := json.Unmarshal([]byte(v.(string)), &sched); err != nil {
+			continue
+		}
+		out = append(out, &sched)
+	}
+	return out, nil
+}
+
+func (s *RedisStorage) ListAllSchedules(ctx context.Context) ([]*Schedule, error) {
+	ids, err := s.client.SMembers(ctx, keySchedulesGlobal()).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: list all schedules: %w", err)
+	}
+	if len(ids) == 0 {
+		return []*Schedule{}, nil
+	}
+	vals, err := s.client.MGet(ctx, makeKeys(keySchedule, ids)...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: mget all schedules: %w", err)
+	}
+	var out []*Schedule
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		var sched Schedule
+		if err := json.Unmarshal([]byte(v.(string)), &sched); err != nil {
+			continue
+		}
+		out = append(out, &sched)
+	}
+	return out, nil
+}
+
+func (s *RedisStorage) DeleteSchedule(ctx context.Context, id string) error {
+	sched, _ := s.GetSchedule(ctx, id)
+	pipe := s.client.Pipeline()
+	pipe.Del(ctx, keySchedule(id))
+	if sched != nil {
+		pipe.SRem(ctx, keySchedulesByUser(sched.UserID), id)
+	}
+	pipe.SRem(ctx, keySchedulesGlobal(), id)
+	pipe.Del(ctx, keyScheduleSessions(id))
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("redis: delete schedule: %w", err)
+	}
+	return nil
+}
+
+func (s *RedisStorage) ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*Session, error) {
+	sched, err := s.GetSchedule(ctx, scheduleID)
+	if err != nil || sched.UserID != userID {
+		return nil, fmt.Errorf("schedule not found: %s", scheduleID)
+	}
+	ids, err := s.client.SMembers(ctx, keyScheduleSessions(scheduleID)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: list schedule sessions: %w", err)
+	}
+	if len(ids) == 0 {
+		return []*Session{}, nil
+	}
+	vals, err := s.client.MGet(ctx, makeKeys(keySession, ids)...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: mget schedule sessions: %w", err)
+	}
+	var out []*Session
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		var se Session
+		if err := json.Unmarshal([]byte(v.(string)), &se); err != nil {
+			continue
+		}
+		if se.UserID == userID {
+			out = append(out, &se)
+		}
+	}
+	return out, nil
+}
+
 // --- key helpers ---
 
 func keyUser(id string) string        { return fmt.Sprintf("users:%s", id) }
@@ -443,6 +584,14 @@ func keyMessages(sessionID string) string {
 }
 func keySnapshot(sessionID string) string {
 	return fmt.Sprintf("snapshots:%s", sessionID)
+}
+func keySchedule(id string) string { return fmt.Sprintf("schedules:%s", id) }
+func keySchedulesByUser(uid string) string {
+	return fmt.Sprintf("schedules_by_user:%s", uid)
+}
+func keySchedulesGlobal() string { return "schedules:all" }
+func keyScheduleSessions(scheduleID string) string {
+	return fmt.Sprintf("schedule_sessions:%s", scheduleID)
 }
 
 func makeKeys(fn func(string) string, ids []string) []string {

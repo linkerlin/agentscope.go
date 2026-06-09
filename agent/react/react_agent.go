@@ -18,6 +18,7 @@ import (
 	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
+	"github.com/linkerlin/agentscope.go/runcontext"
 	"github.com/linkerlin/agentscope.go/shutdown"
 	"github.com/linkerlin/agentscope.go/state"
 	tasktool "github.com/linkerlin/agentscope.go/tool/task"
@@ -63,6 +64,11 @@ type ReActAgent struct {
 	workspace        workspace.Workspace
 	eventBus         *event.Bus
 	taskStore        *state.TaskStore
+
+	// Context compression (PyV2 compress_context)
+	contextConfig agent.ContextConfig
+	contextSize   int
+	offloader     workspace.Offloader
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
@@ -87,6 +93,10 @@ type ReActAgentBuilder struct {
 	workspace        workspace.Workspace
 	eventBus         *event.Bus
 	taskStore        *state.TaskStore
+
+	contextConfig agent.ContextConfig
+	contextSize   int
+	offloader     workspace.Offloader
 }
 
 // Builder returns a new ReActAgentBuilder
@@ -209,6 +219,25 @@ func (b *ReActAgentBuilder) WithEventBus(bus *event.Bus) *ReActAgentBuilder {
 	return b
 }
 
+// ContextConfig sets automatic context compression parameters (PyV2 ContextConfig).
+func (b *ReActAgentBuilder) ContextConfig(cfg agent.ContextConfig) *ReActAgentBuilder {
+	b.contextConfig = cfg
+	return b
+}
+
+// ContextSize sets the model context window size used for compression thresholds.
+// When zero, ResolveContextSize falls back to the model or library default.
+func (b *ReActAgentBuilder) ContextSize(n int) *ReActAgentBuilder {
+	b.contextSize = n
+	return b
+}
+
+// Offloader sets the workspace offloader used when tool results are truncated.
+func (b *ReActAgentBuilder) Offloader(o workspace.Offloader) *ReActAgentBuilder {
+	b.offloader = o
+	return b
+}
+
 // WithTaskStore attaches a task store and registers TaskCreate/Get/List/Update tools.
 func (b *ReActAgentBuilder) WithTaskStore(store *state.TaskStore) *ReActAgentBuilder {
 	if store == nil {
@@ -273,6 +302,12 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		workspace:        b.workspace,
 		eventBus:         b.eventBus,
 		taskStore:        b.taskStore,
+		contextConfig:    b.contextConfig,
+		contextSize:      b.contextSize,
+		offloader:        b.offloader,
+	}
+	if a.contextConfig.TriggerRatio <= 0 {
+		a.contextConfig = agent.DefaultContextConfig()
 	}
 	return a, nil
 }
@@ -396,7 +431,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 		return nil, err
 	}
 
-	toolSpecs := a.toolSpecs()
+	toolSpecs := a.toolSpecs(ctx)
 	var chatOpts []model.ChatOption
 	if len(toolSpecs) > 0 {
 		chatOpts = append(chatOpts, model.WithTools(toolSpecs))
@@ -462,6 +497,14 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			break
 		}
 
+		if err := a.CompressContext(ctx, inputMsg, toolSpecs); err != nil {
+			return nil, err
+		}
+		history, err = a.syncHistoryWithMemory(ctx, inputMsg, history)
+		if err != nil {
+			return nil, err
+		}
+
 		// Call the model（有工具时 requestTools=true 走 Chat；无工具且注册了 StreamHook 时走 ChatStream）
 		var response *message.Msg
 		response, err = a.runModel(ctx, history, chatOpts, i, len(toolSpecs) > 0)
@@ -523,6 +566,18 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			return a.handleInterrupt(ctx, msg, history, toolCalls)
 		}
 
+		replyID := ""
+		a.runtimeMu.Lock()
+		if a.runtimeState != nil {
+			replyID = a.runtimeState.ReplyID
+		}
+		a.runtimeMu.Unlock()
+
+		externalResults, err := a.handleExternalToolCalls(ctx, replyID, toolCalls)
+		if err != nil {
+			return nil, err
+		}
+
 		type toolRunResult struct {
 			contentBlocks   []message.ContentBlock
 			singleResultMsg *message.Msg
@@ -540,6 +595,19 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 		for idx, tc := range toolCalls {
 			tc := tc
 			idx := idx
+			if ext, ok := externalResults[idx]; ok {
+				blocks := a.compressToolResultBlocks(ctx, tc.ID, ext.blocks, ext.isErr)
+				singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
+					message.NewToolResultBlock(tc.ID, blocks, ext.isErr),
+				).Build()
+				results[idx] = toolRunResult{
+					contentBlocks:   blocks,
+					singleResultMsg: singleResultMsg,
+					toolName:        tc.Name,
+					toolInput:       tc.Input,
+				}
+				continue
+			}
 			g.Go(func() error {
 				// Fire before-tool hook
 				_, hr, err := a.fireHooks(ctx, hook.HookBeforeTool, history, nil, tc.Name, tc.Input)
@@ -574,6 +642,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 				} else {
 					contentBlocks = []message.ContentBlock{message.NewTextBlock("")}
 				}
+				contentBlocks = a.compressToolResultBlocks(ctx, tc.ID, contentBlocks, toolErr != nil)
 
 				singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
 					message.NewToolResultBlock(tc.ID, contentBlocks, toolErr != nil),
@@ -773,6 +842,13 @@ func (a *ReActAgent) buildHistory(ctx context.Context, userMsg *message.Msg) ([]
 			Build())
 	}
 
+	if summary := a.getCompressedSummary(); summary != "" && !a.hasPreReasoningMemory() {
+		history = append(history, message.NewMsg().
+			Role(message.RoleUser).
+			TextContent(summary).
+			Build())
+	}
+
 	var memMsgs []*message.Msg
 	var err error
 	if pm, ok := a.memory.(interface {
@@ -802,13 +878,17 @@ func (a *ReActAgent) buildHistory(ctx context.Context, userMsg *message.Msg) ([]
 	return history, nil
 }
 
-// toolSpecs converts tools to model.ToolSpec slice
-func (a *ReActAgent) toolSpecs() []model.ToolSpec {
+// toolSpecs converts tools to model.ToolSpec slice, including session tools from ctx.
+func (a *ReActAgent) toolSpecs(ctx context.Context) []model.ToolSpec {
+	var specs []model.ToolSpec
 	if a.toolkit != nil {
-		return a.toolkit.ActiveToolSpecs()
+		specs = append(specs, a.toolkit.ActiveToolSpecs()...)
+	} else {
+		for _, t := range a.tools {
+			specs = append(specs, t.Spec())
+		}
 	}
-	specs := make([]model.ToolSpec, 0, len(a.tools))
-	for _, t := range a.tools {
+	for _, t := range sessionToolsFromContext(ctx) {
 		specs = append(specs, t.Spec())
 	}
 	return specs
@@ -830,6 +910,9 @@ func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[str
 }
 
 func (a *ReActAgent) actingImpl(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {
+	if resp, ok, err := a.executeSessionTool(ctx, name, input); ok {
+		return resp, err
+	}
 	if a.toolkit != nil {
 		if a.workspace != nil {
 			if t, ok := a.toolkit.Registry.Get(name); ok {
@@ -848,8 +931,8 @@ func (a *ReActAgent) actingImpl(ctx context.Context, name string, input map[stri
 	return t.Execute(ctx, input)
 }
 
-func (a *ReActAgent) isExternalTool(name string) bool {
-	t, ok := a.lookupTool(name)
+func (a *ReActAgent) isExternalTool(ctx context.Context, name string) bool {
+	t, ok := a.lookupTool(ctx, name)
 	if !ok {
 		return false
 	}
@@ -859,12 +942,35 @@ func (a *ReActAgent) isExternalTool(name string) bool {
 	return false
 }
 
-func (a *ReActAgent) lookupTool(name string) (tool.Tool, bool) {
+func (a *ReActAgent) lookupTool(ctx context.Context, name string) (tool.Tool, bool) {
+	for _, t := range sessionToolsFromContext(ctx) {
+		if t != nil && t.Name() == name {
+			return t, true
+		}
+	}
 	if a.toolkit != nil {
 		return a.toolkit.Registry.Get(name)
 	}
 	t, ok := a.toolMap[name]
 	return t, ok
+}
+
+func (a *ReActAgent) executeSessionTool(ctx context.Context, name string, input map[string]any) (*tool.Response, bool, error) {
+	for _, t := range sessionToolsFromContext(ctx) {
+		if t == nil || t.Name() != name {
+			continue
+		}
+		if a.workspace != nil {
+			bindWorkspaceToTool(t, a.workspace)
+		}
+		resp, err := t.Execute(ctx, input)
+		return resp, true, err
+	}
+	return nil, false, nil
+}
+
+func sessionToolsFromContext(ctx context.Context) []tool.Tool {
+	return runcontext.Tools(ctx)
 }
 
 // bindWorkspaceToTool uses reflection-free type assertions to bind a workspace

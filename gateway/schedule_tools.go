@@ -12,10 +12,20 @@ type scheduleManagerAdapter struct {
 }
 
 func (a scheduleManagerAdapter) Schedule(ctx context.Context, job *schedule.Job) error {
+	if a.btm.storage != nil {
+		return a.btm.UpsertSchedule(ctx, jobToSchedule(job, nil))
+	}
 	return a.btm.Schedule(ctx, job)
 }
 
 func (a scheduleManagerAdapter) Cancel(ctx context.Context, jobID string) error {
+	if a.btm.storage != nil {
+		sched, err := a.btm.GetSchedule(ctx, jobID)
+		if err == nil {
+			sched.Enabled = false
+			return a.btm.UpsertSchedule(ctx, sched)
+		}
+	}
 	return a.btm.Cancel(ctx, jobID)
 }
 

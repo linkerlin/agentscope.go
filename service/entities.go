@@ -19,13 +19,37 @@ type User struct {
 
 // Session represents an agent conversation session.
 type Session struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	AgentID   string    `json:"agent_id"`
-	Title     string    `json:"title,omitempty"`
-	StateKey  string    `json:"state_key,omitempty"` // key to retrieve AgentState from StateStore
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID               string    `json:"id"`
+	UserID           string    `json:"user_id"`
+	AgentID          string    `json:"agent_id"`
+	Title            string    `json:"title,omitempty"`
+	StateKey         string    `json:"state_key,omitempty"` // key to retrieve AgentState from StateStore
+	SourceScheduleID string    `json:"source_schedule_id,omitempty"`
+	WorkspaceID      string    `json:"workspace_id,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// Schedule represents a persisted cron job for an agent.
+type Schedule struct {
+	ID              string    `json:"id"`
+	UserID          string    `json:"user_id"`
+	AgentID         string    `json:"agent_id"`
+	Name            string    `json:"name,omitempty"`
+	Description     string    `json:"description,omitempty"`
+	CronExpr        string    `json:"cron_expr"`
+	Payload         string    `json:"payload"`
+	SessionID       string    `json:"session_id,omitempty"` // stateful session binding
+	Enabled         bool      `json:"enabled"`
+	MaxRetries      int       `json:"max_retries,omitempty"`
+	RetryDelayMs    int64     `json:"retry_delay_ms,omitempty"`
+	TimeoutMs       int64     `json:"timeout_ms,omitempty"`
+	LastRun         time.Time `json:"last_run,omitempty"`
+	LastError       string    `json:"last_error,omitempty"`
+	Source          string    `json:"source,omitempty"` // USER | AGENT
+	SourceSessionID string    `json:"source_session_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // AgentConfig represents the persisted configuration of an agent.

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -72,6 +73,21 @@ func TestServiceHandlers_AgentCRUD(t *testing.T) {
 		t.Fatalf("get: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// Patch
+	patchBody := `{"name":"renamed","model_id":"gpt-4o"}`
+	req = httptest.NewRequest("PATCH", "/api/v1/agents/"+agent.ID, bytes.NewReader([]byte(patchBody)))
+	req.Header.Set("X-API-Key", key)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var patched service.AgentConfig
+	json.Unmarshal(rec.Body.Bytes(), &patched)
+	if patched.Name != "renamed" || patched.ModelID != "gpt-4o" {
+		t.Fatalf("unexpected patch result: %+v", patched)
+	}
+
 	// Delete
 	req = httptest.NewRequest("DELETE", "/api/v1/agents/"+agent.ID, nil)
 	req.Header.Set("X-API-Key", key)
@@ -83,7 +99,7 @@ func TestServiceHandlers_AgentCRUD(t *testing.T) {
 }
 
 func TestServiceHandlers_SessionCRUD(t *testing.T) {
-	srv, _, key := setupServiceServer(t)
+	srv, storage, key := setupServiceServer(t)
 
 	// Create
 	body := `{"title":"my-session"}`
@@ -113,6 +129,33 @@ func TestServiceHandlers_SessionCRUD(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get: expected 200, got %d", rec.Code)
+	}
+
+	// Patch
+	patchBody := `{"title":"renamed-session"}`
+	req = httptest.NewRequest("PATCH", "/api/v1/sessions/"+sess.ID, bytes.NewReader([]byte(patchBody)))
+	req.Header.Set("X-API-Key", key)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch: expected 200, got %d", rec.Code)
+	}
+
+	// Messages
+	_ = storage.SaveMessage(context.Background(), &service.StoredMessage{
+		ID: "m1", SessionID: sess.ID, Role: "user", Content: "hi", CreatedAt: time.Now(),
+	})
+	req = httptest.NewRequest("GET", "/api/v1/sessions/"+sess.ID+"/messages", nil)
+	req.Header.Set("X-API-Key", key)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("messages: expected 200, got %d", rec.Code)
+	}
+	var msgResp listSessionMessagesResponse
+	json.Unmarshal(rec.Body.Bytes(), &msgResp)
+	if msgResp.Total != 1 {
+		t.Fatalf("expected 1 message, got %d", msgResp.Total)
 	}
 
 	// Delete
@@ -147,6 +190,25 @@ func TestServiceHandlers_CredentialCRUD(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", rec.Code)
+	}
+
+	// Get
+	req = httptest.NewRequest("GET", "/api/v1/credentials/"+cred.ID, nil)
+	req.Header.Set("X-API-Key", key)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get: expected 200, got %d", rec.Code)
+	}
+
+	// Patch
+	patchBody := `{"label":"updated"}`
+	req = httptest.NewRequest("PATCH", "/api/v1/credentials/"+cred.ID, bytes.NewReader([]byte(patchBody)))
+	req.Header.Set("X-API-Key", key)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch: expected 200, got %d", rec.Code)
 	}
 
 	// Delete

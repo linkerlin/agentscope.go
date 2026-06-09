@@ -124,6 +124,13 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 			copy(finalBuf, run.buffer)
 			run.done = true
 			run.mu.Unlock()
+
+			// Persist the reconstructed reply message before closing subscribers.
+			if sm.storage != nil && sessionID != "" {
+				storedMsg := service.MsgToStored(replyMsg, sessionID)
+				_ = sm.storage.UpsertMessage(ctx, storedMsg)
+			}
+
 			for _, s := range subs {
 				close(s)
 			}
@@ -131,12 +138,6 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 			delete(sm.runs, sessionID)
 			sm.completed[sessionID] = finalBuf
 			sm.mu.Unlock()
-
-			// Persist the reconstructed reply message.
-			if sm.storage != nil && sessionID != "" {
-				storedMsg := service.MsgToStored(replyMsg, sessionID)
-				_ = sm.storage.UpsertMessage(ctx, storedMsg)
-			}
 		}()
 
 		for ev := range ch {

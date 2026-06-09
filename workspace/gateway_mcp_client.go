@@ -55,14 +55,8 @@ func (c *GatewayClient) Health(ctx context.Context) error {
 	return nil
 }
 
-// MCPInfo describes a registered MCP server on the gateway.
-type MCPInfo struct {
-	Name  string `json:"name"`
-	Tools int    `json:"tools"`
-}
-
-// ListMCPs returns registered MCP servers.
-func (c *GatewayClient) ListMCPs(ctx context.Context) ([]MCPInfo, error) {
+// ListMCPs returns full MCPClient specs (PyV2 MCPClient.model_dump compatible).
+func (c *GatewayClient) ListMCPs(ctx context.Context) ([]MCPServerSpec, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/mcps", nil)
 	if err != nil {
 		return nil, err
@@ -77,7 +71,7 @@ func (c *GatewayClient) ListMCPs(ctx context.Context) ([]MCPInfo, error) {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("gateway list mcps: %s: %s", resp.Status, string(b))
 	}
-	var list []MCPInfo
+	var list []MCPServerSpec
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		return nil, err
 	}
@@ -90,6 +84,26 @@ func (c *GatewayClient) MakeMCPClient(name string) *GatewayMCPClient {
 		name:    name,
 		gateway: c,
 	}
+}
+
+// MakeMCPClientFromSpec wires a client from a GET /mcps spec entry.
+func (c *GatewayClient) MakeMCPClientFromSpec(spec MCPServerSpec) *GatewayMCPClient {
+	return &GatewayMCPClient{
+		name:    spec.Name,
+		spec:    spec,
+		gateway: c,
+	}
+}
+
+// RegisterMCP registers an upstream MCP on the gateway (POST /mcps).
+func (c *GatewayClient) RegisterMCP(ctx context.Context, spec MCPServerSpec) error {
+	var out map[string]any
+	return c.doJSON(ctx, http.MethodPost, "/mcps", spec, &out)
+}
+
+// RemoveMCP unregisters an MCP from the gateway (DELETE /mcps/{name}).
+func (c *GatewayClient) RemoveMCP(ctx context.Context, name string) error {
+	return c.doJSON(ctx, http.MethodDelete, "/mcps/"+name, nil, nil)
 }
 
 func (c *GatewayClient) setAuth(req *http.Request) {
@@ -133,12 +147,17 @@ func (c *GatewayClient) doJSON(ctx context.Context, method, path string, body an
 // GatewayMCPClient implements mcp.Client by forwarding to MCPGateway HTTP endpoints.
 type GatewayMCPClient struct {
 	name    string
+	spec    MCPServerSpec
 	gateway *GatewayClient
 }
 
-// Connect is a no-op; the server is already registered on the gateway.
-func (c *GatewayMCPClient) Connect(_ context.Context, _ mcp.MCPConfig) error {
-	return nil
+// Connect registers the upstream MCP on the gateway when spec is present.
+// For clients created from GET /mcps (already registered), this is a no-op.
+func (c *GatewayMCPClient) Connect(ctx context.Context, _ mcp.MCPConfig) error {
+	if c == nil || c.gateway == nil || c.spec.MCPConfig.Type == "" {
+		return nil
+	}
+	return c.gateway.RegisterMCP(ctx, c.spec)
 }
 
 // ListTools fetches tool schemas from GET /mcps/{name}/tools.
@@ -220,7 +239,7 @@ func GatewayTools(ctx context.Context, gateway *GatewayClient) ([]tool.Tool, err
 	}
 	var out []tool.Tool
 	for _, s := range servers {
-		client := gateway.MakeMCPClient(s.Name)
+		client := gateway.MakeMCPClientFromSpec(s)
 		tools, err := client.ListTools(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("list tools %s: %w", s.Name, err)

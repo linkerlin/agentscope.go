@@ -24,9 +24,20 @@ type ToolOffloadManager struct {
 	timeout        time.Duration
 }
 
+// OffloadedToolTask is a snapshot of a background offloaded tool execution.
+type OffloadedToolTask struct {
+	ID        string    `json:"task_id"`
+	SessionID string    `json:"session_id"`
+	AgentID   string    `json:"agent_id,omitempty"`
+	ToolName  string    `json:"tool_name,omitempty"`
+	Started   time.Time `json:"started_at"`
+	Done      bool      `json:"done"`
+}
+
 type offloadedToolTask struct {
 	ID        string
 	SessionID string
+	AgentID   string
 	ToolName  string
 	Started   time.Time
 	Done      bool
@@ -71,16 +82,45 @@ func (m *ToolOffloadManager) PopResults(sessionID string) []string {
 	return out
 }
 
-// ListTasks returns snapshots of offloaded tool tasks.
-func (m *ToolOffloadManager) ListTasks() []*offloadedToolTask {
+// ListTasks returns snapshots of all offloaded tool tasks.
+func (m *ToolOffloadManager) ListTasks() []*OffloadedToolTask {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]*offloadedToolTask, 0, len(m.tasks))
+	out := make([]*OffloadedToolTask, 0, len(m.tasks))
 	for _, t := range m.tasks {
-		cpy := *t
-		out = append(out, &cpy)
+		out = append(out, t.snapshot())
 	}
 	return out
+}
+
+// ListTasksBySession returns running or completed offloaded tasks for a session.
+func (m *ToolOffloadManager) ListTasksBySession(sessionID string) []*OffloadedToolTask {
+	if sessionID == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*OffloadedToolTask
+	for _, t := range m.tasks {
+		if t.SessionID == sessionID && !t.Done {
+			out = append(out, t.snapshot())
+		}
+	}
+	return out
+}
+
+func (t *offloadedToolTask) snapshot() *OffloadedToolTask {
+	if t == nil {
+		return nil
+	}
+	return &OffloadedToolTask{
+		ID:        t.ID,
+		SessionID: t.SessionID,
+		AgentID:   t.AgentID,
+		ToolName:  t.ToolName,
+		Started:   t.Started,
+		Done:      t.Done,
+	}
 }
 
 // Cancel marks an offloaded task as cancelled (best-effort; underlying work may continue).

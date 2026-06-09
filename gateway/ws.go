@@ -131,7 +131,8 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := r.URL.Query().Get("agent_id")
-	a, err := s.resolveAgent(r, agentID)
+	sessionID := r.URL.Query().Get("session")
+	a, err := s.resolveAgentForRequest(r, agentID, sessionID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -148,7 +149,6 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID := r.URL.Query().Get("session")
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
 	}
@@ -209,6 +209,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		}
 
 		streamCtx, streamCancel = context.WithCancel(r.Context())
+		streamCtx = s.enrichContextWithWorkspaceTools(streamCtx, agentID, sessionID)
 		msg := message.NewMsg().Role(message.RoleUser).TextContent(injectOffloadHints(s, sessionID, text)).Build()
 
 		var evCh <-chan event.AgentEvent

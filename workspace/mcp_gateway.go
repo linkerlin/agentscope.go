@@ -2,18 +2,24 @@ package workspace
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sync"
 
 	"github.com/linkerlin/agentscope.go/toolkit/mcp"
 )
 
-// MCPGateway is a lightweight in-process HTTP proxy for MCP tools inside a sandbox.
 // Endpoints mirror PyV2 workspace/_mcp_gateway/_mcp_gateway_app.py.
+type mcpServerEntry struct {
+	client mcp.Client
+	spec   MCPServerSpec
+}
+
+// MCPGateway is a lightweight in-process HTTP proxy for MCP tools inside a sandbox.
 type MCPGateway struct {
 	mu      sync.RWMutex
 	token   string
-	servers map[string]mcp.Client
+	servers map[string]mcpServerEntry
 	mux     *http.ServeMux
 }
 
@@ -21,7 +27,7 @@ type MCPGateway struct {
 func NewMCPGateway(token string) *MCPGateway {
 	g := &MCPGateway{
 		token:   token,
-		servers: make(map[string]mcp.Client),
+		servers: make(map[string]mcpServerEntry),
 		mux:     http.NewServeMux(),
 	}
 	g.mux.HandleFunc("/health", g.handleHealth)
@@ -31,10 +37,25 @@ func NewMCPGateway(token string) *MCPGateway {
 }
 
 // RegisterServer adds or replaces an MCP client under name.
+// The returned GET /mcps spec contains at least name/is_stateful for test stubs.
 func (g *MCPGateway) RegisterServer(name string, client mcp.Client) {
+	g.registerServer(name, client, MCPServerSpec{
+		Name:       name,
+		IsStateful: true,
+		MCPConfig:  MCPConfigSpec{Type: "stdio_mcp"},
+	})
+}
+
+func (g *MCPGateway) registerServer(name string, client mcp.Client, spec MCPServerSpec) {
+	if spec.Name == "" {
+		spec.Name = name
+	}
+	if !spec.IsStateful {
+		spec.IsStateful = true
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.servers[name] = client
+	g.servers[name] = mcpServerEntry{client: client, spec: spec}
 }
 
 // Handler returns the HTTP handler for the gateway.
@@ -59,18 +80,37 @@ func (g *MCPGateway) handleMCPs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		g.mu.RLock()
-		type item struct {
-			Name  string `json:"name"`
-			Tools int    `json:"tools"`
-		}
-		var list []item
-		for name, c := range g.servers {
-			tools, _ := c.ListTools(r.Context())
-			list = append(list, item{Name: name, Tools: len(tools)})
+		list := make([]MCPServerSpec, 0, len(g.servers))
+		for _, entry := range g.servers {
+			list = append(list, entry.spec)
 		}
 		g.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(list)
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req, spec, err := ParseMCPRegisterBody(body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		g.mu.RLock()
+		_, exists := g.servers[req.Name]
+		g.mu.RUnlock()
+		if exists {
+			http.Error(w, req.Name+" already exists", http.StatusConflict)
+			return
+		}
+		if err := g.RegisterClientFromRequest(r.Context(), req, spec); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -87,8 +127,14 @@ func (g *MCPGateway) handleMCPTool(w http.ResponseWriter, r *http.Request) {
 	// DELETE /mcps/{name}
 	if len(parts) == 2 && r.Method == http.MethodDelete {
 		g.mu.Lock()
+		entry, ok := g.servers[name]
 		delete(g.servers, name)
 		g.mu.Unlock()
+		if !ok {
+			http.Error(w, "mcp server not found", http.StatusNotFound)
+			return
+		}
+		_ = entry.client.Close()
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -96,13 +142,13 @@ func (g *MCPGateway) handleMCPTool(w http.ResponseWriter, r *http.Request) {
 	// GET /mcps/{name}/tools
 	if len(parts) == 3 && parts[2] == "tools" && r.Method == http.MethodGet {
 		g.mu.RLock()
-		client, ok := g.servers[name]
+		entry, ok := g.servers[name]
 		g.mu.RUnlock()
 		if !ok {
 			http.Error(w, "mcp server not found", http.StatusNotFound)
 			return
 		}
-		tools, err := client.ListTools(r.Context())
+		tools, err := entry.client.ListTools(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -119,7 +165,7 @@ func (g *MCPGateway) handleMCPTool(w http.ResponseWriter, r *http.Request) {
 	}
 	toolName := parts[3]
 	g.mu.RLock()
-	client, ok := g.servers[name]
+	entry, ok := g.servers[name]
 	g.mu.RUnlock()
 	if !ok {
 		http.Error(w, "mcp server not found", http.StatusNotFound)
@@ -136,7 +182,7 @@ func (g *MCPGateway) handleMCPTool(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	result, err := client.CallTool(r.Context(), toolName, body.Arguments)
+	result, err := entry.client.CallTool(r.Context(), toolName, body.Arguments)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

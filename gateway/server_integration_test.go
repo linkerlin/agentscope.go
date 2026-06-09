@@ -116,8 +116,8 @@ func TestServer_ScheduleCreateAndDelete(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/schedule", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 on create, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201 on create, got %d: %s", rr.Code, rr.Body.String())
 	}
 	var resp scheduleResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {

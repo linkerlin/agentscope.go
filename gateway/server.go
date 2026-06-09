@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/service"
 )
 
@@ -75,6 +76,9 @@ type Server struct {
 	backgroundTaskMgr *BackgroundTaskManager
 	modelCardsDir     string
 	toolOffload       *ToolOffloadManager
+	workspaceMgr        *WorkspaceManager
+	embeddingModel      model.EmbeddingModel
+	sessionAgentBuilder SessionAgentBuilder
 }
 
 // NewServer creates a gateway HTTP server for the given agent.

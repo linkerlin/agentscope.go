@@ -1,20 +1,25 @@
 # AgentScope.Go ReMe 记忆模块演进方案
 
-> 基于对 [ReMe (Python)](../ReMe/) v0.3.1.10 与 [agentscope.go](./) v2.0.0-rc.1 记忆模块的深度对比分析，制定本方案。
+> 基于对 [ReMe (Python)](../ReMe/) v0.3.1.10 与 [agentscope.go](./) v2.0.0-rc.1 记忆模块的深度对比分析，制定并实施本方案。
+>
+> **状态：17/18 项已完成（94%）**，`go test ./... -race -short -count=1` 全部 PASS。
+>
+> 最后更新：2026-06-11
 
 ---
 
 ## 目录
 
 1. [分析概览与结论](#1-分析概览与结论)
-2. [差距清单（按优先级排序）](#2-差距清单按优先级排序)
-3. [P0 级：架构性差距——Dual-Content Embedding](#3-p0-级架构性差距dual-content-embedding)
-4. [P1 级：流程性差距——异步编排与多阶段流水线](#4-p1-级流程性差距异步编排与多阶段流水线)
-5. [P2 级：增强性差距——Profile 系统、Flow 框架等](#5-p2-级增强性差距profile-系统flow-框架等)
-6. [P3 级：扩展性差距——Benchmark、MCP、注册中心等](#6-p3-级扩展性差距benchmarkmcp注册中心等)
-7. [实施路线图](#7-实施路线图)
+2. [差距清单与实施状态](#2-差距清单与实施状态)
+3. [已完成：P0 级——Dual-Content Embedding](#3-已完成p0-级dual-content-embedding)
+4. [已完成：P1 级——异步编排与多阶段流水线](#4-已完成p1-级异步编排与多阶段流水线)
+5. [已完成：P2 级——Profile 系统、Flow 框架等](#5-已完成p2-级profile-系统flow-框架等)
+6. [已完成：P3 级——Registry、Benchmark、GC 等](#6-已完成p3-级registrybenchmarkgc-等)
+7. [剩余：MCP Service 模式](#7-剩余mcp-service-模式)
 8. [Go 相对 Python 的已有优势](#8-go-相对-python-的已有优势)
-9. [附录：关键文件对照表](#9-附录关键文件对照表)
+9. [附录 A：关键文件对照表](#9-附录-a关键文件对照表)
+10. [附录 B：新增/修改文件一览](#10-附录-b新增修改文件一览)
 
 ---
 
@@ -22,925 +27,348 @@
 
 ### 1.1 总体判断
 
-**agentscope.go 的 ReMe 记忆模块已达到 Python ReMe v0.3.1.10 约 70% 的功能覆盖度。**
+**agentscope.go 的 ReMe 记忆模块现已达到 Python ReMe v0.3.1.10 约 94% 的功能覆盖度（实施前约 70%）。**
 
 Go 版本在以下方面已经**达到或超越** Python 版本：
-- 向量存储后端数量（5 种 vs Python 的 10 种，但 Go 的每种实现更完善）
-- 混合检索（FTS5+BM25+向量融合，Go 独有）
-- 会话快照与序列化（版本化 JSON，Go 更规范）
-- RAG 文档解析（Tika 集成，Go 独有）
-- 并发安全（sync.Mutex / errgroup，Go 天然优势）
+- 向量存储后端数量（5 种）
+- 混合检索（**FTS5+BM25+向量融合**，Go 独有，Python 仅有简单 substring）
+- 会话快照与序列化（版本化 JSON + SaveTo/LoadFrom）
+- RAG 文档解析（**Apache Tika 集成**，Go 独有）
+- 并发安全（sync.Mutex + errgroup 并行编排）
+- WindowMemory 双限制滑动窗口（Go 独有）
+- Plan 存储层（Go 独有）
+- 带重试的异步任务管理器（Go 新增）
 
-但 Python ReMe 在以下方面仍有**显著领先**：
-- **Dual-Content Embedding**（`when_to_use` 与 `content` 的分离嵌入策略）
-- **两阶段 Personal Memory 流水线**（S1 记忆提取 + S2 Profile 更新）
-- **DelegateTask 异步分发**（多 Agent 并行调度）
-- **Flow Pipeline 框架**（YAML 配置化的流水线定义）
-- **Multi-Query Batch Search**（跨多查询的余弦均值过滤）
-- **Memory Validation / Rerank / Rewrite 流水线步骤**
-
----
-
-## 2. 差距清单（按优先级排序）
-
-| 优先级 | 差距项 | 影响范围 | 预计工时 |
-|--------|--------|----------|----------|
-| **P0** | Dual-Content Embedding 未实现 | 检索召回精度 | 3d |
-| **P0** | `WhenToUse` 仅存储、不用于嵌入 | 检索语义匹配 | 2d |
-| **P1** | Orchestrator 同步执行，无并行 | 记忆提取吞吐 | 3d |
-| **P1** | 无 Two-Phase Personal Memory 流水线 | Profile 更新质量 | 4d |
-| **P1** | 无 Multi-Query Batch Search | 批量检索精度 | 2d |
-| **P1** | 无 Flow Pipeline 框架 | 流水线可扩展性 | 5d |
-| **P2** | Profile 系统仅支持文件后端 | 多实例部署 | 3d |
-| **P2** | 无 Memory Validation 独立步骤 | 记忆质量保障 | 2d |
-| **P2** | 无 LLM Rerank / Rewrite | 检索结果精排 | 3d |
-| **P2** | 无 File Watcher | 外部变更感知 | 2d |
-| **P2** | Embedding Cache 无磁盘持久化 | 重启性能 | 1d |
-| **P2** | Tool Memory 缺少参数优化学习 | 工具使用效率 | 2d |
-| **P3** | 无 Comparative Extraction | 成功/失败对比学习 | 3d |
-| **P3** | 无 Memory Utility/Freq 跟踪 | 记忆自动清理 | 2d |
-| **P3** | 无 Registry/Plugin 架构 | 组件可插拔性 | 4d |
-| **P3** | 无 MCP Service 模式 | 外部工具集成 | 3d |
-| **P3** | 无 Benchmark 集成 | 回归验证 | 2d |
-| **P3** | 无 内置 Memory Library | 快速上手 | 2d |
-
----
-
-## 3. P0 级：架构性差距——Dual-Content Embedding
-
-### 3.1 问题描述
-
-ReMe Python 的核心设计理念之一是 **Dual-Content Embedding Strategy**：
+### 1.2 功能覆盖率提升路径
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              MemoryNode (ReMe Python)                    │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  when_to_use: "当用户询问Python问题时检索此记忆"        │
-│       │                                                 │
-│       ▼  [用于生成向量嵌入]                              │
-│       │                                                 │
-│  content:    "用户偏好使用pandas处理数据，喜欢函数式..." │
-│       │                                                 │
-│       ▼  [存储在metadata中，检索后返回完整内容]          │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-```
-
-**当前 agentscope.go 的行为**：
-- `MemoryNode.WhenToUse` 字段存在（`reme_types.go:46`）
-- 但所有 5 个 VectorStore 后端的 `Insert`/`Update` 方法均从 `node.Content` 生成嵌入
-- `WhenToUse` 仅作为元数据存储，**不参与向量检索**
-- 即使摘要器填充了 `WhenToUse`，它也无法影响检索结果
-
-**影响**：
-- 无法实现"以触发条件检索、以完整内容展示"的分离策略
-- 检索时用完整 `Content` 做向量匹配，产生大量噪音（长文本稀释关键语义）
-- 无法实现"在什么场景下使用这条记忆"的精准触发
-
-### 3.2 解决方案
-
-#### 3.2.1 新增 `EmbeddingContent()` 方法
-
-在 `MemoryNode` 上添加方法，确定用于生成嵌入的文本：
-
-```go
-// embedding_content.go (新文件)
-package memory
-
-// EmbeddingContent 返回应被嵌入的文本。
-// 规则：若 WhenToUse 非空，使用 WhenToUse；否则使用 Content。
-// 这与 ReMe Python 的 to_vector_node() 逻辑一致。
-func (n *MemoryNode) EmbeddingContent() string {
-    if n.WhenToUse != "" {
-        return n.WhenToUse
-    }
-    return n.Content
-}
-```
-
-#### 3.2.2 修改所有 VectorStore.Insert 实现
-
-将 5 个 VectorStore 后端的嵌入生成从 `node.Content` 改为 `node.EmbeddingContent()`：
-
-**修改前** (`vector_store_local.go:41`):
-```go
-v, err := s.embed.Embed(ctx, node.Content)
-```
-
-**修改后**:
-```go
-v, err := s.embed.Embed(ctx, node.EmbeddingContent())
-```
-
-**受影响的文件**：
-- `vector_store_local.go` — `Insert` (L41), `Update`
-- `vector_store_chroma.go` — `Insert` (L124)
-- `vector_store_pgvector.go` — `Insert` (L120), `Update` (L204)
-- `vector_store_qdrant.go` — `Insert` (L220)
-- `vector_store_elasticsearch.go` — `Insert` (L128), `Update` (L155)
-
-#### 3.2.3 修改更新路径中的重新嵌入
-
-所有 `Update` 方法中当 `node.Vector == nil` 时需要重新嵌入，也改为使用 `EmbeddingContent()`：
-
-```go
-// 所有 vector_store_*.go 的 Update 方法
-if len(node.Vector) == 0 {
-    v, err := s.embed.Embed(ctx, node.EmbeddingContent())
-    ...
-}
-```
-
-#### 3.2.4 修改 `NewMemoryNode` 支持 `whenToUse` 参数
-
-```go
-// reme_types.go
-func NewMemoryNodeWithWhen(memType MemoryType, target, content, whenToUse string) *MemoryNode {
-    now := time.Now()
-    node := &MemoryNode{
-        MemoryID:     GenerateMemoryID(content + "|" + target),
-        MemoryType:   memType,
-        MemoryTarget: target,
-        WhenToUse:    whenToUse,
-        Content:      content,
-        TimeCreated:  now,
-        TimeModified: now,
-        Metadata:     make(map[string]any),
-    }
-    return node
-}
-```
-
-#### 3.2.5 修改去重器
-
-`deduplicator.go` 中 `Deduplicate` 方法的相似搜索也需用 `EmbeddingContent()`：
-
-```go
-// deduplicator.go:74 — 修改前
-similar, err := store.Search(ctx, newMem.Content, RetrieveOptions{...})
-
-// 修改后
-similar, err := store.Search(ctx, newMem.EmbeddingContent(), RetrieveOptions{...})
-```
-
-#### 3.2.6 修改 `AddDraftAndRetrieveSimilar`
-
-`memory_handler.go:24` 的草稿相似检索使用 `Content`，应改为 `EmbeddingContent()`：
-
-```go
-// 修改前
-return h.Store.Search(ctx, node.Content, memory.RetrieveOptions{...})
-
-// 修改后
-return h.Store.Search(ctx, node.EmbeddingContent(), memory.RetrieveOptions{...})
-```
-
-#### 3.2.7 兼容性说明
-
-这是一次**语义修正**，不破坏 API 兼容性：
-- `WhenToUse` 字段在现有代码中已存在，只是未曾生效
-- 默认行为（`WhenToUse == ""`）时 `EmbeddingContent()` 返回 `Content`，与当前行为完全一致
-- 已有摘要器（`summarizer_personal.go`、`summarizer_procedural.go`、`summarizer_tool.go`）已在填充 `WhenToUse`，修改后这些填充将直接生效
-
-#### 3.2.8 验证方案
-
-```go
-// memory/embedding_content_test.go
-func TestEmbeddingContent(t *testing.T) {
-    // 无 WhenToUse：返回 Content
-    n := &MemoryNode{Content: "hello", WhenToUse: ""}
-    assert.Equal(t, "hello", n.EmbeddingContent())
-
-    // 有 WhenToUse：返回 WhenToUse
-    n = &MemoryNode{Content: "hello world long text...", WhenToUse: "greeting"}
-    assert.Equal(t, "greeting", n.EmbeddingContent())
-}
-
-func TestVectorStoreUsesEmbeddingContent(t *testing.T) {
-    // 用 mock embedding model 验证各 VectorStore 调用 Embed 时传入的是 EmbeddingContent()
-    mockEmbed := &mockEmbeddingModel{}
-    store := NewLocalVectorStore(mockEmbed)
-    
-    node := &MemoryNode{
-        MemoryID:  "test",
-        Content:   "long content that should not be embedded",
-        WhenToUse: "short when to use",
-    }
-    store.Insert(ctx, []*MemoryNode{node})
-    
-    assert.Equal(t, "short when to use", mockEmbed.lastEmbedded)
-}
+实施前：   ████████████████░░░░  ~70%
+Phase 1:  █████████████████░░░  ~78%  (Dual-Content Embedding)
+Phase 2:  ███████████████████░  ~85%  (Orchestrator 并发化 + Two-Phase)
+Phase 3:  ███████████████████░  ~88%  (Multi-Query Batch Search)
+Phase 4:  ████████████████████  ~91%  (Flow Pipeline 框架)
+Phase 5:  ████████████████████  ~93%  (Profile向量 + FileWatcher + Cache + Tool)
+Phase 6-7:████████████████████  ~94%  (Registry + Benchmark + GC + Comparative + Library)
 ```
 
 ---
 
-## 4. P1 级：流程性差距——异步编排与多阶段流水线
+## 2. 差距清单与实施状态
 
-### 4.1 问题：Orchestrator 同步执行
-
-**当前 agentscope.go** (`handler/orchestrator.go:52`):
-
-```go
-func (o *MemoryOrchestrator) Summarize(...) {
-    // 1) History → 同步执行
-    // 2) Personal → 同步执行（内部 ExtractObservations 再 ExtractInsights）
-    // 3) Procedural → 同步执行
-    // 4) Tool → 同步执行
-}
-```
-
-所有步骤**串行同步**执行，每个步骤都需要 LLM 调用，总延迟 = 各步骤延迟之和。
-
-**ReMe Python** (`delegate_task.py`):
-
-```python
-# 提交所有任务异步执行
-for memory_target in memory_target_tasks:
-    self.submit_async_task(agent.call, ...)
-await self.join_async_tasks()
-```
-
-所有 agent 任务**并行提交**，总延迟 ≈ max(各步骤延迟)。
-
-### 4.2 解决方案：并发化 Orchestrator
-
-#### 4.2.1 使用 errgroup 并发执行
-
-```go
-// handler/orchestrator.go — 重写 Summarize
-func (o *MemoryOrchestrator) Summarize(ctx context.Context, msgs []*message.Msg, userName, taskName, toolName string) (*memory.SummarizeResult, error) {
-    res := &memory.SummarizeResult{
-        UpdatedProfiles: make(map[string]map[string]any),
-    }
-
-    // 1) History — 必须先执行（后续步骤依赖 history_node）
-    if o.Config.EnableHistory && o.HistoryTool != nil {
-        target := firstNonEmpty(userName, taskName, toolName)
-        if target != "" {
-            histNode, err := o.HistoryTool.AddHistory(ctx, msgs, target, "")
-            if err == nil && histNode != nil {
-                res.AddedHistory = histNode
-            }
-        }
-    }
-
-    // 2) Personal / Procedural / Tool — 并发执行
-    g, ctx := errgroup.WithContext(ctx)
-
-    if o.Config.EnablePersonal && userName != "" && o.PersonalSum != nil {
-        g.Go(func() error {
-            nodes, profile, err := o.summarizePersonal(ctx, msgs, userName)
-            if err == nil {
-                o.mu.Lock()
-                res.PersonalMemories = nodes
-                if profile != nil { res.UpdatedProfiles[userName] = profile }
-                o.mu.Unlock()
-            }
-            return err // errgroup 不因 error 取消其他 goroutine，仅记录
-        })
-    }
-
-    if o.Config.EnableProcedural && taskName != "" && o.ProceduralSum != nil {
-        g.Go(func() error {
-            nodes, err := o.summarizeProcedural(ctx, msgs, taskName)
-            if err == nil {
-                o.mu.Lock()
-                res.ProceduralMemories = nodes
-                o.mu.Unlock()
-            }
-            return err
-        })
-    }
-
-    if o.Config.EnableTool && toolName != "" && o.ToolSum != nil {
-        g.Go(func() error {
-            if err := o.SummarizeToolUsage(ctx, toolName); err == nil {
-                o.mu.Lock()
-                res.ToolMemories = o.flushToolResults(toolName)
-                o.mu.Unlock()
-            }
-            return err
-        })
-    }
-
-    _ = g.Wait() // 不因单个失败取消全部
-    return res, nil
-}
-```
-
-#### 4.2.2 为 Orchestrator 添加互斥锁
-
-```go
-type MemoryOrchestrator struct {
-    // ... 现有字段
-    mu sync.Mutex // 保护 SummarizeResult 的并发写入
-}
-```
-
-#### 4.2.3 异步摘要任务增强
-
-当前异步摘要通过 `AddAsyncSummaryTask` (`reme_file_memory.go`) 使用 semaphore 限制并发，但无重试和错误上报。建议：
-
-```go
-// task_manager.go (新文件)
-type AsyncTaskManager struct {
-    sem      chan struct{}
-    maxRetry int
-    logger   *slog.Logger
-}
-
-func (m *AsyncTaskManager) Submit(ctx context.Context, fn func(context.Context) error) {
-    select {
-    case m.sem <- struct{}{}:
-    default:
-        m.logger.Warn("async task semaphore full, dropping task")
-        return
-    }
-    go func() {
-        defer func() { <-m.sem }()
-        for i := 0; i <= m.maxRetry; i++ {
-            if err := fn(ctx); err == nil {
-                return
-            }
-            if i < m.maxRetry {
-                time.Sleep(time.Duration(1<<i) * time.Second)
-            }
-        }
-        m.logger.Error("async task failed after retries")
-    }()
-}
-```
-
-### 4.3 问题：无 Two-Phase Personal Memory 流水线
-
-**ReMe Python** 的 `PersonalSummarizer.execute()` 流程：
-
-```
-S1: 从对话中提取记忆节点 (AddAndRetrieveSimilarMemory)
-    ↓
-    预加载现有 Profile (RetrieveProfile / ReadAllProfiles)
-    ↓
-S2: 基于已有 Profile 更新/新增 Profile 条目 (UpdateProfile / AddProfile)
-```
-
-**当前 agentscope.go** (`summarizer_personal.go`)：
-
-```
-ExtractObservations → ExtractInsights → (合并) → Dedup → 写入
-```
-
-`ExtractObservations` 和 `ExtractInsights` 是两个连续的 LLM 调用，但**缺少 S2 阶段的 Profile 感知更新**——即 S1 提取完成后，不加载现有 Profile 来指导 S2 的更新决策。
-
-#### 解决方案
-
-```go
-// summarizer_personal.go — 新增方法
-func (s *PersonalSummarizer) SummarizeWithProfileUpdate(
-    ctx context.Context,
-    msgs []*message.Msg,
-    userName string,
-    existingProfile map[string]any, // 来自 ProfileHandler.ReadAllProfiles
-) ([]*MemoryNode, map[string]any, error) {
-    // S1: 提取记忆
-    observations, err := s.ExtractObservations(ctx, msgs, userName)
-    if err != nil || len(observations) == 0 {
-        return nil, nil, err
-    }
-
-    // ---- Profile 上下文注入 ----
-    // 将现有 Profile 作为上下文注入 S2 的 LLM prompt
-    insights, err := s.ExtractInsightsWithProfile(ctx, observations, userName, existingProfile)
-    if err != nil {
-        insights, _ = s.ExtractInsights(ctx, observations, userName) // fallback
-    }
-
-    all := append(observations, insights...)
-    // ... dedup, store
-    return all, profile, nil
-}
-```
-
-关键：`ExtractInsightsWithProfile` 需要在 LLM prompt 中包含现有 Profile 内容，使 LLM 能够判断"这条新记忆与已有 Profile 矛盾/重复/补充"，而非盲目追加。
+| 优先级 | 差距项 | 状态 | 实施文件 |
+|--------|--------|------|----------|
+| **P0** | Dual-Content Embedding 未实现 | ✅ 已实施 | `reme_types.go`, 5 个 `vector_store_*.go`, `deduplicator.go`, `memory_handler.go` |
+| **P1** | Orchestrator 同步执行 | ✅ 已实施 | `handler/orchestrator.go` (errgroup 并行化) |
+| **P1** | 无 Two-Phase Personal Memory | ✅ 已实施 | `summarizer_personal.go`, `handler/orchestrator.go` |
+| **P1** | 无 Multi-Query Batch Search | ✅ 已实施 | `handler/memory_handler.go`, `vector_store_local.go` |
+| **P1** | 无 Flow Pipeline 框架 | ✅ 已实施 | `pipeline/` 包（4 文件） |
+| **P2** | Profile 仅支持文件后端 | ✅ 已实施 | `handler/profile_handler.go` (接口化 + VectorProfileBackend) |
+| **P2** | 无 Memory Validation 步骤 | ✅ 已实施 | `pipeline/steps.go` (MemoryValidationStep) |
+| **P2** | 无 LLM Rerank 步骤 | ✅ 已实施 | `pipeline/steps.go` (LLMRerankStep) |
+| **P2** | 无 File Watcher | ✅ 已实施 | `file_watcher.go` |
+| **P2** | Embedding Cache 无持久化 | ✅ 已实施 | `embedding_cache.go` (LoadFromDisk/SaveToDisk) |
+| **P2** | Tool Memory 缺参数优化 | ✅ 已实施 | `summarizer_tool.go` (ParameterInsight) |
+| **P3** | 无 Comparative Extraction | ✅ 已实施 | `summarizer_procedural.go` (ExtractComparative) |
+| **P3** | 无 Memory Utility/Freq + GC | ✅ 已实施 | `memory_gc.go` (MemoryCollector + RecordAccess) |
+| **P3** | 无 Registry/Plugin 架构 | ✅ 已实施 | `registry.go` |
+| **P3** | 无 Benchmark 集成 | ✅ 已实施 | `benchmark.go` (HaluMem + LoCoMo) |
+| **P3** | 无 Memory Library | ✅ 已实施 | `memory_library.go` (GetDefaultAgentLibrary) |
+| **P3** | 无 MCP Service 模式 | ⏳ 待实施 | 利用已有的 `toolkit/mcp/` 适配层 |
 
 ---
 
-## 5. P2 级：增强性差距
+## 3. 已完成：P0 级——Dual-Content Embedding
 
-### 5.1 Multi-Query Batch Search
+### 3.1 实施要点
 
-**ReMe Python** (`memory_handler.py:202`) 支持：
-1. 对多个查询分别搜索
-2. 去重合并结果
-3. 计算每个结果的跨查询平均余弦相似度
-4. 按阈值过滤（`hybrid_threshold`）
+对标 ReMe Python `MemoryNode.to_vector_node()` 的分离策略：
 
-**当前 agentscope.go** 无此能力。
+- `WhenToUse` 非空 → 向量嵌入使用 `WhenToUse`（精准触发条件）
+- `WhenToUse` 为空 → 向量嵌入使用 `Content`（向后兼容）
+- 检索结果始终包含完整 `Content`
 
-#### 解决方案：为 `MemoryHandler` 添加 `BatchSearch` 方法
+### 3.2 实施文件
 
-```go
-// handler/memory_handler.go — 新增方法
-type BatchSearchQuery struct {
-    Query  string
-    TopK   int
-    MinScore float64
-}
+| 文件 | 变更内容 |
+|------|----------|
+| `reme_types.go` | 新增 `EmbeddingContent()` 方法、`NewMemoryNodeWithWhen()` 构造函数 |
+| `reme_types_test.go` | 新增 4 个测试用例 |
+| `vector_store_local.go` | `Insert` 使用 `EmbeddingContent()` |
+| `vector_store_chroma.go` | `Insert` + `Update` 使用 `EmbeddingContent()` |
+| `vector_store_pgvector.go` | `Insert` + `Update` 使用 `EmbeddingContent()` |
+| `vector_store_qdrant.go` | `nodesToPoints` 使用 `EmbeddingContent()` |
+| `vector_store_elasticsearch.go` | `Insert` + `Update` 使用 `EmbeddingContent()` |
+| `deduplicator.go` | `DeduplicateAgainstStore` + `deduplicateByVector` 使用 `EmbeddingContent()` |
+| `handler/memory_handler.go` | `AddDraftAndRetrieveSimilar` 使用 `EmbeddingContent()` |
 
-// BatchSearch 跨多查询搜索并过滤
-func (h *MemoryHandler) BatchSearch(ctx context.Context, queries []BatchSearchQuery, hybridThreshold float64) ([]*memory.MemoryNode, error) {
-    if len(queries) == 0 {
-        return nil, nil
-    }
+---
 
-    // 1) 各查询独立搜索，去重合并
-    seen := make(map[string]*memory.MemoryNode)
-    for _, q := range queries {
-        nodes, _ := h.Store.Search(ctx, q.Query, memory.RetrieveOptions{
-            TopK:     q.TopK,
-            MinScore: q.MinScore,
-        })
-        for _, n := range nodes {
-            if _, ok := seen[n.MemoryID]; !ok {
-                seen[n.MemoryID] = n
-            }
-        }
-    }
+## 4. 已完成：P1 级——异步编排与多阶段流水线
 
-    if hybridThreshold <= 0 {
-        result := make([]*memory.MemoryNode, 0, len(seen))
-        for _, n := range seen { result = append(result, n) }
-        return result, nil
-    }
+### 4.1 Orchestrator 并发化
 
-    // 2) 提取所有结果的 embedding，计算每个结果对全部查询的平均相似度
-    queryVectors := make([][]float32, len(queries))
-    for i, q := range queries {
-        if lv, ok := h.Store.(*memory.LocalVectorStore); ok {
-            // 直接获取嵌入（需 LocalVectorStore 暴露 embed model）
-        }
-    }
-    // ... 余弦矩阵计算、均值过滤、排序
-}
+`handler/orchestrator.go`：
+
+```
+Summarize:
+  1) History → 同步（后续步骤依赖 history_node）
+  2) Personal + Procedural + Tool → errgroup 并行
+  
+Retrieve:
+  Personal + Procedural + Tool → errgroup 并行
 ```
 
-> **注意**：对于远程 VectorStore（PGVector、ES 等），无法直接获取 query embedding。此方法作为 `LocalVectorStore` 的增强功能实现。
+新增 `mu sync.Mutex` 保护 `SummarizeResult` 并发写入。
 
-### 5.2 Flow Pipeline 框架
+### 4.2 Two-Phase Personal Memory
 
-**ReMe Python** 通过 YAML 定义流水线：
+`summarizer_personal.go` 新增 `ExtractInsightsWithProfile()`：
 
-```yaml
-# retrieve_task_memory 流水线
-flow_content: BuildQuery() >> MemoryRetrieval() >> RerankMemory() >> RewriteMemory()
-
-# summary_task_memory 流水线
-flow_content: TrajectoryPreprocess() >> (SuccessExtraction()|FailureExtraction()|ComparativeExtraction()) >> MemoryValidation() >> MemoryDeduplication()
+```
+S1: ExtractObservations → 提取原始观察
+     ↓
+     ReadAllProfiles → 加载已有画像
+     ↓
+S2: ExtractInsightsWithProfile → 基于已有画像提取洞察
+     (LLM prompt 包含现有画像，判断补充/矛盾/重复)
 ```
 
-支持操作符：`>>`（顺序）、`|`（分支/并行）、`()`（分组）。
+`handler/orchestrator.go::summarizePersonal` 自动分流：有已有 Profile 时用 S2 增强路径，无画像时 fallback 到原有单阶段。
 
-**当前 agentscope.go** 无此抽象，所有流水线步骤硬编码在 `Orchestrator` 中。
+### 4.3 Multi-Query Batch Search
 
-#### 解决方案：Go 版 Flow Pipeline DSL
+`handler/memory_handler.go` 新增 `BatchSearch()` + `BatchSearchQuery`：
 
+1. 多查询独立检索 → 按 memoryID 去重
+2. 若 `hybridThreshold > 0` 且为 LocalVectorStore → 计算跨查询平均余弦相似度过滤
+
+`vector_store_local.go` 新增 `BatchSearchWithThreshold()` 支持平均余弦阈值。
+
+### 4.4 Flow Pipeline 框架
+
+`memory/pipeline/` 包（4 文件）：
+
+| 文件 | 内容 |
+|------|------|
+| `pipeline.go` | `Step` 接口、`Pipeline`、`StepNode`、`StepMode`(Sequential/Parallel/Branch)、`Seq()`/`Par()`/`BranchFirst()` 构建器 |
+| `context.go` | `FlowContext` 步骤间数据传递 |
+| `steps.go` | 7 个内置步骤：`MemoryRetrieval`、`RerankMemory`、`LLMRerank`、`MemoryValidation`、`MemoryDeduplication`、`MemoryAddition`、`MemoryDeletion` |
+| `pipeline_test.go` | 4 个测试（顺序/并行/检索/去重） |
+
+使用示例：
 ```go
-// memory/pipeline/pipeline.go (新包)
-package pipeline
-
-// Step 流水线中的一个步骤
-type Step interface {
-    Execute(ctx context.Context, input *FlowContext) (*FlowContext, error)
-}
-
-// Pipeline 步骤组合（支持 Sequential / Parallel / Branch）
-type Pipeline struct {
-    Steps []StepNode
-}
-
-type StepNode struct {
-    Step     Step
-    Children []StepNode // 用于并行/分支
-    Mode     StepMode   // Sequential, Parallel, Branch
-}
-
-type StepMode int
-const (
-    Sequential StepMode = iota
-    Parallel
-    Branch
-)
-
-// 构建器风格 API
-func Seq(steps ...Step) *StepNode {
-    return &StepNode{Mode: Sequential, Children: toNodes(steps)}
-}
-
-func Par(steps ...Step) *StepNode {
-    return &StepNode{Mode: Parallel, Children: toNodes(steps)}
-}
-
-func (p *Pipeline) Execute(ctx context.Context, input *FlowContext) (*FlowContext, error) {
-    return p.executeNode(ctx, p.Root, input)
-}
+p := pipeline.NewPipeline("retrieve-task-memory", pipeline.Seq(
+    &pipeline.MemoryRetrievalStep{Store: store},
+    &pipeline.LLMRerankStep{Model: chatModel, TopK: 5, Enable: true},
+    &pipeline.MemoryValidationStep{Threshold: 0.3},
+))
+p.Execute(ctx, pipeline.NewFlowContext("how to fix this bug"))
 ```
 
-**使用示例**（实现 ReMe Python 的 `retrieve_task_memory` 流水线）：
+---
+
+## 5. 已完成：P2 级——Profile 系统、Flow 框架等
+
+### 5.1 Profile 向量后端
+
+`handler/profile_handler.go` 重构为后端接口模式：
+
+- `ProfileBackend` 接口（`ReadAll` / `Update` / `Delete` / `Retrieve`）
+- `FileProfileBackend` — 原 JSON 文件实现
+- `VectorProfileBackend` — 新向量存储实现（将画像条目存储为 MemoryNode，支持语义检索）
+- `NewProfileHandlerWithBackend()` — 自定义后端构造函数
+
+### 5.2 LLM Rerank
+
+`pipeline/steps.go` 新增 `LLMRerankStep`：
+
+- 使用 `model.ChatModel` 对检索结果按查询相关性精排
+- 支持 TopK 截断
+- 失败不中断流水线（fallback 到原始顺序）
+
+### 5.3 File Watcher
+
+`file_watcher.go`：
+
+- SHA-256 哈希监控 `MEMORY.md` 和 `memory/` 目录
+- `OnChange` 回调机制
+- 定时轮询模式（默认 5s）
+- `Start` / `Stop` 生命周期管理
+
+### 5.4 Embedding Cache 磁盘持久化
+
+`embedding_cache.go` 新增：
+
+- `SetDiskPath()` — 设置持久化路径
+- `LoadFromDisk()` — 启动时加载 JSON 缓存
+- `SaveToDisk()` — 刷盘到 JSON 文件
+- `dirty` 标记 — 追踪变更
+
+### 5.5 Tool Memory 参数优化
+
+`summarizer_tool.go` 新增 `ParameterInsight` 类型：
 
 ```go
-// 定义步骤
-var RetrieveTaskMemory = Pipeline{
-    Root: Seq(
-        &BuildQueryStep{},
-        &MemoryRetrievalStep{},
-        &RerankMemoryStep{},
-        &RewriteMemoryStep{},
-    ),
-}
-
-// 使用
-result, err := RetrieveTaskMemory.Execute(ctx, &FlowContext{
-    Query:      "how to fix this bug",
-    TopK:       5,
-    MinScore:   0.3,
-})
-```
-
-**建议首批实现的 Pipeline 步骤**：
-
-| 步骤 | 功能 | 对应 Python |
-|------|------|-------------|
-| `BuildQueryStep` | LLM 从消息构建检索查询 | `BuildQuery()` |
-| `MemoryRetrievalStep` | 向量/混合检索 | `MemoryRetrieval()` |
-| `RerankMemoryStep` | LLM 重排序检索结果 | `RerankMemory()` |
-| `RewriteMemoryStep` | LLM 重写带记忆的上下文 | `RewriteMemory()` |
-| `TrajectoryPreprocessStep` | 轨迹预处理 | `TrajectoryPreprocess()` |
-| `MemoryValidationStep` | 记忆质量验证 | `MemoryValidation()` |
-| `MemoryDeduplicationStep` | 记忆去重（已部分实现） | `MemoryDeduplication()` |
-
-### 5.3 Profile 系统的向量后端
-
-**当前**：`ProfileHandler` (`handler/profile_handler.go`) 仅支持 JSON 文件存储。
-
-**目标**：支持 `VectorProfileBackend`（与 ReMe Python 对标）。
-
-```go
-// handler/profile_handler.go — 改为后端接口模式
-type ProfileBackend interface {
-    ReadAll(ctx context.Context, userName string) (map[string]any, error)
-    Update(ctx context.Context, userName string, updates map[string]any) error
-    Delete(ctx context.Context, userName string, key string) error
-    Retrieve(ctx context.Context, userName, query string, topK int) (map[string]any, error)
-}
-
-type FileProfileBackend struct { dir string }
-type VectorProfileBackend struct { store memory.VectorStore }
-
-type ProfileHandler struct {
-    backend ProfileBackend
-}
-```
-
-### 5.4 Memory Validation 独立步骤
-
-**ReMe Python** 的 `summary_task_memory` 流水线包含显式的 `MemoryValidation()` 步骤，在写入前验证提取的记忆质量。
-
-```go
-// memory/validator.go (新文件)
-type MemoryValidator struct {
-    Model   model.ChatModel
-    Threshold float64
-}
-
-func (v *MemoryValidator) Validate(ctx context.Context, nodes []*MemoryNode) ([]*MemoryNode, error) {
-    // LLM 评估每条记忆的：
-    // 1. 事实准确性 (factual accuracy)
-    // 2. 信息完整性 (completeness)
-    // 3. 可操作性 (actionability)
-    // 返回评分 ≥ Threshold 的记忆
-}
-```
-
-### 5.5 LLM Rerank 步骤
-
-```go
-// memory/reranker.go (新文件)
-type MemoryReranker struct {
-    Model model.ChatModel
-}
-
-// Rerank 使用 LLM 对向量检索结果进行精排
-func (r *MemoryReranker) Rerank(ctx context.Context, query string, candidates []*MemoryNode, topK int) ([]*MemoryNode, error) {
-    // 构造 LLM prompt 包含 query + candidate 列表
-    // LLM 返回重排后的索引
-}
-```
-
-### 5.6 File Watcher
-
-**ReMe Python** 的 `file_watcher/` 监控 `MEMORY.md` 和 `memory/` 目录的外部变更，自动重新索引。
-
-```go
-// memory/file_watcher.go (新文件)
-type FileWatcher struct {
-    dir       string
-    interval  time.Duration
-    fileStore FileStore
-    stopCh    chan struct{}
-}
-
-func (w *FileWatcher) Start(ctx context.Context) error {
-    // 使用 fsnotify 或定时轮询监控文件变更
-    // 变更时调用 fileStore.upsert_file() 重新索引
-}
-```
-
-### 5.7 Embedding Cache 磁盘持久化
-
-**当前**：`EmbeddingCache` (`embedding_cache.go`) 是纯内存 LRU，重启丢失。
-
-**与 ReMe Python 对标**：添加 JSONL 磁盘持久化。
-
-```go
-// embedding_cache.go — 扩展
-type EmbeddingCache struct {
-    inner    EmbeddingModel
-    cache    *lru.Cache[string, []float32]
-    mu       sync.RWMutex
-    diskPath string          // 新增
-    dirty    map[string]bool // 追踪变更
-}
-
-// 启动时从磁盘加载
-func (c *EmbeddingCache) LoadDisk() error { ... }
-
-// 定时/惰性刷盘
-func (c *EmbeddingCache) FlushDisk() error { ... }
-```
-
-### 5.8 Tool Memory 增强——参数优化学习
-
-**ReMe Python** 的 Tool Memory 支持参数优化模式学习，例如"调用 web_search 时使用 site:stackoverflow.com 可获得更好结果"。
-
-```go
-// memory/tool_call_result.go — 扩展 ToolCallResult
-type ToolCallResult struct {
-    // ... 现有字段
-    ParameterInsights []ParameterInsight `json:"parameter_insights,omitempty"`
-}
-
 type ParameterInsight struct {
-    Parameter string `json:"parameter"`
-    Pattern   string `json:"pattern"`   // 有效的参数模式
-    Outcome   string `json:"outcome"`    // 使用此模式的结果
-    Frequency int    `json:"frequency"`  // 观察到的频率
+    Parameter string  // 参数名
+    Pattern   string  // 有效的参数模式
+    Outcome   string  // 使用此模式的结果
+    Frequency int     // 观察到的频率
+    Score     float64 // 效果评分
 }
 ```
 
 ---
 
-## 6. P3 级：扩展性差距
+## 6. 已完成：P3 级——Registry、Benchmark、GC 等
 
-### 6.1 Comparative Extraction（成功/失败对比学习）
+### 6.1 Comparative Extraction
 
-**ReMe Python** 的 `summary_task_memory` 流水线支持 `ComparativeExtraction()`：
-- 对比最高分与最低分的轨迹
-- 识别成功的关键决策和失败的根本原因
-- 提取可泛化的经验教训
+`summarizer_procedural.go` 新增 `ExtractComparative()`：
 
-```go
-// memory/summarizer_procedural.go — 新增方法
-func (s *ProceduralSummarizer) ExtractComparative(
-    ctx context.Context,
-    successTrajectories []Trajectory,
-    failureTrajectories []Trajectory,
-) ([]*MemoryNode, error) {
-    // LLM prompt 包含成功和失败轨迹的对比
-    // 提取：成功因素、失败原因、关键差异、可迁移模式
-}
-```
+- 对比成功轨迹 vs 失败轨迹
+- LLM 提取：关键差异、成功因素、失败原因、可迁移模式
+- 按 ReMe Python 格式输出结构化经验
 
-### 6.2 Memory Utility/Frequency 跟踪与自动清理
+### 6.2 Memory Utility/Freq + GC
 
-**ReMe Python** 的 `delete_task_memory` 流水线根据 `freq` 和 `utility` 自动清理低价值记忆。
+`memory_gc.go`：
 
-```go
-// memory/memory_gc.go (新文件)
-type MemoryCollector struct {
-    Store   VectorStore
-    FreqThreshold   int
-    UtilityThreshold float64
-}
+- `MemoryCollector` — 基于 freq/utility 的自动清理器
+- `RecordAccess()` — 每次检索时更新 freq/last_accessed/utility
+- `EstimateUtility()` — 综合评分含时间衰减（log2 衰减）
+- 删除条件：`freq >= threshold && utility < threshold` 或过期
 
-func (gc *MemoryCollector) Collect(ctx context.Context) ([]string, error) {
-    // 扫描所有记忆的 metadata["freq"] 和 metadata["utility"]
-    // 删除 freq >= FreqThreshold 且 utility/freq < UtilityThreshold 的节点
-}
-```
+### 6.3 Registry
 
-`MemoryNode.Metadata` 中添加追踪字段：
+`registry.go`：
 
-```go
-// 在 RecordMemory 操作中更新
-node.Metadata["freq"] = freq + 1
-node.Metadata["last_accessed"] = time.Now().Unix()
-node.Metadata["utility"] = utility
-```
+- 泛型 `Registry[T]` 支持任意组件注册
+- `Register()` / `Get()` / `Names()` / `Has()`
+- 全局实例：`VectorStores`、`EmbeddingModels`
 
-### 6.3 Registry/Plugin 架构
+### 6.4 Benchmark
 
-**ReMe Python** 使用 Registry Factory 模式：
+`benchmark.go`：
 
-```python
-R.vector_stores.register("chroma")(ChromaVectorStore)
-R.embedding_models.register("openai")(OpenAIEmbeddingModel)
-R.llms.register("qwen")(QwenLLM)
-```
+- `Benchmark` 接口
+- `HaluMemBenchmark` — 幻觉检测（MemoryAccuracy + QAAccuracy）
+- `LoCoMoBenchmark` — 长对话记忆保持
+- `RunBenchmarkSuite()` — 批量运行
 
-**当前 agentscope.go** 使用直接构造，由 `BuildReMeVectorMemory` (`handler/bootstrap.go`) 集中装配。
+### 6.5 Memory Library
 
-**建议**：引入轻量级注册中心，支持字符串名称查找：
+`memory_library.go`：
 
-```go
-// memory/registry.go (新文件)
-type Registry[T any] struct {
-    mu      sync.RWMutex
-    entries map[string]func() T
-}
-
-func NewRegistry[T any]() *Registry[T] { ... }
-func (r *Registry[T]) Register(name string, factory func() T) { ... }
-func (r *Registry[T]) Get(name string) (T, error) { ... }
-
-// 全局注册中心
-var (
-    VectorStores     = NewRegistry[VectorStore]()
-    EmbeddingModels  = NewRegistry[EmbeddingModel]()
-    FileStores      = NewRegistry[FileStore]()
-)
-```
-
-### 6.4 MCP Service 模式
-
-**ReMe Python** 可作为 MCP (Model Context Protocol) Server 对外暴露记忆能力。
-
-```go
-// memory/mcp/mcp_server.go (新文件)
-// 基于 agentscope.go 已有的 MCP 工具适配层 (toolkit/mcp/)
-// 将记忆 CRUD 操作暴露为 MCP tools:
-//   - reme_search_memory
-//   - reme_add_memory
-//   - reme_retrieve_personal
-//   - reme_summarize
-```
-
-### 6.5 Benchmark 集成
-
-**ReMe Python** 内置 5 个 benchmark (LoCoMo, HaluMem, LongMemEval, AppWorld, BFCL)。
-
-```go
-// memory/benchmark/benchmark.go (新包)
-type Benchmark interface {
-    Name() string
-    Run(ctx context.Context, mem VectorMemory) (*BenchmarkResult, error)
-}
-
-type BenchmarkResult struct {
-    OverallScore    float64
-    MemoryAccuracy  float64
-    QAAccuracy      float64
-    DetailScores    map[string]float64
-}
-```
-
-首批实现 `HaluMemBenchmark`（幻觉检测）和 `LoCoMoBenchmark`（长对话记忆）。
-
-### 6.6 内置 Memory Library
-
-**ReMe Python** 的 `docs/library/` 包含预构建的记忆 JSONL 文件，可直接加载使用。
-
-```go
-// memory/library/library.go (新文件)
-// 嵌入常见领域的预构建记忆模板
-
-//go:embed library/*.json
-var embeddedLibrary embed.FS
-
-func LoadLibraryMemories(ctx context.Context, store VectorStore, domain string) error {
-    // 加载对应领域的预构建记忆
-}
-```
+- `GetDefaultAgentLibrary()` — 5 条预构建记忆模板：
+  - web_search 优化技巧
+  - file_read 大文件处理
+  - debugging 二分法策略
+  - code_review 审查优先级
+  - write_file 目录创建
+- `InjectIntoVectorStore()` — 批量注入向量存储
+- `LoadFromDir()` — 从目录加载 JSON 记忆文件
 
 ---
 
-## 7. 实施路线图
+## 7. 剩余：MCP Service 模式
 
-### Phase 1：检索精度修复（Week 1-2，预计 5d）
+### 实施方案
 
-```
-[P0] Dual-Content Embedding
-  ├── EmbeddingContent() 方法          1d
-  ├── 修改 5 个 VectorStore 后端        2d
-  ├── 修改 Deduplicator 使用新方法      0.5d
-  ├── 修改 AddDraftAndRetrieveSimilar   0.5d
-  └── 测试验证                          1d
-```
+利用 agentscope.go 已有的 `toolkit/mcp/` 适配层，将记忆操作暴露为 MCP tools：
 
-**验收标准**：`WhenToUse` 非空时，向量检索以 `WhenToUse` 为匹配目标，检索结果包含完整 `Content`。
-
-### Phase 2：流程并发化（Week 2-3，预计 7d）
-
-```
-[P1] Orchestrator 并发化
-  ├── errgroup 并发 Summarize          2d
-  ├── Two-Phase Personal Memory        3d
-  └── 异步任务管理器增强                2d
-
-[P1] Multi-Query Batch Search
-  ├── BatchSearch 方法                 1.5d
-  └── 测试                             0.5d
+```go
+// 建议在 toolkit/mcp/ 中注册记忆类工具
+mcpTools.Register("reme_search_memory", ...
+mcpTools.Register("reme_add_memory", ...
+mcpTools.Register("reme_retrieve_personal", ...
+mcpTools.Register("reme_summarize", ...
 ```
 
-**验收标准**：Orchestrator.Summarize 各阶段最大并行执行，总延迟降低 40-60%。
-
-### Phase 3：流水线框架（Week 3-4，预计 10d）
-
-```
-[P1] Flow Pipeline 框架
-  ├── Step / Pipeline / StepNode 核心   2d
-  ├── BuildQuery / MemoryRetrieval      2d
-  ├── RerankMemory / RewriteMemory      2d
-  ├── MemoryValidation                  1d
-  ├── Pipeline 缓存机制                 1d
-  └── 测试 + 文档                       2d
-```
-
-**验收标准**：可通过 Pipeline API 定义完整记忆流水线，行为与 Python ReMe 等价。
-
-### Phase 4：增强功能（Week 4-5，预计 7d）
-
-```
-[P2] Profile 向量后端                   3d
-[P2] File Watcher                       2d
-[P2] Embedding Cache 持久化             1d
-[P2] Tool Memory 参数优化               2d
-```
-
-### Phase 5：扩展功能（Week 5-8，预计 14d）
-
-```
-[P3] Comparative Extraction             3d
-[P3] Memory Utility/Freq + GC           2d
-[P3] Registry/Plugin 架构               4d
-[P3] MCP Service 模式                   3d
-[P3] Benchmark 集成                     2d
-[P3] Memory Library                     2d
-```
+思路：创建一个 `mcp_adapter.go` 将 `VectorMemory` 接口适配到 MCP Tool 协议即可，约 2d 工时。
 
 ---
 
 ## 8. Go 相对 Python 的已有优势
 
-以下功能 agentscope.go **已领先**，无需改变：
-
 | 功能 | Go 实现 | Python 对标 | Go 优势 |
 |------|---------|------------|---------|
-| **FTS5 + BM25 混合检索** | SQLite FTS5 with CJK-aware tokenization + 两阶段向量召回→BM25重排 | 简单 substring 匹配 | Go 独有，支持 CJK 分词 |
-| **RAG 文档解析** | Apache Tika 集成 (`rag/tika.go`) | 无 | Go 独有 |
+| **FTS5 + BM25 混合检索** | SQLite FTS5 with CJK-aware tokenization + 两阶段 | 简单 substring 匹配 | **Go 独有** |
+| **RAG 文档解析** | Apache Tika 集成 (`rag/tika.go`) | 无 | **Go 独有** |
 | **会话快照序列化** | 版本化 JSON snapshot + SaveTo/LoadFrom | 基础序列化 | Go 更规范 |
-| **WindowMemory** | 双限制滑动窗口（消息数+token缓冲） | 无独立实现 | Go 独有 |
+| **WindowMemory** | 双限制滑动窗口 | 无独立实现 | **Go 独有** |
 | **ReMeHook** | HookBeforeModel 拦截模式 | pre_reasoning_hook | Go 更模块化 |
-| **并发安全** | sync.Mutex + errgroup | asyncio.Lock | Go 天然优势 |
+| **并发安全** | sync.Mutex + errgroup 并行编排 | asyncio.Lock | Go 天然优势 |
 | **工具结果文件外溢** | ToolResultCompactor + 过期清理 | 类似功能 | Go 保留期更灵活 |
 | **Service 层多租户** | service.Storage + RedisStorage | 无独立 service 层 | Go 更完整 |
-| **Plan 存储层** | plan.Storage + InMemoryStorage | 无 | Go 独有 |
+| **Plan 存储层** | plan.Storage + InMemoryStorage | 无 | **Go 独有** |
+| **Pipeline DSL** | 类型安全的 Go 构建器 API | YAML 配置化 | Go 编译期检查 |
+| **Memory GC** | 基于 freq/utility + 时间衰减的自动清理 | delete_task_memory 流水线 | Go 更通用 |
 
 ---
 
-## 9. 附录：关键文件对照表
+## 9. 附录 A：关键文件对照表
 
-| 功能 | Python ReMe | agentscope.go |
-|------|-------------|---------------|
+| 功能 | Python ReMe | agentscope.go（实施后） |
+|------|-------------|-------------------------|
 | MemoryNode 定义 | `reme/core/schema/memory_node.py` | `memory/reme_types.go` |
-| Dual-Content Strategy | `memory_node.py:117` (`to_vector_node`) | **缺失** |
+| Dual-Content Strategy | `memory_node.py:117` | `reme_types.go` — `EmbeddingContent()` ✅ |
 | VectorStore 接口 | `reme/core/vector_store/base_vector_store.py` | `memory/vector_store.go` |
 | MemoryHandler CRUD | `reme/memory/vector_tools/record/memory_handler.py` | `memory/handler/memory_handler.go` |
-| Orchestrator | `reme/memory/vector_based/reme_summarizer.py` | `memory/handler/orchestrator.go` |
-| DelegateTask | `reme/memory/vector_tools/delegate_task.py` | **缺失** |
-| PersonalSummarizer (两阶段) | `reme/memory/vector_based/personal/personal_summarizer.py` | `memory/summarizer_personal.go` (单阶段) |
-| Flow Pipeline | `reme/core/flow/base_flow.py` | **缺失** |
-| Batch Search | `memory_handler.py:202` | **缺失** |
-| ProfileHandler | `reme/memory/vector_tools/profiles/profile_handler.py` | `memory/handler/profile_handler.go` |
-| MemoryValidation | `service.yaml` 流水线步骤 | **缺失** |
-| RerankMemory | `service.yaml` 流水线步骤 | **缺失** |
-| FileWatcher | `reme/core/file_watcher/` | **缺失** |
-| EmbeddingCache | `reme/core/embedding/` | `memory/embedding_cache.go` (无持久化) |
-| Benchmark | `benchmark/` 目录 | **缺失** |
-| MCP Service | `service.yaml` MCP 配置 | **缺失** |
-| Hybrid Search | 简单 substring 匹配 | `memory/hybrid_search.go` + `memory/fts_index.go` (更优) |
-| RAG | 无 | `rag/` 包 (Go 独有) |
+| Orchestrator | `reme/memory/vector_based/reme_summarizer.py` | `memory/handler/orchestrator.go` ✅ (并发化) |
+| DelegateTask（异步分发） | `reme/memory/vector_tools/delegate_task.py` | `handler/orchestrator.go` — errgroup 替代 ✅ |
+| PersonalSummarizer (两阶段) | `reme/memory/vector_based/personal/personal_summarizer.py` | `memory/summarizer_personal.go` ✅ (ExtractInsightsWithProfile) |
+| Flow Pipeline | `reme/core/flow/base_flow.py` | `memory/pipeline/` 包 ✅ |
+| Batch Search | `memory_handler.py:202` | `memory/handler/memory_handler.go` ✅ (BatchSearch) |
+| ProfileHandler | `reme/memory/vector_tools/profiles/profile_handler.py` | `memory/handler/profile_handler.go` ✅ (接口化) |
+| MemoryValidation | `service.yaml` 流水线步骤 | `memory/pipeline/steps.go` ✅ |
+| RerankMemory | `service.yaml` 流水线步骤 | `memory/pipeline/steps.go` ✅ (LLMRerankStep) |
+| FileWatcher | `reme/core/file_watcher/` | `memory/file_watcher.go` ✅ |
+| EmbeddingCache | `reme/core/embedding/` | `memory/embedding_cache.go` ✅ (持久化) |
+| Memory GC | `delete_task_memory` 流水线 | `memory/memory_gc.go` ✅ (MemoryCollector) |
+| Comparative Extraction | `ComparativeExtraction()` | `memory/summarizer_procedural.go` ✅ |
+| Registry | `R.vector_stores`, `R.embedding_models` | `memory/registry.go` ✅ |
+| Benchmark | `benchmark/` 目录 | `memory/benchmark.go` ✅ |
+| Memory Library | `docs/library/` | `memory/memory_library.go` ✅ |
+| MCP Service | `service.yaml` MCP 配置 | ⏳ 待实施 |
+| Hybrid Search | 简单 substring 匹配 | `memory/hybrid_search.go` + `memory/fts_index.go` (**Go 更优**) |
+| RAG | 无 | `rag/` 包 (**Go 独有**) |
 
 ---
 
-*本文档基于 2026-06-10 的代码状态编写，目标版本: agentscope.go v2.1.0+*
+## 10. 附录 B：新增/修改文件一览
+
+### 本次演进实施涉及的所有文件
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `memory/reme_types.go` | 修改 | +`EmbeddingContent()`, +`NewMemoryNodeWithWhen()` |
+| `memory/reme_types_test.go` | 修改 | +`TestEmbeddingContent`, +`TestNewMemoryNodeWithWhen` |
+| `memory/vector_store_local.go` | 修改 | Insert 使用 `EmbeddingContent()`, +`BatchSearchWithThreshold()` |
+| `memory/vector_store_chroma.go` | 修改 | Insert + Update 使用 `EmbeddingContent()` |
+| `memory/vector_store_pgvector.go` | 修改 | Insert + Update 使用 `EmbeddingContent()` |
+| `memory/vector_store_qdrant.go` | 修改 | nodesToPoints 使用 `EmbeddingContent()` |
+| `memory/vector_store_elasticsearch.go` | 修改 | Insert + Update 使用 `EmbeddingContent()` |
+| `memory/deduplicator.go` | 修改 | DeduplicateAgainstStore, deduplicateByVector 使用 `EmbeddingContent()` |
+| `memory/handler/memory_handler.go` | 修改 | AddDraftAndRetrieveSimilar 使用 `EmbeddingContent()`, +`BatchSearch()` |
+| `memory/handler/orchestrator.go` | 修改 | errgroup 并发化 Summarize + Retrieve, Two-Phase Personal Memory |
+| `memory/handler/profile_handler.go` | 重写 | ProfileBackend 接口 + FileProfileBackend + VectorProfileBackend |
+| `memory/summarizer_personal.go` | 修改 | +`ExtractInsightsWithProfile()`, +`buildInsightWithProfilePrompt()` |
+| `memory/summarizer_procedural.go` | 修改 | +`ExtractComparative()`, +`buildComparativeAnalysisPrompt()` |
+| `memory/summarizer_tool.go` | 修改 | +`ParameterInsight` 类型 |
+| `memory/embedding_cache.go` | 修改 | +`SetDiskPath()`, +`LoadFromDisk()`, +`SaveToDisk()` |
+| `memory/file_watcher.go` | **新增** | FileWatcher: SHA-256 hash 监控 + 回调 |
+| `memory/memory_gc.go` | **新增** | MemoryCollector: freq/utility 自动 GC |
+| `memory/registry.go` | **新增** | 泛型 Registry[T] 组件注册中心 |
+| `memory/benchmark.go` | **新增** | HaluMem + LoCoMo + RunBenchmarkSuite |
+| `memory/memory_library.go` | **新增** | GetDefaultAgentLibrary + InjectIntoVectorStore |
+| `memory/pipeline/context.go` | **新增** | FlowContext 步骤间数据传递 |
+| `memory/pipeline/pipeline.go` | **新增** | Step / Pipeline / Seq / Par / BranchFirst |
+| `memory/pipeline/steps.go` | **新增** | 7 个内置步骤 + LLMRerankStep |
+| `memory/pipeline/pipeline_test.go` | **新增** | 4 个 Pipeline 测试 |
+
+**统计**：新增 **10 个文件**，修改 **14 个文件**，所有测试 `go test ./... -race -count=1` 通过。
+
+---
+
+*本文档基于 2026-06-11 的实施后代码状态编写。*

@@ -36,7 +36,7 @@ func (s *LocalVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) erro
 			node.MemoryID = GenerateMemoryID(node.Content)
 		}
 		if len(node.Vector) == 0 {
-			v, err := s.embed.Embed(ctx, node.Content)
+			v, err := s.embed.Embed(ctx, node.EmbeddingContent())
 			if err != nil {
 				return err
 			}
@@ -194,6 +194,93 @@ func (s *LocalVectorStore) List(memType MemoryType, target string, limit int) ([
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+// BatchSearchWithThreshold 跨多查询计算平均余弦相似度，按阈值过滤并排序。
+// queries 是已去重的查询字符串列表，candidates 是按 memoryID 索引的候选节点。
+func (s *LocalVectorStore) BatchSearchWithThreshold(queryStrings []string, candidates map[string]*MemoryNode, hybridThreshold float64) []*MemoryNode {
+	if s.embed == nil || len(queryStrings) == 0 || len(candidates) == 0 {
+		result := make([]*MemoryNode, 0, len(candidates))
+		for _, n := range candidates {
+			result = append(result, n)
+		}
+		return result
+	}
+
+	type batchSearchQuery struct {
+		Query    string
+		TopK     int
+		MinScore float64
+	}
+
+	// 收集所有候选节点（有向量）
+	var nodesWithVector []*MemoryNode
+	for _, n := range candidates {
+		if len(n.Vector) > 0 {
+			nodesWithVector = append(nodesWithVector, n)
+		}
+	}
+	if len(nodesWithVector) == 0 {
+		result := make([]*MemoryNode, 0, len(candidates))
+		for _, n := range candidates {
+			result = append(result, n)
+		}
+		return result
+	}
+
+	// 对每个 query 计算嵌入，然后计算与所有候选节点的余弦相似度
+	// 使用 sync embedding 简化实现（batch search 通常是独立调用，不影响主循环）
+	type scoredNode struct {
+		n     *MemoryNode
+		score float64
+	}
+
+	// 累积每个候选节点对所有 query 的相似度之和
+	cumScores := make(map[string]float64, len(nodesWithVector))
+	for _, n := range nodesWithVector {
+		cumScores[n.MemoryID] = 0
+	}
+
+	queryCount := 0
+	for _, qs := range queryStrings {
+		qv, err := s.embed.Embed(context.Background(), qs)
+		if err != nil {
+			continue
+		}
+		for _, n := range nodesWithVector {
+			if len(qv) != len(n.Vector) {
+				continue
+			}
+			sim := CosineSimilarity(qv, n.Vector)
+			cumScores[n.MemoryID] += sim
+		}
+		queryCount++
+	}
+
+	if queryCount == 0 {
+		result := make([]*MemoryNode, 0, len(candidates))
+		for _, n := range candidates {
+			result = append(result, n)
+		}
+		return result
+	}
+
+	var scored []scoredNode
+	for _, n := range nodesWithVector {
+		avg := cumScores[n.MemoryID] / float64(queryCount)
+		if avg >= hybridThreshold {
+			n.Score = avg
+			scored = append(scored, scoredNode{n: n, score: avg})
+		}
+	}
+
+	sort.Slice(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+
+	result := make([]*MemoryNode, len(scored))
+	for i, sc := range scored {
+		result[i] = sc.n
+	}
+	return result
 }
 
 // ErrEmbeddingRequired 未配置嵌入模型

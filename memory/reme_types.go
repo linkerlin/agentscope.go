@@ -22,6 +22,13 @@ func NewMemoryNode(memType MemoryType, target, content string) *MemoryNode {
 	}
 }
 
+// NewMemoryNodeWithWhen 创建带 whenToUse 的记忆节点；whenToUse 非空时将用于向量嵌入
+func NewMemoryNodeWithWhen(memType MemoryType, target, content, whenToUse string) *MemoryNode {
+	n := NewMemoryNode(memType, target, content)
+	n.WhenToUse = whenToUse
+	return n
+}
+
 // GenerateMemoryID 由内容生成短 ID（16 hex）
 func GenerateMemoryID(content string) string {
 	sum := sha256.Sum256([]byte(content))
@@ -53,6 +60,20 @@ type MemoryNode struct {
 	Score         float64        `json:"score"`
 	Vector        []float32      `json:"vector,omitempty"`
 	Metadata      map[string]any `json:"metadata"`
+}
+
+// EmbeddingContent 返回应被向量嵌入的文本。
+// 规则（对标 ReMe Python to_vector_node）：
+//   - 若 WhenToUse 非空，使用 WhenToUse（检索时以触发条件匹配）
+//   - 否则使用 Content（直接以内容匹配）
+func (n *MemoryNode) EmbeddingContent() string {
+	if n == nil {
+		return ""
+	}
+	if n.WhenToUse != "" {
+		return n.WhenToUse
+	}
+	return n.Content
 }
 
 // CompactSummary 结构化压缩摘要

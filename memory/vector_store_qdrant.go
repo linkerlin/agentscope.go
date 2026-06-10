@@ -214,7 +214,7 @@ func (s *QdrantVectorStore) nodesToPoints(ctx context.Context, nodes []*MemoryNo
 			node.MemoryID = GenerateMemoryID(node.Content)
 		}
 		if len(node.Vector) == 0 {
-			v, err := s.embed.Embed(ctx, node.Content)
+			v, err := s.embed.Embed(ctx, node.EmbeddingContent())
 			if err != nil {
 				return nil, err
 			}

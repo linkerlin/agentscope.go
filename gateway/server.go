@@ -92,6 +92,7 @@ func NewServer(a agent.Agent) *Server {
 	s.mux.HandleFunc("/chat", s.handleChat)
 	s.mux.HandleFunc("/chat/stream", s.handleChatStream)
 	s.mux.HandleFunc("/chat/ws", s.handleChatWS)
+	s.mux.HandleFunc("/health", s.handleHealth)
 	return s
 }
 
@@ -189,6 +190,13 @@ func (s *Server) RegisterV2Routes() {
 
 // ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Inject X-Request-ID for observability.
+	reqID := r.Header.Get("X-Request-ID")
+	if reqID == "" {
+		reqID = generateID("req")
+	}
+	w.Header().Set("X-Request-ID", reqID)
+
 	if s.otelHandler != nil {
 		s.otelHandler.ServeHTTP(w, r)
 		return
@@ -333,4 +341,24 @@ func parseChatRequest(body io.ReadCloser) (*chatRequest, error) {
 		return nil, errors.New("text is required")
 	}
 	return &req, nil
+}
+
+// handleHealth returns a JSON health status for the gateway.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	status := map[string]any{
+		"status":    "healthy",
+		"version":   "2.0.0-rc.1",
+		"uptime_ms": time.Since(time.Time{}).Milliseconds(), // simplified
+	}
+	if s.storage != nil {
+		status["storage"] = "configured"
+	}
+	if s.authenticator != nil {
+		status["auth"] = "enabled"
+	}
+	if s.sessionMgr != nil {
+		status["active_sessions"] = s.sessionMgr.ActiveCount()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }

@@ -172,7 +172,33 @@ spec:
 
 ## 5. 健康检查与监控
 
-Gateway 内置 OpenTelemetry 追踪。启用方式：
+### 健康检查端点
+
+Gateway 内置 `/health` 端点（无需认证）：
+
+```bash
+curl http://localhost:8080/health
+# {"status":"healthy","version":"2.0.0-rc.1","storage":"configured","auth":"enabled","active_sessions":3}
+```
+
+Kubernetes 探针配置：
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+```
+
+### OpenTelemetry 追踪
 
 ```go
 import "github.com/linkerlin/agentscope.go/observability"

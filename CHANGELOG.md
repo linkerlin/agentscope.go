@@ -35,15 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **多租户 Service (`service/`)**：`Storage` 接口 + `MemoryStorage`/`RedisStorage` + JWT 认证 + AES-256-GCM 加密
 - **Cron 调度器 (`schedule/`)**：基于 `robfig/cron/v3`，支持 `Schedule/Cancel/NextRun` + 重复 ID 替换
 - **Gateway**：SSE `/v2/chat/stream` + WebSocket `/v2/chat/ws` + 多租户认证 + Session State 持久化闭环
-- **A2A Proto**col：V2Adapter + Registry 健康检查 + 动态发现（PyV2 roadmap 未实现）
+- **A2A 协议**：V2Adapter + Registry 健康检查 + 动态发现（PyV2 roadmap 未实现）
 - **可观测性 (`observability/`)**：OpenTelemetry + LangSmith 双链路追踪
 - **内置 Agent 工具**：
   - `tool/task/` — TaskCreate/Get/List/Update（Agent 自管理任务）
-  - `tool/schedule/` — ScheduleCreate/List/Stop/View（Agent 自管理 Cron）
+  - `tool/schedule/` — ScheduleCreate/List/Stop/View + `StandardManager` 独立使用
   - `skill/skillviewer.go` — SkillViewer（Agent 运行时浏览 Skill）
+  - `tool/web/` — WebFetch（HTTP GET 抓取 URL 内容，支持超时/截断/context 取消）
 - **Tool Offload**：`gateway/tool_offload.go` + `offload_hints.go`，长耗时工具自动后台化 + ReAct hint 注入
 - **异步任务池 (`async/pool.go`)**：固定 goroutine 池 + 任务状态跟踪 + 优雅关闭
 - **Pipeline 并行执行 (`pipeline/parallel.go`)**：并发 Agent + 自定义聚合
+- **E2E 集成测试 (`gateway/e2e_integration_test.go`)**：7 个测试覆盖多租户认证、SSE、Streamable HTTP、AG-UI、会话隔离
+- **V2 事件流示例 (`examples/v2_event_stream/`)**：完整事件生命周期演示
+- **Formatter 基准测试**：17 个 benchmark 覆盖 OpenAI/Anthropic/Gemini/DashScope + thinking 提取
 
 ### Added — 模型扩展
 

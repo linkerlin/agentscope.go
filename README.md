@@ -72,7 +72,7 @@ func main() {
 | `agent` | `Agent` 基础接口与 `Base` 统一生命周期（Hook、流式事件、Usage 统计） |
 | `agent/react` | ReAct Agent 实现，内嵌 `agent.Base` |
 | `memory` | `Memory` 接口 + 内存实现 + ReMe 长期记忆 |
-| `tool` | `Tool` 接口 + 内置工具（Read/Write/Edit/Glob/Grep/Shell/Subagent） |
+| `tool` | `Tool` 接口 + 内置工具（Read/Write/Edit/Glob/Grep/Shell/Subagent/WebFetch/JSON） |
 | `formatter` | 独立的模型请求/响应格式化抽象层（OpenAI / Anthropic / Gemini / DashScope / Ollama） |
 | `pipeline` | 多 Agent 编排：Pipeline（顺序）+ Parallel（并发） |
 | `msghub` | 广播式多 Agent 消息调度（Hub） |
@@ -378,6 +378,7 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 
 - [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
 - [`examples/tools`](examples/tools/main.go) —— 带计算工具的 Agent
+- [`examples/v2_event_stream`](examples/v2_event_stream/main.go) —— V2 事件流完整生命周期演示
 - [`examples/anthropic`](examples/anthropic/main.go) —— 使用 Claude 后端的 Agent
 - [`examples/gemini`](examples/gemini/main.go) —— 使用 Gemini 后端的 Agent
 - [`examples/pipeline`](examples/pipeline/main.go) —— 多 Agent 顺序编排（Pipeline）
@@ -391,6 +392,7 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/reme/orchestrator`](examples/reme/orchestrator/main.go) —— ReMe Orchestrator 端到端（提取 + 检索 + Profile）
 - [`examples/voice`](examples/voice/main.go) —— STT → Chat → TTS 语音对话 Pipeline
 - [`examples/multi_tenant_workspace`](examples/multi_tenant_workspace/main.go) —— 多租户认证 + Workspace + 权限引擎端到端
+- [`examples/production`](examples/production/main.go) —— 全功能生产级服务（Auth + 工具 + 权限 + Gateway）
 - [`examples/langsmith`](examples/langsmith/main.go) —— Agent 事件流转发到 LangSmith
 
 ## 可观测性

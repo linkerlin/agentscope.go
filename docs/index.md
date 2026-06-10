@@ -85,7 +85,7 @@ for ev := range ch {
 | **权限引擎** | glob/regex/substring 规则匹配，支持 ALLOW/DENY/ASK/PASSTHROUGH |
 | **多租户 Gateway** | HTTP + SSE + WebSocket，支持 API Key / JWT 认证 + Session 持久化 |
 | **MCP 集成** | Client + Server 适配器，支持动态 schema 发现 |
-| **内置工具** | Read / Write / Edit / Insert / Glob / Grep / Shell / Subagent |
+| **内置工具** | Read / Write / Edit / Insert / Glob / Grep / Shell / Subagent / WebFetch / JSON |
 | **模型后端** | 10 个后端：OpenAI, Anthropic, Gemini, DashScope, Ollama, DeepSeek, vLLM, Moonshot, xAI, OpenAI Response |
 | **多 Agent 编排** | Pipeline / Parallel / MsgHub / Workflow / Reflection / MapReduce |
 | **异步任务池** | 固定 goroutine 池 + 任务状态跟踪 |

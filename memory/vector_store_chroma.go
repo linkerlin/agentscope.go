@@ -118,7 +118,7 @@ func (s *ChromaVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) err
 			node.MemoryID = GenerateMemoryID(node.Content)
 		}
 		if len(node.Vector) == 0 {
-			v, err := s.embed.Embed(ctx, node.Content)
+			v, err := s.embed.Embed(ctx, node.EmbeddingContent())
 			if err != nil {
 				return err
 			}
@@ -217,7 +217,7 @@ func (s *ChromaVectorStore) Update(ctx context.Context, node *MemoryNode) error 
 		return ErrInvalidMemoryNode
 	}
 	if len(node.Vector) == 0 {
-		v, err := s.embed.Embed(ctx, node.Content)
+		v, err := s.embed.Embed(ctx, node.EmbeddingContent())
 		if err != nil {
 			return err
 		}

@@ -62,7 +62,7 @@ func (d *MemoryDeduplicator) DeduplicateAgainstStore(ctx context.Context, newMem
 	for _, newMem := range newMemories {
 		// 生成嵌入
 		if len(newMem.Vector) == 0 && d.EmbedModel != nil {
-			vec, err := d.EmbedModel.Embed(ctx, newMem.Content)
+			vec, err := d.EmbedModel.Embed(ctx, newMem.EmbeddingContent())
 			if err != nil {
 				continue
 			}
@@ -71,7 +71,7 @@ func (d *MemoryDeduplicator) DeduplicateAgainstStore(ctx context.Context, newMem
 
 		// 在存储中搜索相似记忆
 		if store != nil && len(newMem.Vector) > 0 {
-			similar, err := store.Search(ctx, newMem.Content, RetrieveOptions{
+			similar, err := store.Search(ctx, newMem.EmbeddingContent(), RetrieveOptions{
 				TopK:     5,
 				MinScore: d.SimilarityThreshold,
 			})
@@ -139,7 +139,7 @@ func (d *MemoryDeduplicator) deduplicateByVector(ctx context.Context, memories [
 	// 确保所有记忆都有嵌入向量
 	for _, m := range memories {
 		if len(m.Vector) == 0 && d.EmbedModel != nil {
-			vec, err := d.EmbedModel.Embed(ctx, m.Content)
+			vec, err := d.EmbedModel.Embed(ctx, m.EmbeddingContent())
 			if err == nil {
 				m.Vector = vec
 			}

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
 )
@@ -22,6 +24,7 @@ type MemoryOrchestrator struct {
 
 	Config memory.OrchestratorConfig
 
+	mu          sync.Mutex
 	toolMu       sync.Mutex
 	toolResults  map[string][]memory.ToolCallResult
 }
@@ -48,13 +51,15 @@ func NewMemoryOrchestrator(
 	}
 }
 
-// Summarize 端到端记忆提取与持久化
+// Summarize 端到端记忆提取与持久化。
+// History 先同步执行（后续步骤可能需要 history_node），
+// Personal / Procedural / Tool 三步并行执行。
 func (o *MemoryOrchestrator) Summarize(ctx context.Context, msgs []*message.Msg, userName, taskName, toolName string) (*memory.SummarizeResult, error) {
 	res := &memory.SummarizeResult{
 		UpdatedProfiles: make(map[string]map[string]any),
 	}
 
-	// 1) 添加历史记录
+	// 1) 添加历史记录（同步，后续步骤依赖 history_node）
 	if o.Config.EnableHistory && o.HistoryTool != nil {
 		target := firstNonEmpty(userName, taskName, toolName)
 		if target != "" {
@@ -65,68 +70,104 @@ func (o *MemoryOrchestrator) Summarize(ctx context.Context, msgs []*message.Msg,
 		}
 	}
 
-	// 2) Personal Memory
+	// 2) Personal / Procedural / Tool 并行执行
+	g, ctx := errgroup.WithContext(ctx)
+
 	if o.Config.EnablePersonal && userName != "" && o.PersonalSum != nil {
-		nodes, profile, err := o.summarizePersonal(ctx, msgs, userName)
-		if err == nil {
-			res.PersonalMemories = nodes
-			if profile != nil {
-				res.UpdatedProfiles[userName] = profile
+		g.Go(func() error {
+			nodes, profile, err := o.summarizePersonal(ctx, msgs, userName)
+			o.mu.Lock()
+			if err == nil {
+				res.PersonalMemories = nodes
+				if profile != nil {
+					res.UpdatedProfiles[userName] = profile
+				}
 			}
-		}
+			o.mu.Unlock()
+			return nil // 不因单个失败取消其他 goroutine
+		})
 	}
 
-	// 3) Procedural Memory
 	if o.Config.EnableProcedural && taskName != "" && o.ProceduralSum != nil {
-		nodes, err := o.summarizeProcedural(ctx, msgs, taskName)
-		if err == nil {
-			res.ProceduralMemories = nodes
-		}
+		g.Go(func() error {
+			nodes, err := o.summarizeProcedural(ctx, msgs, taskName)
+			o.mu.Lock()
+			if err == nil {
+				res.ProceduralMemories = nodes
+			}
+			o.mu.Unlock()
+			return nil
+		})
 	}
 
-	// 4) Tool Memory
 	if o.Config.EnableTool && toolName != "" && o.ToolSum != nil {
-		if err := o.SummarizeToolUsage(ctx, toolName); err == nil {
-			res.ToolMemories = o.flushToolResults(toolName)
-		}
+		g.Go(func() error {
+			if err := o.SummarizeToolUsage(ctx, toolName); err == nil {
+				o.mu.Lock()
+				res.ToolMemories = o.flushToolResults(toolName)
+				o.mu.Unlock()
+			}
+			return nil
+		})
 	}
 
+	_ = g.Wait()
 	return res, nil
 }
 
-// Retrieve 统一检索入口，按类型分发后合并去重
+// Retrieve 统一检索入口，按类型并行检索后合并去重
 func (o *MemoryOrchestrator) Retrieve(ctx context.Context, query string, userName, taskName, toolName string, opts memory.RetrieveOptions) ([]*memory.MemoryNode, error) {
 	var all []*memory.MemoryNode
+	var mu sync.Mutex
+
+	g, ctx := errgroup.WithContext(ctx)
 
 	if userName != "" && o.MemoryTool != nil {
-		nodes, _ := o.MemoryTool.RetrieveMemory(ctx, query, memory.RetrieveOptions{
-			TopK:          opts.TopK,
-			MinScore:      opts.MinScore,
-			MemoryTypes:   []memory.MemoryType{memory.MemoryTypePersonal},
-			MemoryTargets: []string{userName},
+		g.Go(func() error {
+			nodes, _ := o.MemoryTool.RetrieveMemory(ctx, query, memory.RetrieveOptions{
+				TopK:          opts.TopK,
+				MinScore:      opts.MinScore,
+				MemoryTypes:   []memory.MemoryType{memory.MemoryTypePersonal},
+				MemoryTargets: []string{userName},
+			})
+			mu.Lock()
+			all = append(all, nodes...)
+			mu.Unlock()
+			return nil
 		})
-		all = append(all, nodes...)
 	}
 
 	if taskName != "" && o.MemoryTool != nil {
-		nodes, _ := o.MemoryTool.RetrieveMemory(ctx, query, memory.RetrieveOptions{
-			TopK:          opts.TopK,
-			MinScore:      opts.MinScore,
-			MemoryTypes:   []memory.MemoryType{memory.MemoryTypeProcedural},
-			MemoryTargets: []string{taskName},
+		g.Go(func() error {
+			nodes, _ := o.MemoryTool.RetrieveMemory(ctx, query, memory.RetrieveOptions{
+				TopK:          opts.TopK,
+				MinScore:      opts.MinScore,
+				MemoryTypes:   []memory.MemoryType{memory.MemoryTypeProcedural},
+				MemoryTargets: []string{taskName},
+			})
+			mu.Lock()
+			all = append(all, nodes...)
+			mu.Unlock()
+			return nil
 		})
-		all = append(all, nodes...)
 	}
 
 	if toolName != "" && o.MemoryTool != nil {
-		nodes, _ := o.MemoryTool.RetrieveMemory(ctx, query, memory.RetrieveOptions{
-			TopK:          opts.TopK,
-			MinScore:      opts.MinScore,
-			MemoryTypes:   []memory.MemoryType{memory.MemoryTypeTool},
-			MemoryTargets: []string{toolName},
+		g.Go(func() error {
+			nodes, _ := o.MemoryTool.RetrieveMemory(ctx, query, memory.RetrieveOptions{
+				TopK:          opts.TopK,
+				MinScore:      opts.MinScore,
+				MemoryTypes:   []memory.MemoryType{memory.MemoryTypeTool},
+				MemoryTargets: []string{toolName},
+			})
+			mu.Lock()
+			all = append(all, nodes...)
+			mu.Unlock()
+			return nil
 		})
-		all = append(all, nodes...)
 	}
+
+	_ = g.Wait()
 
 	if o.Dedup != nil {
 		all, _, _ = o.Dedup.Deduplicate(ctx, all)
@@ -134,14 +175,30 @@ func (o *MemoryOrchestrator) Retrieve(ctx context.Context, query string, userNam
 	return all, nil
 }
 
-// summarizePersonal 个人记忆提取与持久化；返回 (记忆列表, 更新后的profile, error)
+// summarizePersonal 个人记忆提取与持久化；两阶段流水线：
+//   S1: ExtractObservations（从对话提取原始观察）
+//   Profile 上下文加载
+//   S2: ExtractInsightsWithProfile（基于已有画像提取洞察，避免重复/矛盾）
 func (o *MemoryOrchestrator) summarizePersonal(ctx context.Context, msgs []*message.Msg, userName string) ([]*memory.MemoryNode, map[string]any, error) {
+	// S1: 提取观察
 	observations, err := o.PersonalSum.ExtractObservations(ctx, msgs, userName)
 	if err != nil || len(observations) == 0 {
 		return nil, nil, err
 	}
 
-	insights, _ := o.PersonalSum.ExtractInsights(ctx, observations, userName)
+	// 加载已有 Profile 作为 S2 上下文（对标 ReMe Python _preload_user_profile）
+	var existingProfile map[string]any
+	if o.Config.EnableProfile && o.ProfileTool != nil {
+		existingProfile, _ = o.ProfileTool.ReadAllProfiles(ctx, userName)
+	}
+
+	// S2: 基于已有画像提取洞察
+	var insights []*memory.MemoryNode
+	if len(existingProfile) > 0 {
+		insights, _ = o.PersonalSum.ExtractInsightsWithProfile(ctx, observations, userName, existingProfile)
+	} else {
+		insights, _ = o.PersonalSum.ExtractInsights(ctx, observations, userName)
+	}
 	all := append(observations, insights...)
 
 	if o.Dedup != nil {

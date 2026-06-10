@@ -113,6 +113,72 @@ func (s *PersonalSummarizer) UpdateInsights(ctx context.Context, insights, obser
 	return updated, nil
 }
 
+// ExtractInsightsWithProfile 两阶段流水线的 S2：加载已有 Profile 后提取洞察。
+// 对标 ReMe Python PersonalSummarizer._build_s2_messages + _preload_user_profile。
+func (s *PersonalSummarizer) ExtractInsightsWithProfile(ctx context.Context, observations []*MemoryNode, userName string, existingProfile map[string]any) ([]*MemoryNode, error) {
+	if s == nil || s.Model == nil || len(observations) == 0 {
+		return nil, nil
+	}
+
+	prompt := s.buildInsightWithProfilePrompt(observations, userName, existingProfile)
+
+	resp, err := s.Model.Chat(ctx, []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent(prompt).Build(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return s.parseInsights(resp.GetTextContent(), userName), nil
+}
+
+func (s *PersonalSummarizer) buildInsightWithProfilePrompt(observations []*MemoryNode, userName string, profile map[string]any) string {
+	var sb strings.Builder
+
+	if s.Language == "zh" {
+		sb.WriteString("以下是用户已有的画像信息：\n\n")
+		sb.WriteString("用户画像:\n")
+		if len(profile) == 0 {
+			sb.WriteString("（无已有画像）\n")
+		} else {
+			for k, v := range profile {
+				fmt.Fprintf(&sb, "- %s: %v\n", k, v)
+			}
+		}
+		sb.WriteString("\n---\n\n")
+		sb.WriteString("以下是从最新对话中提取的新观察：\n")
+		for _, obs := range observations {
+			fmt.Fprintf(&sb, "- %s\n", obs.Content)
+		}
+		sb.WriteString("\n请完成以下任务：\n")
+		sb.WriteString("1. 判断每条新观察与已有画像的关系：补充、矛盾、或重复\n")
+		sb.WriteString("2. 总结3-5个关键洞察，仅输出与已有画像不重复的内容\n")
+		sb.WriteString("3. 格式: 洞察：<主题> <> <描述> <与画像关系>\n")
+		sb.WriteString("4. 如果新观察被已有画像完全覆盖，输出: SKIP\n\n")
+	} else {
+		sb.WriteString("Existing user profile:\n\n")
+		if len(profile) == 0 {
+			sb.WriteString("(no existing profile)\n")
+		} else {
+			for k, v := range profile {
+				fmt.Fprintf(&sb, "- %s: %v\n", k, v)
+			}
+		}
+		sb.WriteString("\n---\n\n")
+		sb.WriteString("New observations from conversation:\n")
+		for _, obs := range observations {
+			fmt.Fprintf(&sb, "- %s\n", obs.Content)
+		}
+		sb.WriteString("\nTasks:\n")
+		sb.WriteString("1. Judge each observation's relation to existing profile: supplement, contradiction, or duplicate\n")
+		sb.WriteString("2. Summarize 3-5 key insights, output only non-duplicate content\n")
+		sb.WriteString("3. Format: Insight: <theme> <> <description> <relation>\n")
+		sb.WriteString("4. If fully covered by existing profile, output: SKIP\n\n")
+	}
+
+	return sb.String()
+}
+
 // HandleContraRepeat 处理矛盾/重复记忆
 // 返回: (保留的记忆列表, 被删除的记忆ID列表)
 func (s *PersonalSummarizer) HandleContraRepeat(ctx context.Context, memories []*MemoryNode) ([]*MemoryNode, []string, error) {

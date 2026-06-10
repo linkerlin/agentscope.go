@@ -25,6 +25,16 @@ type ToolCallResult struct {
 	Summary      string  // LLM生成的调用摘要
 	Evaluation   string  // LLM对调用质量的评价
 	Score        float64 // 评分 0.0-1.0
+	ParameterInsights []ParameterInsight `json:"parameter_insights,omitempty"` // 参数优化学习
+}
+
+// ParameterInsight 参数级别的优化洞察
+type ParameterInsight struct {
+	Parameter string  `json:"parameter"`
+	Pattern   string  `json:"pattern"`   // 有效的参数模式
+	Outcome   string  `json:"outcome"`    // 使用此模式的结果
+	Frequency int     `json:"frequency"`  // 观察到的频率
+	Score     float64 `json:"score"`      // 效果评分
 }
 
 // ToolSummarizer 生成工具使用指南

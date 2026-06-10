@@ -94,13 +94,17 @@ import (
 
 ws := workspace.NewLocalWorkspace("default", "./workspace")
 
+// 一键注册所有文件工具
+fileTools := file.RegisterAll("./workspace", false) // false = 含写入工具
+
+// Shell 工具
+shellTool := shell.NewShellCommandTool("./workspace", []string{"ls", "cat", "pwd"}, nil)
+
 tk := toolkit.NewToolkit()
-tk.AddTool(file.NewReadFileTool("./workspace"))
-tk.AddTool(file.NewWriteFileTool("./workspace"))
-tk.AddTool(file.NewEditFileTool("./workspace"))
-tk.AddTool(file.NewGlobTool("./workspace"))
-tk.AddTool(file.NewGrepTool("./workspace"))
-tk.AddTool(shell.NewShellCommandTool("./workspace", []string{"ls", "cat", "pwd"}, nil))
+for _, t := range fileTools {
+    tk.Register(t)
+}
+tk.Register(shellTool)
 
 agent, _ := react.Builder().
     Name("coder").
@@ -108,6 +112,8 @@ agent, _ := react.Builder().
     Toolkit(tk).
     Build()
 ```
+
+导入必要包即可一键配备所有常用工具。`RegisterAll` 的 `readOnly=true` 模式下只注册只读工具。`false` 模式包含写入和编辑工具。
 
 ### 工具使用示例
 
@@ -118,6 +124,31 @@ Agent 现在可以：
 - 用 `glob` 查找文件
 - 用 `grep` 搜索代码
 - 用 `shell_command` 执行命令
+
+### 其他内置工具
+
+```go
+import (
+    "time"
+    "github.com/linkerlin/agentscope.go/tool/web"
+    "github.com/linkerlin/agentscope.go/tool/json"
+    "github.com/linkerlin/agentscope.go/tool/schedule"
+    "github.com/linkerlin/agentscope.go/schedule"
+)
+
+// Web Fetch — 抓取 URL 内容
+webTool := web.NewFetchTool(30 * time.Second)
+
+// JSON — 解析和查询
+parseTool := json.NewParseTool()
+queryTool := json.NewQueryTool()
+
+// Schedule — Agent 自管理 Cron 调度（独立使用，无需 Gateway）
+sched := schedule.NewScheduler(handler)
+sched.Start()
+mgr := scheduletool.NewStandardManager(sched)
+scheduleTools := scheduletool.RegisterTools(mgr)
+```
 
 ---
 

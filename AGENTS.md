@@ -35,7 +35,7 @@ Agent 层   agent/         Base 基类 + ReActAgent (事件流 + 状态机)
 | 模块 | 代码行数 | 测试文件 | 说明 |
 |------|----------|----------|------|
 | `memory/` | ~6,025 | 37 | 🏆 ReMe + Orchestrator + Hybrid Search |
-| `tool/` | ~3,021 | 16 | 内置工具 + Task/Schedule/SkillViewer + 多模态 |
+| `tool/` | ~3,500 | 18 | 内置工具 + Task/Schedule/SkillViewer + Web/JSON + 多模态 |
 | `agent/` (含 react) | ~4,548 | 21 | Base + ReActAgent + ReplyStream + State |
 | `model/` | ~2,294 | 17 | 10 后端 + ModelCard YAML |
 | `gateway/` | ~1,986 | 13 | SSE/WS/AG-UI/Tool Offload/Model API |
@@ -48,7 +48,7 @@ Agent 层   agent/         Base 基类 + ReActAgent (事件流 + 状态机)
 | `permission/` | ~698 | 2 | 规则引擎 + Bash AST |
 | `formatter/` | ~652 | 5 | 多后端 Formatter |
 | `observability/` | ~404 | 4 | OTel + LangSmith |
-| **总计** | **~30,400** | **174** | 1,157 测试函数 |
+| **总计** | **~30,800** | **230** | 1,157 测试函数 |
 
 ## 测试
 

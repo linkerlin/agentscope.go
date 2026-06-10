@@ -122,6 +122,89 @@ func (s *ProceduralSummarizer) ExtractFailureLesson(ctx context.Context, failedT
 	return s.parseTaskMemories(resp.GetTextContent(), Trajectory{TaskName: failedTrajectories[0].TaskName, Score: 0}), nil
 }
 
+// ExtractComparative 对比成功与失败轨迹，提取差异化的经验教训。
+// 对标 ReMe Python ComparativeExtraction。
+func (s *ProceduralSummarizer) ExtractComparative(ctx context.Context, successTrajectories, failureTrajectories []Trajectory) ([]*MemoryNode, error) {
+	if s == nil || s.Model == nil {
+		return nil, nil
+	}
+	if len(successTrajectories) == 0 || len(failureTrajectories) == 0 {
+		return nil, nil
+	}
+
+	prompt := s.buildComparativeAnalysisPrompt(successTrajectories, failureTrajectories)
+
+	resp, err := s.Model.Chat(ctx, []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent(prompt).Build(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	taskName := successTrajectories[0].TaskName
+	return s.parseTaskMemories(resp.GetTextContent(), Trajectory{TaskName: taskName, Score: 0.5}), nil
+}
+
+func (s *ProceduralSummarizer) buildComparativeAnalysisPrompt(successTrajectories, failureTrajectories []Trajectory) string {
+	var sb strings.Builder
+
+	if s.Language == "zh" {
+		sb.WriteString("对比以下成功和失败的任务执行轨迹，提取关键差异和可迁移的经验教训。\n\n")
+		sb.WriteString("成功轨迹:\n")
+		for i, traj := range successTrajectories {
+			fmt.Fprintf(&sb, "成功%d (评分: %.2f): ", i+1, traj.Score)
+			for _, m := range traj.Messages {
+				content := m.GetTextContent()
+				if len(content) > 300 {
+					content = content[:300] + "..."
+				}
+				fmt.Fprintf(&sb, "%s\n", content)
+			}
+		}
+		sb.WriteString("\n失败轨迹:\n")
+		for i, traj := range failureTrajectories {
+			fmt.Fprintf(&sb, "失败%d (评分: %.2f): ", i+1, traj.Score)
+			for _, m := range traj.Messages {
+				content := m.GetTextContent()
+				if len(content) > 300 {
+					content = content[:300] + "..."
+				}
+				fmt.Fprintf(&sb, "%s\n", content)
+			}
+		}
+		sb.WriteString("\n请输出3-5条对比经验，格式:\n")
+		sb.WriteString("经验：<序号> <> <关键差异描述> <> <成功因素> <> <失败原因> <> <可迁移模式>\n")
+	} else {
+		sb.WriteString("Compare the successful and failed task execution trajectories to extract key differences and transferable lessons.\n\n")
+		sb.WriteString("Successful trajectories:\n")
+		for i, traj := range successTrajectories {
+			fmt.Fprintf(&sb, "Success%d (score: %.2f): ", i+1, traj.Score)
+			for _, m := range traj.Messages {
+				content := m.GetTextContent()
+				if len(content) > 300 {
+					content = content[:300] + "..."
+				}
+				fmt.Fprintf(&sb, "%s\n", content)
+			}
+		}
+		sb.WriteString("\nFailure trajectories:\n")
+		for i, traj := range failureTrajectories {
+			fmt.Fprintf(&sb, "Failure%d (score: %.2f): ", i+1, traj.Score)
+			for _, m := range traj.Messages {
+				content := m.GetTextContent()
+				if len(content) > 300 {
+					content = content[:300] + "..."
+				}
+				fmt.Fprintf(&sb, "%s\n", content)
+			}
+		}
+		sb.WriteString("\nOutput 3-5 comparative lessons, format:\n")
+		sb.WriteString("Lesson: <number> <> <difference description> <> <success factor> <> <failure reason> <> <transferable pattern>\n")
+	}
+
+	return sb.String()
+}
+
 // ValidateMemories 使用LLM验证提取的记忆质量
 func (s *ProceduralSummarizer) ValidateMemories(ctx context.Context, memories []*MemoryNode, sampleTrajectory Trajectory) ([]*MemoryNode, []*MemoryNode) {
 	if s == nil || s.Model == nil || len(memories) == 0 {

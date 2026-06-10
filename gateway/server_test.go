@@ -12,6 +12,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 type mockAgent struct {
@@ -166,5 +167,86 @@ func TestGateway_SessionCount(t *testing.T) {
 	srv := NewServer(&mockAgent{name: "test"})
 	if srv.SessionCount() != 0 {
 		t.Fatalf("expected 0 sessions initially, got %d", srv.SessionCount())
+	}
+}
+
+func TestGateway_HealthCheck(t *testing.T) {
+	srv := NewServer(&mockAgent{name: "test"})
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var status map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status["status"] != "healthy" {
+		t.Fatalf("expected healthy, got %v", status["status"])
+	}
+}
+
+func TestGateway_HealthCheck_WithSessionManager(t *testing.T) {
+	srv := NewServer(&mockAgent{name: "test"}).
+		WithSessionManager(NewSessionManager())
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	var status map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := status["active_sessions"]; !ok {
+		t.Fatal("expected active_sessions in health with session manager")
+	}
+}
+
+func TestGateway_HealthCheck_WithAuth(t *testing.T) {
+	storage := service.NewMemoryStorage()
+	apiAuth := service.NewAPIKeyAuthenticator(storage, "X-API-Key")
+	srv := NewServer(&mockAgent{name: "test"}).
+		WithStorage(storage).
+		WithAuthenticator(apiAuth)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	var status map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status["auth"] != "enabled" {
+		t.Fatalf("expected auth enabled, got %v", status["auth"])
+	}
+	if status["storage"] != "configured" {
+		t.Fatalf("expected storage configured, got %v", status["storage"])
+	}
+}
+
+func TestGateway_RequestID(t *testing.T) {
+	srv := NewServer(&mockAgent{name: "test"})
+
+	// Request without header gets auto-generated ID.
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	generated := rec.Header().Get("X-Request-ID")
+	if generated == "" {
+		t.Fatal("expected auto-generated X-Request-ID header")
+	}
+
+	// Request with explicit header preserves it.
+	req2 := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req2.Header.Set("X-Request-ID", "my-custom-id")
+	rec2 := httptest.NewRecorder()
+	srv.ServeHTTP(rec2, req2)
+
+	got := rec2.Header().Get("X-Request-ID")
+	if got != "my-custom-id" {
+		t.Fatalf("expected my-custom-id, got %q", got)
 	}
 }

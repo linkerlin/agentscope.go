@@ -5,95 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0-rc.1] - 2026-06-10
 
-### Added
+### Added — V2 事件驱动范式重构
 
-- **Formatter Abstraction Layer**: Introduced a dedicated `Formatter` interface (`formatter/formatter.go`) decoupling message-to-API conversion from model implementations.
-  - `OpenAIFormatter`, `AnthropicFormatter`, `GeminiFormatter`, `DashScopeFormatter`, `OllamaFormatter`.
-  - DashScope and Ollama inject their own formatters into the OpenAI-compatible backend for future backend-specific customization.
-- **New Model Backends**:
-  - **Anthropic** (`model/anthropic/`): native HTTP client with SSE streaming support.
-  - **Gemini** (`model/gemini/`): native HTTP client with SSE streaming support.
-- **Multi-Agent Orchestration**:
-  - **Pipeline** (`pipeline/`): sequential agent chaining where output of step N becomes input of step N+1.
-  - **MsgHub** (`msghub/`): lightweight message hub for registering and broadcasting messages to multiple agents concurrently.
-  - **Workflow** (`workflow/`): advanced orchestration primitives:
-    - `Parallel` — concurrent execution with configurable result joining.
-    - `Condition` — branch selection based on an evaluator function.
-    - `Loop` — repeated execution with a max-iteration safeguard.
-    - `MapReduce` — split input into chunks, map each chunk in parallel (bounded concurrency), then reduce into a single result.
-- **A2A Protocol Stack**:
-  - Server-side SSE streaming via `/task/sendSubscribe`.
-  - `HTTPClient` implementing the `Client` interface with `Send` and `SendSubscribe`.
-- **Gateway** (`gateway/`):
-  - `gateway.Server` exposes `POST /chat` (JSON), `POST /chat/stream` (SSE),
-    and `GET /chat/ws` (WebSocket).
-  - Enables browser-based real-time interaction with any `agent.Agent`.
-- **Reflection** (`reflection/`):
-  - `SelfReflectingAgent` implements a writer-critic loop.
-  - The writer drafts, the critic reviews, and the judge decides whether
-    to accept or ask the writer to revise (up to a max-iteration limit).
-- **AgentBase Lifecycle Unification** (`agent/base.go`):
-  - `Base` struct centralizes shared lifecycle, hooks, state management, and usage tracking.
-  - `ReActAgent` now embeds `Base` and uses `Call()` / `Observe()` wrappers.
-  - Auto-fires `HookPreReply` / `HookPostReply` / `HookPreObserve` / `HookPostObserve`.
-- **ToolResponse Standardization** (`tool/response.go`):
-  - Replaced bare `any` returns with `*tool.Response` (carrying `[]message.ContentBlock`).
-  - Migrated `toolkit/executor`, `SubagentTool`, `MCP adapter`, `plan_notebook`, and examples.
-- **Memory Auto-Integration**:
-  - `ReActAgent.buildHistory()` automatically detects `PreReasoningPrepare` on memory (ReMe) and injects compressed summaries before model calls.
-- **Message Blocks Aligned to Python 2.0**:
-  - `DataBlock` with nested `Source` struct (URL / base64 / media_type) unifies multimedia handling.
-  - `ToolUseBlock.RawInput` supports streaming JSON accumulation.
-  - `ToolResultBlock` gains `ID`, `Name`, and `State` fields.
-  - `message/json.go` supports `source` serialization and backward-compatible deserialization.
-- **BM25/FTS5 Full-Text Search**: Integrated `modernc.org/sqlite` (pure Go, no CGO) with FTS5 virtual tables for real BM25 ranking. `ReMeVectorMemory` automatically syncs the FTS index on `AddMemory`/`DeleteMemory`, and `RankMemoryNodesHybrid` fuses BM25 scores with vector cosine similarity.
-- **Multi-Backend VectorStore**:
-  - `QdrantVectorStore` using the official `qdrant/go-client` (gRPC).
-  - `ChromaVectorStore` using a lightweight `net/http` REST client.
-  - `ESVectorStore` using Elasticsearch 8.x native kNN search.
-  - `PGVectorStore` using `pgx` + `pgvector-go` with HNSW/IVFFlat index support.
-- **ToolMemory Auto-Trigger Closed Loop**:
-  - `ReActAgent` now collects `ToolCallResult` after each tool execution.
-  - `MemoryOrchestrator` buffers results and automatically invokes `ToolSummarizer.SummarizeToolUsage`, persisting generated tool guides into the vector store.
-- **ReMeInMemoryMemory Abstraction**: Extracted `ReMeInMemoryMemory` as a standalone struct responsible for in-memory message buffering, mark tracking, compressed/long-term memory, and dialog file appending. `ReMeFileMemory` now composes it.
-- **Performance Optimizations**:
-  - `EmbeddingCache`: LRU cache wrapper for `EmbeddingModel` with hit/miss statistics, supporting both single and batch embedding deduplication.
-  - `ReMeFileMemory` async summarization now uses a semaphore-backed worker limit (default 4 concurrent tasks) to prevent goroutine explosion.
-- **Configuration Factory**: Added `handler.BuildReMeVectorMemory(cfg *config.ReMeMemoryConfig, embed, cm)` to build a fully wired `ReMeVectorMemory` (including vector store selection and optional `MemoryOrchestrator`) from a single configuration object.
+- **事件系统 (`event/`)**：20+ 事件类型（`TextBlockDelta`/`ThinkingBlockDelta`/`ToolCallDelta` 等）+ `event.Bus` + `MetricsHandler` HTTP 端点，与 PyV2 JSON 字段完全对齐。
+- **真事件流 (`agent/react`)**：`ReplyStream() -> <-chan event.AgentEvent`，Channel 驱动流式消费，支持 HITL 挂起/恢复、并发工具执行（errgroup）。
+- **AgentState 状态机**：`reply_id`/`cur_iter`/`cur_summary` 可序列化到 Redis，`InjectEvent()` 恢复协议，跨请求 Agent 状态持续。
+- **AG-UI Protocol (`gateway/agui.go`)**：完整的 AgentEvent → AG-UI 事件映射，`?protocol=agui` / `X-Protocol: agui` 查询参数切换，PyV2 Studio UI 即插即用。
+
+### Added — 生产级能力
+
+- **Workspace 沙箱 (`workspace/`)**：
+  - `LocalWorkspace` + `DockerWorkspace`（含 `RenderDockerfile`/`BuildImage`/`HealthCheck`）
+  - `E2BWorkspace`：完整 FS/命令操作（envd Connect-RPC），25 测试
+  - MCP Gateway HTTP 代理 + `GatewayMCPClient` 主机侧适配
+  - `Offloader` 协议（大上下文/工具结果外存卸载）
+- **权限引擎 (`permission/`)**：规则引擎（glob/regex/substring）+ 4 种决策模式 + Bash AST 解析器（启发式 + 可选 tree-sitter）
+- **中间件链**：
+  - Agent 级 `MiddlewareBase`（`on_reply/on_reasoning/on_acting/on_model_call/on_system_prompt`）
+  - Toolkit 级洋葱链（Logging + Metrics + Permission + Tracing + Offload）
+- **Formatter 层扩展**：`ThinkingFormatter` + `extractThinkingBlocks` + MultiAgent 变体（9 后端全部覆盖）
+- **Context Compression**：`memory/compactor.go` + `tool_result_compactor.go`，ReAct loop 自动集成
+- **SubagentTool (`tool/subagent/`)**：递归 Agent 调用 + 嵌套深度限制（PyV2 无对等实现）
+- **文件读缓存 (`tool/file/cache.go`)**：LRU 缓存 + mtime 感知失效
+
+### Added — 服务化与生态
+
+- **多租户 Service (`service/`)**：`Storage` 接口 + `MemoryStorage`/`RedisStorage` + JWT 认证 + AES-256-GCM 加密
+- **Cron 调度器 (`schedule/`)**：基于 `robfig/cron/v3`，支持 `Schedule/Cancel/NextRun` + 重复 ID 替换
+- **Gateway**：SSE `/v2/chat/stream` + WebSocket `/v2/chat/ws` + 多租户认证 + Session State 持久化闭环
+- **A2A Proto**col：V2Adapter + Registry 健康检查 + 动态发现（PyV2 roadmap 未实现）
+- **可观测性 (`observability/`)**：OpenTelemetry + LangSmith 双链路追踪
+- **内置 Agent 工具**：
+  - `tool/task/` — TaskCreate/Get/List/Update（Agent 自管理任务）
+  - `tool/schedule/` — ScheduleCreate/List/Stop/View（Agent 自管理 Cron）
+  - `skill/skillviewer.go` — SkillViewer（Agent 运行时浏览 Skill）
+- **Tool Offload**：`gateway/tool_offload.go` + `offload_hints.go`，长耗时工具自动后台化 + ReAct hint 注入
+- **异步任务池 (`async/pool.go`)**：固定 goroutine 池 + 任务状态跟踪 + 优雅关闭
+- **Pipeline 并行执行 (`pipeline/parallel.go`)**：并发 Agent + 自定义聚合
+
+### Added — 模型扩展
+
+- **4 个新模型后端**：DeepSeek / Moonshot (Kimi) / xAI (Grok) / vLLM（vLLM 为 PyV2 无，Go 独有）
+- **OpenAI Response API**：自定义 HTTP client + SSE 流式解析
+- **ModelCard YAML**：35 个 YAML 声明式模型配置 + `/api/v1/models` HTTP API
+- **AudioModel**：接口预留 + `OpenAITTS` 实现
 
 ### Changed
 
-- `ReMeVectorMemory.store` field changed from concrete `*LocalVectorStore` to `VectorStore` interface, enabling transparent swapping of vector backends.
-- `DeduplicateAgainstStore` signature updated to accept `VectorStore` interface instead of `*LocalVectorStore`.
-- `Orchestrator` and `VectorMemory` interfaces extended with `AddToolCallResult` and `SummarizeToolUsage` methods.
-- `config.ReMeMemoryConfig` expanded with remote vector store connection fields (`Host`, `Port`, `Collection`, `BaseURL`, `Index`, `ConnStr`, `Table`) and `Language`.
+- Agent 输出从 `Call() -> Msg` 范式转为 `ReplyStream() -> <-chan AgentEvent`，保留 `Call/CallStream` 向后兼容
+- 工具返回值统一为 `tool.Response` 规范类型
+- `Msg.AppendEvent()` 驱动消息组装 + `SessionManager` 自动持久化
+- 消息 JSON 序列化与 PyV2 完全兼容（`source` 嵌套 / `output` / `name` 字段）
 
 ### Fixed
 
-- **OpenAI Streaming Panic**: Added nil check for `resp.Usage` in `model/openai/openai.go` `chatStreamOnce` to prevent nil pointer dereference on intermediate stream chunks.
-- **A2A Data Race**: Protected `InMemoryTaskStore` with `sync.RWMutex` and returned shallow copies to eliminate races between HTTP handler and async runner goroutines.
-- Resolved Windows temp-directory cleanup failures in memory tests by ensuring `ReMeFileMemory.Close()` / `ReMeVectorMemory.Close()` is always deferred in tests, preventing open SQLite handles from locking `reme.db`.
-
-### Benchmarks (baseline on Intel i9-13900HX)
-
-| Benchmark | ops/s | ns/op |
-|-----------|-------|-------|
-| `BenchmarkEmbeddingCacheHit` | ~2.7M | 454 |
-| `BenchmarkEmbeddingCacheMiss` | ~16K | 60,171 |
-| `BenchmarkLocalVectorStoreSearch` (50 docs) | ~71K | 14,096 |
-| `BenchmarkFTSIndexSearch` (100 docs) | ~1.6K | 623,041 |
-| `BenchmarkRankMemoryNodesHybrid` (20 docs) | ~1K | 990,777 |
-| `BenchmarkReMeFileMemoryAdd` | ~2.4K | 411,857 |
-| `BenchmarkWindowMemoryAdd` | ~147K | 6,777 |
+- **OpenAI Streaming Panic**：nil check for `resp.Usage`
+- **A2A Data Race**：`InMemoryTaskStore` 加 `sync.RWMutex`
+- **Schedule 重复 ID**：`Schedule` 先 Remove 旧 entry 再添加
+- Windows temp-directory cleanup in memory tests
 
 ## [0.1.0] - 2026-04-14
 
 ### Added
 
-- **ReMe Memory System**: Full implementation of `ReMeFileMemory` and `ReMeVectorMemory` with file-based persistence, vector CRUD, and hybrid retrieval.
-- **Orchestrator Layer**: `MemoryOrchestrator` coordinating `PersonalSummarizer`, `ProceduralSummarizer`, `ToolSummarizer`, `MemoryHandler`, `ProfileHandler`, and `HistoryHandler`.
-- **Async Summarization**: `AddAsyncSummaryTask` / `AwaitSummaryTasks` for non-blocking daily memory summarization.
-- **Hook Integration**: `ReMeHook` injects `PreReasoningPrepare` into the agent loop via `HookBeforeModel`.
-- **Vector Snapshot Persistence**: `LocalVectorStore` supports JSON snapshot round-trip for session recovery.
+- **ReMe Memory System**: `ReMeFileMemory` + `ReMeVectorMemory` with file persistence, vector CRUD, hybrid retrieval
+- **Orchestrator Layer**: `MemoryOrchestrator` coordinating summarizers and handlers
+- **Wrapper Generator**: Interactive CLI for generating Go wrappers around Python tools
+- **Formatter Abstraction**: `Formatter` interface decoupling message-to-API conversion
+- **AgentBase**: `Base` struct with shared lifecycle, hooks, state management
+- **ToolResponse**: Standardized `*tool.Response` replacing bare `any`
+- **Pipeline/MsgHub/Workflow**: Multi-agent orchestration primitives
+- **A2A Protocol Stack**: SSE streaming, HTTPClient, task management
+- **Gateway**: HTTP/SSE/WebSocket endpoints
+- **Reflection**: `SelfReflectingAgent` writer-critic loop
+- **BM25/FTS5**: Full-text search with `modernc.org/sqlite`
+- **Multi-Backend VectorStore**: Qdrant, Chroma, ES, PGVector
+- **EmbeddingCache**: LRU cache for embedding models

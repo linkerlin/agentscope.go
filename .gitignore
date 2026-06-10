@@ -6,3 +6,12 @@
 
 # Build artifacts
 *.exe
+*.test
+*.out
+
+# Coverage artifacts
+*.cov
+cov
+coverage
+react_coverage
+react_coverage_func.txt

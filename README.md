@@ -88,6 +88,46 @@ func main() {
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
+| `embedding` | 独立 Embedding 包：OpenAI / Ollama / Gemini / DashScope + FileCache（多模态支持提示），可直接用于 gateway / memory / RAG |
+
+## 高层生产服务 Bootstrap（强烈推荐）
+
+`gateway.AppConfig` + `NewApp` 提供接近 Python `create_app` + lifespan 的“一键”体验，支持大量自动装配：
+
+```go
+appCfg := gateway.AppConfig{
+    Agent:                 myAgent,
+    Storage:               service.NewMemoryStorage(),
+    JWTAuth:               jwtAuth,
+    WorkspaceBaseDir:      "./workspaces",
+    AutoStandardTools:     true,           // 自动为 sessions 注入 file+task+web+json+schedule 等
+    AutoToolOffload:       true,
+    DefaultPermissionMode: permission.ModeExplore,
+    EmbeddingModel:        embedding.NewOpenAI(apiKey, "text-embedding-3-small"),
+    EmbeddingCacheDir:     "./.embed_cache", // 自动 WithFileCache
+}
+srv := gateway.NewApp(appCfg)
+srv.RegisterAppRoutes(jwtAuth)
+srv.Start()   // 自动恢复 persisted schedules
+defer srv.Close()
+```
+
+详见 `examples/full_service` 和 `examples/production`。
+
+## Embedding 包
+
+独立使用：
+
+```go
+import "github.com/linkerlin/agentscope.go/embedding"
+
+emb := embedding.NewOpenAI(os.Getenv("OPENAI_API_KEY"), "text-embedding-3-small")
+emb = embedding.WithFileCache(emb, ".cache/embeddings") // 可选
+
+vecs, _ := emb.Embed(ctx, []string{"hello world"})
+```
+
+支持 Gemini / DashScope (含多模态提示)。
 
 ## 使用工具
 
@@ -393,6 +433,8 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/voice`](examples/voice/main.go) —— STT → Chat → TTS 语音对话 Pipeline
 - [`examples/multi_tenant_workspace`](examples/multi_tenant_workspace/main.go) —— 多租户认证 + Workspace + 权限引擎端到端
 - [`examples/production`](examples/production/main.go) —— 全功能生产级服务（Auth + 工具 + 权限 + Gateway）
+- [`examples/full_service`](examples/full_service/main.go) —— 极简重度自动装配生产服务（推荐）
+- [`examples/studio`](examples/studio/main.go) —— 纯 Go 轻量 Studio (HTMX) —— 完整 Auth/Agents/Credentials/Schedules/Chat + 实时 SSE + auto tools 结果展示
 - [`examples/langsmith`](examples/langsmith/main.go) —— Agent 事件流转发到 LangSmith
 
 ## 可观测性

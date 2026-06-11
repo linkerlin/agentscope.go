@@ -44,14 +44,16 @@
 - 辅助：完善 AG-UI 文档，支持直接用 Python 的 TS Studio 连接 Go gateway。
 - 目标：一键启动示例后浏览器内完成注册→创建 cred+agent→聊天→schedule。
 
-### Phase 5: 追踪、文档、测试、发布
-- Tracing middleware 包装/文档。
-- 更新 README/docs/AGENTS.md/CHANGELOG。
-- 新示例 + 全量测试 + 发布准备。
+### Phase 5: 追踪、文档、测试、发布 (当前进行中)
+- **Tracing middleware 对齐**：将现有 observability 包装成易用 middleware，参考 Python `_tracing/`。
+- **文档全面更新**：README、CHANGELOG、AGENTS.md、docs/*、DEV_PLAN_CATCHUP.md（突出 auto-assembly、embedding、Studio、provider parity）。
+- **测试补充**：新 embedding providers、auto bootstrap e2e、Studio 流程、保持 `-race` 全绿。
+- **发布准备**：增强示例、更新 CHANGELOG、version notes、迁移指南。
+- **可选**：evaluation / finetune / voice 后续对齐。
 
 **验证标准**：每阶段测试全绿、可演示示例、文档更新、无破坏性变更（或有迁移路径）。
 
-**下一步**：从 Phase 1 开始，credential 包先行（它是 schemas 和动态 UI 的基础）。
+**当前状态**：Phase 1-4 核心已完成（auto bootstrap + credential + embedding + Studio 轻量 + provider + 迁移）。Phase 5 文档先行，然后 observability / 测试 / 发布。
 
 更多细节见会话生成的完整 plan.md。
 
@@ -120,6 +122,14 @@ Phase 3/4 按请求大幅推进并进一步完善：
 - 验证: build + race tests 通过；DEV_PLAN 更新。
 下一步: 更多多模态实现、e2e 测试脚本、Phase 5 文档/发布。
   - 打印和 UI 都突出 auto 效果。
+
+**Phase 5 继续研发** (当前)：
+- Tracing middleware 对齐：增强 TracingMiddlewareAdapter (支持更多 interceptor)，在 full_service 示例中集成 TracedAgent 演示。
+- 测试：embedding/memory/gateway/observability 测试通过，新增 tracing adapter 测试。
+- 示例：full_service 使用 tracedBase + tracing。
+- 文档：全面更新 (README, CHANGELOG, AGENTS, tutorial, deployment, DEV_PLAN) 突出 Phase 5 tracing。
+- 验证：full build + targeted tests 通过。
+下一步: 更多 e2e (app bootstrap, studio), 完善 tracing middleware 实现 (添加更多 hook), version bump, 发布准备。
 
 **“添加更多自动装配”增强（最新迭代）**：
 - AppConfig 扩展支持更多“一键”选项：

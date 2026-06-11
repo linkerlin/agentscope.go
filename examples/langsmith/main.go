@@ -58,12 +58,18 @@ func main() {
 	go observer.Observe(ctx, bus)
 
 	chatModel := &mockModel{}
-	agent, err := react.Builder().
+	baseAgent, err := react.Builder().
 		Name("LangSmithDemoAgent").
 		SysPrompt("You are a helpful assistant.").
 		Model(chatModel).
 		WithEventBus(bus).
 		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Phase 5: wrap with TracedAgent for additional tracing (integrates with OTel/LangSmith)
+	agent := observability.NewTracedAgent("LangSmithDemo", baseAgent)
 	if err != nil {
 		log.Fatal(err)
 	}

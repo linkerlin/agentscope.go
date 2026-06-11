@@ -2,6 +2,12 @@
 
 > **高性能、强类型、云原生**的 Go 语言 Agent 框架，与 AgentScope Python v2 跨语言互操作。
 
+**最新追赶亮点**（接近 Python v2）：
+- 高层 `gateway.AppConfig` + `NewApp` 自动装配（workspace、标准工具、schedule restore、embedding cache 等）。
+- 独立 `embedding/` 包（多 provider + FileCache）。
+- 纯 Go 轻量 `examples/studio`（HTMX + 实时 SSE + auto tools 结果展示 + 完整 CRUD）。
+- 更多 provider parity（Gemini / DashScope 等）。
+
 ---
 
 ## 快速开始

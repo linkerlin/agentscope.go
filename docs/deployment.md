@@ -23,9 +23,12 @@ func main() {
     model, _ := openai.Builder().APIKey("key").Build()
     agent, _ := react.Builder().Name("bot").Model(model).Memory(memory.NewInMemoryMemory()).Build()
 
-    srv := gateway.NewServer(agent)
-    srv.RegisterV2Routes()
-    log.Println("Listening on :8080")
+    srv := gateway.NewApp(gateway.AppConfig{
+        Agent: agent,
+        // 推荐：Storage + WorkspaceBaseDir + AutoStandardTools + EmbeddingCacheDir 等
+    })
+    srv.RegisterAppRoutes(jwtAuth)
+    srv.Start()
     log.Fatal(http.ListenAndServe(":8080", srv))
 }
 ```

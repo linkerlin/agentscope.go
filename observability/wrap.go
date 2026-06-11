@@ -7,6 +7,25 @@ import (
 	"github.com/linkerlin/agentscope.go/message"
 )
 
+// TracingMiddlewareAdapter 提供一个可作为 middleware 使用的 tracing 包装（避免循环依赖）。
+// 用户可在 agent/react builder 或 toolkit 中使用。
+// 参考 Python middleware/_tracing/ 对齐。
+type TracingMiddlewareAdapter struct {
+	Tracer Tracer
+	Name   string
+}
+
+func (t *TracingMiddlewareAdapter) OnCall(ctx context.Context, name string, msg *message.Msg) {
+	if t.Tracer != nil {
+		_, span := t.Tracer.Start(ctx, t.Name+"_"+name)
+		span.End()
+	}
+}
+
+func (t *TracingMiddlewareAdapter) OnResult(ctx context.Context, name string, resp *message.Msg, err error) {
+	// 可扩展记录
+}
+
 // TracedAgent 为 Agent 增加可选回调与轻量 Tracer 集成（不强制依赖 OpenTelemetry）
 type TracedAgent struct {
 	Inner    agent.Agent

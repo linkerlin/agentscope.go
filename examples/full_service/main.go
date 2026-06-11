@@ -11,6 +11,7 @@ import (
 	"github.com/linkerlin/agentscope.go/gateway"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/model/openai"
+	"github.com/linkerlin/agentscope.go/observability"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -72,6 +73,9 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Phase 5: wrap with TracedAgent to demonstrate tracing middleware integration (OTel/LangSmith ready)
+	tracedBase := observability.NewTracedAgent("FullServiceBase", base)
+
 	// 4. One-liner rich config with heavy auto-assembly.
 	//    - Auto BTM (schedule persistence + restore on Start)
 	//    - Auto WorkspaceManager from base dir
@@ -83,7 +87,7 @@ func main() {
 	//      // or with cache: emb = embedding.WithFileCache(emb, ".cache/embed")
 	//      appCfg.EmbeddingModel = emb
 	appCfg := gateway.AppConfig{
-		Agent:                 base,
+		Agent:                 tracedBase,
 		Storage:               storage,
 		Authenticator:         jwt,
 		JWTAuth:               jwt,

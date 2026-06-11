@@ -151,3 +151,10 @@ func TestNoopTracer(t *testing.T) {
 	}
 	span.End()
 }
+
+func TestTracingMiddlewareAdapter(t *testing.T) {
+	adapter := &TracingMiddlewareAdapter{Name: "test", Tracer: NoopTracer}
+	adapter.OnCall(context.Background(), "reply", &message.Msg{})
+	adapter.OnResult(context.Background(), "reply", &message.Msg{}, nil)
+	// no panic = success for Phase 5 tracing middleware start
+}

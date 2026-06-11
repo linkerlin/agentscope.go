@@ -295,22 +295,29 @@ func main() {
 }
 ```
 
-### 生产部署（Redis + 多租户）
+### 生产部署（推荐高层自动装配）
+
+使用 `gateway.AppConfig` + `NewApp` 获得大量自动装配（接近 Python create_app）：
 
 ```go
-import (
-    "github.com/redis/go-redis/v9"
-    "github.com/linkerlin/agentscope.go/gateway"
-    "github.com/linkerlin/agentscope.go/service"
-)
-
-redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-storage := service.NewRedisStorage(redisClient)
-
-srv := gateway.NewServer(agent)
-srv.WithStorage(storage) // 启用 Session 持久化 + AgentState 快照
-srv.RegisterV2Routes()
+appCfg := gateway.AppConfig{
+    Storage:               service.NewRedisStorage(redisClient),
+    WorkspaceBaseDir:      "./workspaces",
+    AutoStandardTools:     true, // 自动 file+task+web+json+schedule 工具
+    AutoToolOffload:       true,
+    EmbeddingModel:        embedding.NewOpenAI(key, "text-embedding-3-small"),
+    EmbeddingCacheDir:     "./.embed_cache",
+}
+srv := gateway.NewApp(appCfg)
+srv.RegisterAppRoutes(jwt)
+srv.Start() // 自动恢复 persisted schedules
+defer srv.Close()
 ```
+
+- 轻量 Studio：`examples/studio`（HTMX + 真实 SSE + auto tools 结果可视化）。
+- 完整示例：`examples/full_service`（极简重度 auto）。
+- Embedding：独立 `embedding/` 包 + cache。
+- 详见 `examples/production` 和 `docs/deployment.md`。
 
 ### 调用 SSE 事件流
 

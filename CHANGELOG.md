@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] / 追赶 Python v2 工作 (2026-06)
+
+### Added — 高层自动装配与生产级 bootstrap (Phase 1-2)
+- `gateway/app.go` + `AppConfig`：`NewApp(cfg)` 一键装配 Storage、SessionManager、BackgroundTaskManager (含 schedule 自动 restore on Start)、WorkspaceManager (by WorkspaceBaseDir)、ToolOffload、默认 StandardTools 注入。
+- 自动 `StandardTools` + `AutoStandardTools` / `AutoToolOffload` / `EmbeddingCacheDir`：为 static agent 和动态 per-session agents 自动提供 file/task/web/json + permission + cache。
+- `examples/full_service` 和简化版 `production`：极简配置演示 auto-assembly + schedule 持久化 + 恢复。
+- `gateway/standard_tools.go` + `WithFileCache` 等 helper。
+
+### Added — Embedding 包 (Phase 3)
+- 新顶级 `embedding/` 包：`NewOpenAI`、`NewOllama`、`NewGemini`、`NewDashScope`（支持多模态提示）、`WithFileCache`（gob + sha256，类似 Python FileEmbeddingCache）。
+- 完全兼容 `model.EmbeddingModel`，可直接用于 `gateway.WithEmbeddingModel`。
+- `memory/embedding` 已包装/迁移到新包，减少重复。
+- Gateway 自动 cache 支持：`AppConfig.EmbeddingCacheDir` 自动 `embedding.WithFileCache`。
+- 更新 `full_service` / `studio` 示例启用带 cache 的 embedding。
+
+### Added — Studio 轻量 UI 打磨 (Phase 4)
+- `examples/studio`：纯 Go + HTMX 实现。
+  - 支持 Auth、Agents CRUD、Credentials (schemas 驱动)、Schedules、Chat。
+  - 真实 SSE streaming (`/v2/chat/stream`) + 事件解析，实时展示 text deltas 和 **auto tools 实际调用结果**（`[AUTO TOOL] ...` / `[AUTO TOOL RESULT]`）。
+  - Demo register + X-Demo-User 头支持快速测试。
+  - 漂亮表格渲染 + delete + "Use in Chat" 联动。
+- `studio/main.go` 默认启用全 auto-assembly (AutoStandardTools + Workspace + ToolOffload + EmbeddingCache)。
+- 直接演示 Python Studio 风格的 auto tools + schedule restore 效果。
+
+### Added — 其他追赶与增强
+- Docker 模板增强：支持 pypi/src/node/full 多个 flavor + 专用模板 (RenderDockerfile)。
+- 更多 credential provider 支持 + schemas 端点。
+- 初始 static agent 默认使用 auto tools（与动态 session 一致）。
+- 相关测试、构建、e2e 验证通过。
+
+### Changed
+- `AppConfig` / `NewApp` 成为推荐高层入口，显著降低“生产级 Agent Service”搭建门槛，接近 Python `create_app` + lifespan 体验。
+- Embedding 成为一等公民包。
+
 ## [2.0.0-rc.1] - 2026-06-10
 
 ### Added — V2 事件驱动范式重构

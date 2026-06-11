@@ -26,6 +26,7 @@ Agent 层   agent/         Base 基类 + ReActAgent (事件流 + 状态机)
           formatter/     5 后端格式化器 + MultiAgent 变体
           workspace/     Local/Docker/E2B + MCP Gateway + Offloader
           permission/    规则引擎 + Bash AST 解析
+          embedding/     独立 Embedding 包 (OpenAI/Ollama/Gemini/DashScope + FileCache，多模态支持)
 记忆层     memory/        ReMe (文件/向量) + 5 向量后端 + Hybrid Search
 可观测性   observability/ OpenTelemetry + LangSmith
 ```
@@ -47,6 +48,7 @@ Agent 层   agent/         Base 基类 + ReActAgent (事件流 + 状态机)
 | `skill/` | ~849 | 2 | SkillBox + SkillViewer |
 | `permission/` | ~698 | 2 | 规则引擎 + Bash AST |
 | `formatter/` | ~652 | 5 | 多后端 Formatter |
+| `embedding/` | 新 | 5+ | 独立 Embedding (providers + cache) |
 | `observability/` | ~404 | 4 | OTel + LangSmith |
 | **总计** | **~30,800** | **230** | 1,157 测试函数 |
 

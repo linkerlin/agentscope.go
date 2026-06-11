@@ -243,14 +243,18 @@ func CreateContainer(ctx context.Context, image string, cfg DockerConfig) (strin
 const defaultDockerBaseImage = "python:3.11-slim"
 
 // DockerBuildConfig controls Dockerfile rendering for agent workspaces.
+// Extended for more flavors to match Python reference (pypi install, src install, node support etc.).
 type DockerBuildConfig struct {
-	BaseImage    string
-	WorkDir      string
+	BaseImage      string
+	WorkDir        string
 	PythonPackages []string
 	ExtraRunLines  []string
+	Flavor         string // "default", "pypi", "src", "node", "full"
+	InstallAgentscopeFromSrc bool // for src flavor
 }
 
-// RenderDockerfile renders a minimal workspace Dockerfile from config.
+// RenderDockerfile renders a workspace Dockerfile from config.
+// Supports multiple flavors for better parity with Python reference (pypi, src, node variants).
 func RenderDockerfile(cfg DockerBuildConfig) string {
 	base := cfg.BaseImage
 	if base == "" {
@@ -260,21 +264,65 @@ func RenderDockerfile(cfg DockerBuildConfig) string {
 	if workdir == "" {
 		workdir = "/workspace"
 	}
-	var installLines []string
-	if len(cfg.PythonPackages) > 0 {
-		installLines = append(installLines,
-			"RUN pip install --no-cache-dir "+strings.Join(cfg.PythonPackages, " "),
-		)
+
+	flavor := cfg.Flavor
+	if flavor == "" {
+		flavor = "default"
 	}
-	installLines = append(installLines, cfg.ExtraRunLines...)
+
+	var tmpl *template.Template
+	var data map[string]any
+
+	switch flavor {
+	case "pypi":
+		tmpl = dockerfilePypiTemplate
+		data = map[string]any{
+			"BaseImage": base,
+			"WorkDir":   workdir,
+		}
+	case "src":
+		tmpl = dockerfileSrcTemplate
+		data = map[string]any{
+			"BaseImage": base,
+			"WorkDir":   workdir,
+		}
+	case "node":
+		tmpl = dockerfileNodeTemplate
+		data = map[string]any{
+			"BaseImage": base,
+			"WorkDir":   workdir,
+		}
+	case "full":
+		tmpl = dockerfileFullTemplate
+		pkgs := cfg.PythonPackages
+		if len(pkgs) == 0 {
+			pkgs = []string{"agentscope"}
+		}
+		data = map[string]any{
+			"BaseImage":    base,
+			"WorkDir":      workdir,
+			"PythonPackages": strings.Join(pkgs, " "),
+			"ExtraRunLines":  cfg.ExtraRunLines,
+		}
+	default:
+		tmpl = dockerfileTemplate
+		installLines := []string{}
+		if len(cfg.PythonPackages) > 0 {
+			installLines = append(installLines,
+				"RUN pip install --no-cache-dir "+strings.Join(cfg.PythonPackages, " "),
+			)
+		}
+		installLines = append(installLines, cfg.ExtraRunLines...)
+		data = map[string]any{
+			"BaseImage":    base,
+			"WorkDir":      workdir,
+			"InstallLines": installLines,
+		}
+	}
 
 	var buf bytes.Buffer
-	_ = dockerfileTemplate.Execute(&buf, map[string]any{
-		"BaseImage":    base,
-		"WorkDir":      workdir,
-		"InstallLines": installLines,
-	})
-	return buf.String()
+	_ = tmpl.Execute(&buf, data)
+	return strings.TrimSpace(buf.String())
 }
 
 var dockerfileTemplate = template.Must(template.New("dockerfile").Parse(`# syntax=docker/dockerfile:1
@@ -283,6 +331,54 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -rf /var/lib/apt/lists/*
 WORKDIR {{.WorkDir}}
 {{range .InstallLines}}{{.}}
+{{end}}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD test -d {{.WorkDir}} || exit 1
+`))
+
+// pypi flavor: optimized for installing agentscope from PyPI + common deps
+var dockerfilePypiTemplate = template.Must(template.New("dockerfile-pypi").Parse(`# syntax=docker/dockerfile:1
+FROM {{.BaseImage}}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR {{.WorkDir}}
+RUN pip install --no-cache-dir agentscope[full]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD test -d {{.WorkDir}} || exit 1
+`))
+
+// src flavor: for development / installing from source (editable or git)
+var dockerfileSrcTemplate = template.Must(template.New("dockerfile-src").Parse(`# syntax=docker/dockerfile:1
+FROM {{.BaseImage}}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates git build-essential \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR {{.WorkDir}}
+COPY . /install-src
+RUN pip install --no-cache-dir -e /install-src[full] || pip install --no-cache-dir /install-src
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD test -d {{.WorkDir}} || exit 1
+`))
+
+// node flavor: adds Node.js for frontend/tooling use cases (e.g. browser tools, UI)
+var dockerfileNodeTemplate = template.Must(template.New("dockerfile-node").Parse(`# syntax=docker/dockerfile:1
+FROM {{.BaseImage}}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR {{.WorkDir}}
+RUN pip install --no-cache-dir agentscope[full]
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD test -d {{.WorkDir}} || exit 1
+`))
+
+// full flavor: combines common packages + extra lines (very flexible)
+var dockerfileFullTemplate = template.Must(template.New("dockerfile-full").Parse(`# syntax=docker/dockerfile:1
+FROM {{.BaseImage}}
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR {{.WorkDir}}
+RUN pip install --no-cache-dir {{.PythonPackages}}
+{{range .ExtraRunLines}}{{.}}
 {{end}}
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD test -d {{.WorkDir}} || exit 1
 `))

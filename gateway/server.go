@@ -79,6 +79,10 @@ type Server struct {
 	workspaceMgr        *WorkspaceManager
 	embeddingModel      model.EmbeddingModel
 	sessionAgentBuilder SessionAgentBuilder
+
+	// defaultSessionDeps holds auto-assembled defaults for per-session agents
+	// (populated by NewApp when AutoStandardTools etc. are enabled).
+	defaultSessionDeps SessionAgentDeps
 }
 
 // NewServer creates a gateway HTTP server for the given agent.
@@ -153,6 +157,34 @@ func (s *Server) toolOffloadMgr() *ToolOffloadManager {
 func (s *Server) WithBackgroundTaskManager(m *BackgroundTaskManager) *Server {
 	s.backgroundTaskMgr = m
 	return s
+}
+
+// Start starts background components such as the schedule cron (BackgroundTaskManager).
+// Call this after wiring routes but before serving traffic. It is safe to call multiple times.
+func (s *Server) Start() {
+	if s.backgroundTaskMgr != nil {
+		s.backgroundTaskMgr.Start()
+	}
+}
+
+// Close stops background components (schedules, etc.). Call on shutdown.
+func (s *Server) Close() error {
+	if s.backgroundTaskMgr != nil {
+		s.backgroundTaskMgr.Stop()
+	}
+	return nil
+}
+
+// withDefaultSessionDeps stores defaults that will be merged when building
+// per-session agents (used by auto-assembly in NewApp).
+func (s *Server) withDefaultSessionDeps(deps SessionAgentDeps) *Server {
+	s.defaultSessionDeps = deps
+	return s
+}
+
+// DefaultSessionDeps returns the currently configured default deps for session agents.
+func (s *Server) DefaultSessionDeps() SessionAgentDeps {
+	return s.defaultSessionDeps
 }
 
 // WithCipher attaches an AES-GCM cipher for credential encryption.

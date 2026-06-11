@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/gateway"
@@ -14,9 +12,6 @@ import (
 	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
-	"github.com/linkerlin/agentscope.go/tool"
-	jsontool "github.com/linkerlin/agentscope.go/tool/json"
-	webtool "github.com/linkerlin/agentscope.go/tool/web"
 )
 
 // 全功能生产级 Agent 服务示例。
@@ -53,18 +48,26 @@ func main() {
 	storage := service.NewMemoryStorage()
 	jwtAuth := service.NewJWTAuthenticator([]byte(jwtSecret), "agentscope-go")
 
-	// 3. 内置工具
-	var tools []tool.Tool
-	tools = append(tools, jsontool.NewParseTool(), jsontool.NewQueryTool())
-	tools = append(tools, webtool.NewFetchTool(10*time.Second))
+	// 3. 构建初始 static agent 时也默认使用 auto tools（当启用 AutoStandardTools 时）。
+	// 之前主要服务动态 session agent；现在 static base agent 也一致使用自动装配的工具集。
+	// StandardTools 内部会在 IncludeTask 且未提供 store 时自动创建简单的 in-memory TaskStore。
+	staticToolOpts := gateway.StandardToolsOptions{
+		WorkspaceDir:    "./workspaces/default",
+		ReadOnly:        false,
+		IncludeWeb:      true,
+		IncludeJSON:     true,
+		IncludeTask:     true,
+		IncludeSchedule: false, // 静态示例中 schedule mgr 通常在运行时由 BTM 提供
+	}
+	staticTools := gateway.StandardTools(staticToolOpts)
 
-	// 4. ReAct Agent
-	agent, err := react.Builder().
+	// 4. ReAct Agent (static base，使用 auto tools)
+	baseAgent, err := react.Builder().
 		Name("Assistant").
 		SysPrompt("You are a helpful production assistant. Be concise and precise.").
 		Model(model).
 		Memory(memory.NewInMemoryMemory()).
-		Tools(tools...).
+		Tools(staticTools...).
 		PermissionEngine(permission.NewEngine(permission.ModeExplore, []permission.Rule{
 			{Target: "tool_name", Pattern: "web_fetch", Decision: permission.DecisionAsk},
 		})).
@@ -73,21 +76,33 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// 5. Gateway：认证 + 存储 + 会话管理 + 全量路由
-	srv := gateway.NewServer(agent).
-		WithStorage(storage).
-		WithAuthenticator(jwtAuth).
-		WithSessionManager(gateway.NewSessionManager().WithStorage(storage))
-	srv.RegisterAuthRoutes(jwtAuth)   // /api/v1/auth/*
-	srv.RegisterServiceRoutes()       // /api/v1/agents|sessions|credentials
-	srv.RegisterV2Routes()            // /v2/chat|resume|ws
+	// 5. 使用高层 NewApp（更接近 Python create_app + lifespan）
+	// 更多自动装配：BTM (schedule restore)、WorkspaceManager、StandardTools（file+task+web+json）、ToolOffload、默认权限等。
+	// 初始 static agent 也使用了相同的 auto tools 逻辑。
+	appCfg := gateway.AppConfig{
+		Agent:                 baseAgent,
+		Storage:               storage,
+		Authenticator:         jwtAuth,
+		JWTAuth:               jwtAuth,
+		WorkspaceBaseDir:      "./workspaces",
+		AutoStandardTools:     true,
+		AutoToolOffload:       true,
+		DefaultPermissionMode: permission.ModeExplore,
+	}
+	srv := gateway.NewApp(appCfg)
+	srv.RegisterAppRoutes(jwtAuth)
+
+	srv.Start()
+	defer srv.Close()
 
 	addr := ":" + envOrDefault("PORT", "8080")
-	fmt.Printf("=== AgentScope Production Server ===\n")
+	fmt.Printf("=== AgentScope Production Server (full bootstrap) ===\n")
 	fmt.Printf("Health:  http://localhost%s/health\n", addr)
+	fmt.Printf("使用 NewApp + RegisterAppRoutes + Start() 获得自动 schedule restore\n")
 	fmt.Printf("SSE:     http://localhost%s/v2/chat/stream\n", addr)
 	fmt.Printf("WS:      ws://localhost%s/v2/chat/ws\n", addr)
-	fmt.Printf("=====================================\n")
+	fmt.Printf("Schedules 持久化后重启会自动恢复（通过 BackgroundTaskManager）\n")
+	fmt.Printf("====================================================\n")
 	log.Fatal(http.ListenAndServe(addr, srv))
 }
 
@@ -97,5 +112,3 @@ func envOrDefault(key, fallback string) string {
 	}
 	return fallback
 }
-
-var _ context.Context

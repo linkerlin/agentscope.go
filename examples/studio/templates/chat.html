@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Chat Demo - Studio (Auto Tools)</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui; margin: 1rem; }
+    #chat { border: 1px solid #ccc; padding: 1rem; height: 300px; overflow-y: auto; margin-bottom: 0.5rem; background: #fafafa; }
+    .msg { margin: 4px 0; }
+    .user { color: blue; }
+    .assistant { color: green; }
+    form { display: flex; gap: 0.5rem; }
+    input { flex: 1; }
+  </style>
+</head>
+<body>
+  <a href="/">← Back to Dashboard</a>
+  <h1>Chat Demo - Agents with Auto Tools</h1>
+  <div style="background:#d4edda;padding:0.5rem;margin-bottom:0.5rem;font-size:0.9em;">
+    Because this Studio server runs with AutoStandardTools + auto TaskStore + Workspace, the agent you chat with has automatic file/workspace tools, task management, web/json utilities etc. Try asking it to "list the workspace files" or "create a task about testing auto assembly".
+  </div>
+  <p>This demo uses the v2 chat endpoint. Because the server was started with <strong>AutoStandardTools + Workspace</strong>, any agent you chat with will have automatic access to file tools, tasks (auto in-mem store), glob/grep, web_fetch, json tools, etc. in their sessions.</p>
+
+  <div>
+    <label>Agent ID: <input id="agent-id" value="demo-agent-1" style="width:200px"></label>
+    <label>Session ID: <input id="session-id" value="demo-session-1" style="width:200px"></label>
+  </div>
+
+  <div id="chat"></div>
+
+  <form id="chat-form">
+    <input id="msg" type="text" placeholder="Ask the agent to list files, create a task, fetch web, etc. (auto tools enabled)" required>
+    <button type="submit">Send (SSE Stream)</button>
+  </form>
+
+  <p><small>Real SSE streaming from /v2/chat/stream. Tool calls from auto-assembled tools (file, task, web, json) will be shown in UI. First register demo user on Dashboard if auth required.</small></p>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const form = document.getElementById('chat-form');
+    const msgInput = document.getElementById('msg');
+    const agentId = document.getElementById('agent-id') ? document.getElementById('agent-id').value : 'demo-agent-1';
+    const sessionId = document.getElementById('session-id') ? document.getElementById('session-id').value : 'demo-session-1';
+
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const text = msgInput.value.trim();
+      if (!text) return;
+      chat.innerHTML += `<div class="msg user"><strong>You:</strong> ${text}</div>`;
+      msgInput.value = '';
+
+      const body = {
+        agent_id: agentId,
+        session_id: sessionId,
+        input: { text: text }  // or full Msg, but simple text for demo
+      };
+
+      try {
+        const resp = await fetch('/v2/chat/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!resp.ok) {
+          chat.innerHTML += `<div class="msg assistant">[Error: ${resp.status}]</div>`;
+          return;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (line.startsWith('data:')) {
+              const dataStr = line.slice(5).trim();
+              if (dataStr) {
+                try {
+                  const evt = JSON.parse(dataStr);
+                  handleStreamEvent(evt);
+                } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (err) {
+        chat.innerHTML += `<div class="msg assistant">[Stream error: ${err}]</div>`;
+      }
+    });
+
+    function handleStreamEvent(evt) {
+      if (!evt || !evt.type) return;
+      if (evt.type === 'text_block_delta' || evt.type === 'TextBlockDelta') {
+        const delta = evt.delta || evt.text || '';
+        // append to last assistant msg or create
+        let last = chat.lastElementChild;
+        if (!last || !last.classList.contains('assistant')) {
+          last = document.createElement('div');
+          last.className = 'msg assistant';
+          last.innerHTML = '<strong>Assistant:</strong> ';
+          chat.appendChild(last);
+        }
+        last.innerHTML += delta;
+        chat.scrollTop = chat.scrollHeight;
+      } else if (evt.type === 'tool_call_start' || evt.type === 'ToolCallStart') {
+        const name = evt.name || evt.tool || 'tool';
+        chat.innerHTML += `<div class="msg assistant" style="color:orange;">[AUTO TOOL] ${name} started (from auto-assembled tools)</div>`;
+      } else if (evt.type === 'tool_result' || evt.type === 'ToolResult') {
+        const content = evt.content || evt.output || JSON.stringify(evt);
+        chat.innerHTML += `<div class="msg assistant" style="color:purple;">[AUTO TOOL RESULT] ${content}</div>`;
+        chat.scrollTop = chat.scrollHeight;
+      } else if (evt.type === 'reply_end' || evt.type === 'ReplyEnd') {
+        chat.innerHTML += `<div class="msg assistant" style="font-size:0.8em;color:#666;">(end of response - auto tools were available)</div>`;
+      }
+    }
+  </script>
+</body>
+</html>

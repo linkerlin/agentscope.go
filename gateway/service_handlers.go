@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/credential"
 	"github.com/linkerlin/agentscope.go/service"
 )
 
@@ -33,6 +34,7 @@ func (s *Server) RegisterServiceRoutes() {
 
 	// Credentials
 	s.mux.HandleFunc("GET /api/v1/credentials", s.requireAuth(s.handleListCredentials))
+	s.mux.HandleFunc("GET /api/v1/credentials/schemas", s.requireAuth(s.handleListCredentialSchemas))
 	s.mux.HandleFunc("POST /api/v1/credentials", s.requireAuth(s.handleCreateCredential))
 	s.mux.HandleFunc("GET /api/v1/credentials/{id}", s.requireAuth(s.handleGetCredential))
 	s.mux.HandleFunc("PATCH /api/v1/credentials/{id}", s.requireAuth(s.handleUpdateCredential))
@@ -375,6 +377,14 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 // --- Credentials ---
 
+func (s *Server) handleListCredentialSchemas(w http.ResponseWriter, r *http.Request) {
+	schemas := credential.DefaultFactory.ListSchemas()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"schemas": schemas,
+	})
+}
+
 func (s *Server) handleListCredentials(w http.ResponseWriter, r *http.Request) {
 	userID := service.UserIDFromContext(r.Context())
 	creds, err := s.storage.ListCredentialsByUser(r.Context(), userID)
@@ -387,45 +397,107 @@ func (s *Server) handleListCredentials(w http.ResponseWriter, r *http.Request) {
 }
 
 type createCredentialRequest struct {
-	Provider string `json:"provider"`
-	Label    string `json:"label"`
-	Value    string `json:"value"`
+	Provider string         `json:"provider"`
+	Label    string         `json:"label"`
+	Value    string         `json:"value"`
+	Data     map[string]any `json:"data"` // preferred for typed credentials (supports /schemas)
 }
 
 type updateCredentialRequest struct {
 	Label *string `json:"label,omitempty"`
 	Value *string `json:"value,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
 }
 
 func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) {
 	var req createCredentialRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if req.Provider == "" || req.Value == "" {
-		http.Error(w, "provider and value are required", http.StatusBadRequest)
-		return
+
+	ct := r.Header.Get("Content-Type")
+	if ct == "application/x-www-form-urlencoded" || ct == "multipart/form-data" {
+		// Support simple HTMX / form posts (used by the lightweight Go Studio)
+		r.ParseForm()
+		req.Label = r.FormValue("label")
+		req.Provider = r.FormValue("provider")
+
+		// Collect data[...] fields into req.Data
+		req.Data = make(map[string]any)
+		for k, vals := range r.Form {
+			if len(k) > 5 && k[:5] == "data[" && k[len(k)-1] == ']' {
+				key := k[5 : len(k)-1]
+				if len(vals) > 0 {
+					req.Data[key] = vals[0]
+				}
+			}
+		}
+		// Also allow a raw "data" json field for power users
+		if raw := r.FormValue("data"); raw != "" {
+			var m map[string]any
+			if json.Unmarshal([]byte(raw), &m) == nil {
+				for k, v := range m {
+					req.Data[k] = v
+				}
+			}
+		}
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 	}
 
 	userID := service.UserIDFromContext(r.Context())
-	encrypted := req.Value
-	if s.cipher != nil {
-		enc, err := s.cipher.Encrypt(req.Value)
+
+	var cred *service.Credential
+
+	if len(req.Data) > 0 {
+		// New typed path (recommended, enables dynamic forms via /schemas)
+		c, err := credential.DefaultFactory.FromMap(req.Data)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("encryption failed: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("invalid credential data: %v", err), http.StatusBadRequest)
 			return
 		}
-		encrypted = enc
+		if req.Label != "" {
+			// allow overriding name from top level for convenience
+			// (typed creds carry their own name)
+		}
+		sc, err := credential.EncryptToService(c, s.cipher)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("encrypt credential: %v", err), http.StatusInternalServerError)
+			return
+		}
+		sc.UserID = userID
+		if sc.Label == "" {
+			sc.Label = req.Label
+		}
+		if sc.Provider == "" {
+			sc.Provider = c.Provider()
+		}
+		cred = sc
+	} else {
+		// Legacy flat path (provider + value)
+		if req.Provider == "" || req.Value == "" {
+			http.Error(w, "provider and value are required (or use data for typed credentials)", http.StatusBadRequest)
+			return
+		}
+		encrypted := req.Value
+		if s.cipher != nil {
+			enc, err := s.cipher.Encrypt(req.Value)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("encryption failed: %v", err), http.StatusInternalServerError)
+				return
+			}
+			encrypted = enc
+		}
+		cred = &service.Credential{
+			ID:        generateID("cred"),
+			UserID:    userID,
+			Provider:  req.Provider,
+			Label:     req.Label,
+			Encrypted: encrypted,
+			CreatedAt: time.Now(),
+		}
 	}
-	cred := &service.Credential{
-		ID:        generateID("cred"),
-		UserID:    userID,
-		Provider:  req.Provider,
-		Label:     req.Label,
-		Encrypted: encrypted,
-		CreatedAt: time.Now(),
-	}
+
 	if err := s.storage.SaveCredential(r.Context(), cred); err != nil {
 		http.Error(w, fmt.Sprintf("save credential failed: %v", err), http.StatusInternalServerError)
 		return

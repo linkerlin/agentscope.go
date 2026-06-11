@@ -6,6 +6,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/credential"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/model/anthropic"
 	"github.com/linkerlin/agentscope.go/model/dashscope"
@@ -76,6 +77,73 @@ func (f *AgentFactory) Build(cfg *service.AgentConfig, cred *service.Credential)
 		if u, _ := cfg.Metadata["base_url"].(string); u != "" {
 			baseURL = u
 		}
+	}
+
+	chatModel, err := builder(apiKey, modelName, baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("agent_factory: build model for %s/%s: %w", provider, modelName, err)
+	}
+
+	b := react.Builder().
+		Name(cfg.Name).
+		ID(cfg.ID).
+		SysPrompt(cfg.SystemPrompt).
+		Model(chatModel)
+
+	if cfg.Metadata != nil {
+		b = b.Metadata(cfg.Metadata)
+	}
+
+	return b.Build()
+}
+
+// BuildFromTyped builds an agent from config + a typed Credential (plain-text secrets expected inside the typed struct).
+// This is the preferred path when you already have a decrypted/typed credential (e.g. after credential.FromServiceCredential).
+func (f *AgentFactory) BuildFromTyped(cfg *service.AgentConfig, cred credential.Credential) (agent.Agent, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("agent_factory: agent config is nil")
+	}
+	if cred == nil {
+		return nil, fmt.Errorf("agent_factory: credential is nil")
+	}
+
+	// Extract api key from common typed credential shapes via ToData (or direct type assertions for speed).
+	data := cred.ToData()
+	apiKey, _ := data["api_key"].(string)
+	if apiKey == "" {
+		// fallback for any credential that puts the key under different key
+		if k, ok := data["key"].(string); ok {
+			apiKey = k
+		}
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("agent_factory: could not extract api_key from typed credential")
+	}
+
+	provider := cred.Provider()
+	modelName := ""
+	if cfg.ModelID != "" {
+		_, m := parseModelID(cfg.ModelID, provider)
+		modelName = m
+	}
+
+	builder, ok := f.modelBuilders[provider]
+	if !ok {
+		// last chance: try using the Provider() directly as key if registered
+		builder, ok = f.modelBuilders[cred.Provider()]
+	}
+	if !ok {
+		return nil, fmt.Errorf("agent_factory: unsupported provider %q from typed credential", provider)
+	}
+
+	baseURL := ""
+	if cfg.Metadata != nil {
+		if u, _ := cfg.Metadata["base_url"].(string); u != "" {
+			baseURL = u
+		}
+	}
+	if bu, _ := data["base_url"].(string); baseURL == "" && bu != "" {
+		baseURL = bu
 	}
 
 	chatModel, err := builder(apiKey, modelName, baseURL)

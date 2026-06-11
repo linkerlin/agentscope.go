@@ -52,18 +52,27 @@ type Schedule struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
+// ChatModelConfig mirrors the Python ChatModelConfig used in Session/Schedule records.
+// It links a credential (by id) to a specific model + parameters.
+type ChatModelConfig struct {
+	Type         string         `json:"type"`          // e.g. "openai", "anthropic"
+	CredentialID string         `json:"credential_id"` // references a persisted credential
+	Model        string         `json:"model"`
+	Parameters   map[string]any `json:"parameters,omitempty"`
+}
+
 // AgentConfig represents the persisted configuration of an agent.
 type AgentConfig struct {
-	ID          string         `json:"id"`
-	UserID      string         `json:"user_id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	SystemPrompt string        `json:"system_prompt,omitempty"`
-	ModelID     string         `json:"model_id"`
-	ToolIDs     []string       `json:"tool_ids,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	ID           string         `json:"id"`
+	UserID       string         `json:"user_id"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description,omitempty"`
+	SystemPrompt string         `json:"system_prompt,omitempty"`
+	ModelID      string         `json:"model_id"`
+	ToolIDs      []string       `json:"tool_ids,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 // Credential stores an encrypted API key for a model provider.

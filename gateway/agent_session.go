@@ -247,5 +247,27 @@ func (s *Server) buildSessionAgentFromStorage(ctx context.Context, agentID, sess
 	if err != nil {
 		return nil, err
 	}
-	return s.registry.factory.BuildSessionAgent(cfg, matched, sw, SessionAgentDeps{})
+
+	deps := SessionAgentDeps{}
+	// Merge server-level auto-assembled defaults (from NewApp with AutoStandardTools etc.)
+	if s != nil {
+		defaults := s.DefaultSessionDeps()
+		if len(defaults.ExtraTools) > 0 {
+			deps.ExtraTools = defaults.ExtraTools
+		}
+		if defaults.ToolOffload != nil {
+			deps.ToolOffload = defaults.ToolOffload
+		}
+		if defaults.PermissionMode != "" {
+			deps.PermissionMode = defaults.PermissionMode
+		}
+		if defaults.ScheduleMgr != nil {
+			deps.ScheduleMgr = defaults.ScheduleMgr
+		}
+		if defaults.TaskStore != nil {
+			deps.TaskStore = defaults.TaskStore
+		}
+	}
+
+	return s.registry.factory.BuildSessionAgent(cfg, matched, sw, deps)
 }

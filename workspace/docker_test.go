@@ -210,6 +210,31 @@ func TestComputeImageTagDeterministic(t *testing.T) {
 	}
 }
 
+func TestRenderDockerfileFlavors(t *testing.T) {
+	cases := []struct {
+		flavor   string
+		contains []string
+	}{
+		{"pypi", []string{"FROM python", "pip install --no-cache-dir agentscope[full]"}},
+		{"src", []string{"FROM python", "install-src", "pip install"}},
+		{"node", []string{"FROM python", "nodejs", "agentscope[full]"}},
+		{"full", []string{"FROM python", "pip install", "HEALTHCHECK"}},
+		{"", []string{"FROM python", "pip install", "HEALTHCHECK"}}, // default
+	}
+
+	for _, c := range cases {
+		df := RenderDockerfile(DockerBuildConfig{
+			Flavor:         c.flavor,
+			PythonPackages: []string{"agentscope"},
+		})
+		for _, want := range c.contains {
+			if !strings.Contains(df, want) {
+				t.Errorf("flavor %q missing %q in:\n%s", c.flavor, want, df)
+			}
+		}
+	}
+}
+
 func TestHealthCheckWithRunner(t *testing.T) {
 	runner := func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		joined := strings.Join(arg, " ")

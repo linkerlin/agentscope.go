@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Agents - Studio</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui; margin: 1rem; }
+    .section { margin: 1rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 4px; }
+    form { margin: 0.5rem 0; }
+    input, textarea { width: 100%; margin-bottom: 0.3rem; }
+  </style>
+</head>
+<body>
+  <a href="/">← Back to Dashboard</a>
+  <h1>Agents (Auto-assembled)</h1>
+  <div style="background:#fff3cd;padding:0.5rem;margin-bottom:0.5rem;">
+    Demo tip: First <a href="/" onclick="event.preventDefault(); htmx.trigger('#demo-reg', 'click')">register a demo user</a> on the dashboard, then use the forms below. The created agents will automatically get rich tools in their sessions.
+  </div>
+  <button id="demo-reg" style="display:none" hx-post="/api/v1/auth/register" hx-vals='{"name":"studio-demo"}' hx-target="#demo-res">Register Demo</button>
+  <div id="demo-res"></div>
+  <p>Agents created here will have sessions with <strong>auto tools</strong> (workspace, tasks with auto in-mem store, web, json, etc.) thanks to AutoStandardTools + WorkspaceBaseDir in the running server.</p>
+
+  <div class="section">
+    <h3>Create Agent (auto tools will apply to its sessions)</h3>
+    <input id="new-agent-name" type="text" placeholder="Agent name" value="AutoToolAgent">
+    <textarea id="new-agent-prompt" rows="2">You are a helpful assistant with automatic access to workspace tools, task management (auto in-mem store), web/json etc.</textarea>
+    <button onclick="createDemoAgent()">Create Agent (demo)</button>
+    <div id="create-result"></div>
+  </div>
+
+  <script>
+    async function createDemoAgent() {
+      const name = document.getElementById('new-agent-name').value || 'demo';
+      const prompt = document.getElementById('new-agent-prompt').value || 'You are helpful.';
+      const body = { name: name, system_prompt: prompt, model_id: 'openai/gpt-4o-mini' };
+      const res = await fetch('/api/v1/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Demo-User': 'studio-demo' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.text();
+      document.getElementById('create-result').innerHTML = 'Created: ' + data + ' (sessions now have auto tools)';
+      // auto refresh list if possible
+      if (window.htmx) htmx.trigger(document.getElementById('agent-list'), 'refresh');
+    }
+  </script>
+
+  <div class="section">
+    <h3>Agent List (click 'Use in Chat' to set for demo chat below; auto tools apply to sessions)</h3>
+    <button onclick="refreshAgents()">Refresh List</button>
+    <div id="agent-list">Click refresh (demo header auto if registered).</div>
+  </div>
+
+  <script>
+    let agentsCache = [];
+    async function refreshAgents() {
+      const res = await fetch('/api/v1/agents', { headers: { 'X-Demo-User': 'studio-demo' } });
+      const data = await res.json();
+      agentsCache = data.agents || data || [];
+      const div = document.getElementById('agent-list');
+      if (!agentsCache.length) {
+        div.innerHTML = 'No agents. Create one above.';
+        return;
+      }
+      let html = '<table border="1" style="width:100%"><tr><th>ID</th><th>Name</th><th>Actions</th></tr>';
+      agentsCache.forEach(a => {
+        const id = a.id || a.ID;
+        const name = a.data ? a.data.name : (a.name || 'n/a');
+        html += `<tr><td>${id}</td><td>${name}</td><td>
+          <button onclick="useAgentInChat('${id}')">Use in Chat</button>
+          <button onclick="deleteAgent('${id}', this)">Delete</button>
+        </td></tr>`;
+      });
+      html += '</table>';
+      div.innerHTML = html;
+    }
+    async function deleteAgent(id, btn) {
+      if (!confirm('Delete agent ' + id + '?')) return;
+      await fetch('/api/v1/agents/' + id, { method: 'DELETE', headers: { 'X-Demo-User': 'studio-demo' } });
+      btn.closest('tr').remove();
+    }
+    function useAgentInChat(id) {
+      const agentInput = document.getElementById('agent-id');
+      if (agentInput) agentInput.value = id;
+      alert('Agent ID set to ' + id + ' for chat demo. Go to /chat and send message to see auto tools in action (e.g. list workspace).');
+      window.location.hash = 'chat';
+    }
+    // auto refresh on load for demo
+    setTimeout(() => { const b = document.querySelector('#agent-list'); if (b) refreshAgents(); }, 500);
+  </script>
+
+  <script>
+    // Simple helper: after create, auto refresh list
+    document.body.addEventListener('htmx:afterOnLoad', function(evt) {
+      if (evt.detail.elt.id === 'create-result') {
+        htmx.trigger('#agent-list', 'refresh');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -43,6 +43,8 @@ const (
 	MemoryTypeProcedural MemoryType = "procedural"
 	MemoryTypeTool       MemoryType = "tool"
 	MemoryTypeSummary    MemoryType = "summary"
+	MemoryTypeHistory    MemoryType = "history"
+	MemoryTypeIdentity   MemoryType = "identity"
 )
 
 // MemoryNode 向量记忆节点

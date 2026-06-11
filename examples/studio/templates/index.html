@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.5; }
+    .card { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
+    nav a { margin-right: 1rem; }
+    .note { background: #f8f8f8; padding: .5rem 1rem; border-left: 4px solid #4a90e2; }
+  </style>
+</head>
+<body>
+  <h1>{{.Title}}</h1>
+  <nav>
+    <a href="/">Dashboard (Auto Demo)</a>
+    <a href="/credentials">Credentials</a>
+    <a href="/agents">Agents</a>
+    <a href="/schedules">Schedules</a>
+    <a href="/chat">Chat Demo</a>
+    <a href="/api/v1/agents" target="_blank">Agents API</a>
+    <a href="/api/v1/credentials/schemas" target="_blank">Schemas JSON</a>
+  </nav>
+
+  <div class="card">
+    <p>{{.Note}}</p>
+    <p><strong>已实现 (Phase 1+2)</strong>：typed Credential + schemas 端点 + 强自动装配（AutoStandardTools、auto TaskStore、WorkspaceManager、Schedule restore、ToolOffload、默认权限）。</p>
+    <p>此 Studio 使用纯 Go + HTMX 实现（用户选择的轻量路线），无需 Node.js。启动时使用了 NewApp + Auto* 标志，因此本服务器上的 agent 会自动获得丰富工具。</p>
+  </div>
+
+  <div class="card" style="background:#f0f8ff">
+    <h3>🚀 自动装配 (Auto-Assembly) 效果演示</h3>
+    <p>因为本 Studio 使用了 <code>AutoStandardTools: true</code> + <code>WorkspaceBaseDir</code> + <code>AutoToolOffload</code> 等：</p>
+    <ul>
+      <li><strong>Workspace</strong>：每个 session 自动获得隔离的工作目录（文件读写、list、shell 受限）。</li>
+      <li><strong>Standard Tools</strong>（自动 + 内部 auto in-memory TaskStore）：
+        <ul>
+          <li>文件：view_text_file, list_directory, write_text_file, edit_text_file, insert_text_file, glob, grep</li>
+          <li>Web：web_fetch</li>
+          <li>JSON：json_parse, json_query</li>
+          <li>Task：TaskCreate / TaskGet / TaskList / TaskUpdate （使用自动创建的内存 TaskStore）</li>
+          <li>Schedule：ScheduleCreate/List/Stop/View （当 ScheduleMgr 可用时）</li>
+        </ul>
+      </li>
+      <li><strong>Tool Offload</strong>：长耗时工具自动后台化 + Hint 注入恢复上下文。</li>
+      <li><strong>Schedule Restore</strong>：持久化 schedule 重启后自动恢复（通过 BTM.Start + loadPersistedSchedules）。</li>
+      <li><strong>Permission</strong>：默认 Explore 模式 + 合理规则（写操作 ask，读允许）。</li>
+    </ul>
+    <p>动态创建的 agent/session 会自动获得以上能力。使用下方导航尝试 <a href="/agents">Agents</a> → 创建 → <a href="/chat">Chat Demo</a> 来测试自动工具。</p>
+  </div>
+
+  <div class="card">
+    <h3>快速 Demo 设置 (for auto-assembly demo)</h3>
+    <button onclick="demoRegister()">Demo Register (获取 studio-demo user)</button>
+    <div id="demo-login-result"></div>
+    <p>点击注册后，HTMX API 调用 (agents/schedules) 将尝试使用 demo。 对于完整体验，见 production/full_service + 真实 JWT。</p>
+    <script>
+      let demoUser = null;
+      async function demoRegister() {
+        const res = await fetch('/api/v1/auth/register', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: 'studio-demo'})});
+        const data = await res.json();
+        demoUser = data.user_id || 'studio-demo';
+        document.getElementById('demo-login-result').innerHTML = 'Demo user: ' + demoUser + ' (use in calls)';
+        // Set global htmx header for subsequent calls (if backend respects X-User-ID or similar for demo)
+        if (window.htmx) {
+          htmx.config.headers = htmx.config.headers || {};
+          htmx.config.headers['X-Demo-User'] = demoUser;
+        }
+      }
+    </script>
+  </div>
+
+  <div class="card">
+    <h3>快速开始</h3>
+    <ol>
+      <li>确保设置了 OPENAI_API_KEY 和 JWT_SECRET（可选）。</li>
+      <li>访问 <a href="/credentials">/credentials</a> 查看由 schemas 驱动的动态凭证表单。</li>
+      <li>通过注册/登录（/api/v1/auth/*）获得 JWT 后可使用受保护的 CRUD。</li>
+    </ol>
+  </div>
+
+  <p style="color:#666;font-size:0.9em">AgentScope Go — 逐步追赶 Python 参考实现（已批准的研发计划正在执行中）。</p>
+</body>
+</html>

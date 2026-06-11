@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Schedules - Studio</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui; margin: 1rem; }
+    .section { margin: 1rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <a href="/">← Back to Dashboard</a>
+  <h1>Schedules (with Auto Restore)</h1>
+  <div style="background:#fff3cd;padding:0.5rem;margin-bottom:0.5rem;">
+    Demo: Schedules are persisted via auto BTM. Register demo user from Dashboard first for API calls.
+  </div>
+  <p>Schedules created here are persisted. Thanks to auto BackgroundTaskManager + schedule restore on startup, they will survive server restarts (see full_service and production examples).</p>
+
+  <div class="section">
+    <h3>Create Schedule (Demo - persisted, auto restored on restart)</h3>
+    <input id="sched-name" type="text" value="Demo Auto Tool Schedule">
+    <input id="sched-agent" type="text" placeholder="agent_id (use one from /agents)" value="demo-agent-1">
+    <input id="sched-cron" type="text" value="*/5 * * * *">
+    <textarea id="sched-payload">Perform a workspace check using your auto tools.</textarea>
+    <button onclick="createDemoSchedule()">Create Schedule (demo)</button>
+    <div id="sched-result"></div>
+  </div>
+
+  <script>
+    async function createDemoSchedule() {
+      const body = {
+        name: document.getElementById('sched-name').value,
+        agent_id: document.getElementById('sched-agent').value,
+        cron_expr: document.getElementById('sched-cron').value,
+        payload: document.getElementById('sched-payload').value
+      };
+      const res = await fetch('/api/v1/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Demo-User': 'studio-demo' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.text();
+      document.getElementById('sched-result').innerHTML = 'Schedule created (will auto-restore): ' + data;
+    }
+  </script>
+
+  <div class="section">
+    <h3>Schedule List (auto restored on restart via BTM)</h3>
+    <button onclick="refreshSchedules()">Refresh Schedules</button>
+    <div id="sched-list"></div>
+  </div>
+
+  <script>
+    async function refreshSchedules() {
+      const res = await fetch('/api/v1/schedules', { headers: { 'X-Demo-User': 'studio-demo' } });
+      const data = await res.json();
+      const schedules = data.schedules || data || [];
+      const div = document.getElementById('sched-list');
+      if (!schedules.length) {
+        div.innerHTML = 'No schedules. Create one above (persisted).';
+        return;
+      }
+      let html = '<table border="1" style="width:100%"><tr><th>ID</th><th>Name</th><th>Cron</th><th>Agent</th><th>Actions</th></tr>';
+      schedules.forEach(s => {
+        const id = s.id || s.ID;
+        const name = s.data ? s.data.name : (s.name || 'n/a');
+        const cron = s.data ? s.data.cron_expression : (s.cron_expr || '');
+        const agent = s.agent_id || s.AgentID || '';
+        html += `<tr><td>${id}</td><td>${name}</td><td>${cron}</td><td>${agent}</td><td>
+          <button onclick="deleteSchedule('${id}', this)">Delete</button>
+        </td></tr>`;
+      });
+      html += '</table>';
+      div.innerHTML = html;
+    }
+    async function deleteSchedule(id, btn) {
+      if (!confirm('Delete schedule?')) return;
+      await fetch('/api/v1/schedules/' + id, { method: 'DELETE', headers: { 'X-Demo-User': 'studio-demo' } });
+      btn.closest('tr').remove();
+    }
+    setTimeout(() => { const b = document.querySelector('#sched-list'); if (b) refreshSchedules(); }, 600);
+  </script>
+</body>
+</html>

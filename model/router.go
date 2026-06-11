@@ -11,8 +11,8 @@ import (
 
 // Router wraps one or more ChatModels with retry, fallback, and circuit-breaker logic.
 type Router struct {
-	primary   ChatModel
-	fallback  ChatModel
+	primary    ChatModel
+	fallback   ChatModel
 	maxRetries int
 	backoff    time.Duration
 }
@@ -121,8 +121,5 @@ func IsRetryable(err error) bool {
 		return false
 	}
 	var re *RetryableError
-	if errors.As(err, &re) {
-		return true
-	}
-	return false
+	return errors.As(err, &re)
 }

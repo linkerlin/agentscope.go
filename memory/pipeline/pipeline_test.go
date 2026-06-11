@@ -12,7 +12,7 @@ type mockStep struct {
 	executed *bool
 }
 
-func (m *mockStep) Name() string                           { return m.name }
+func (m *mockStep) Name() string                                    { return m.name }
 func (m *mockStep) Execute(_ context.Context, _ *FlowContext) error { *m.executed = true; return nil }
 
 func TestSeqExecutionOrder(t *testing.T) {

@@ -18,8 +18,9 @@ type Loop struct {
 }
 
 // NewLoop creates a loop workflow step.
-//   condition: returns true to continue looping.
-//   maxIter:   hard upper bound to prevent infinite loops (<=0 defaults to 10).
+//
+//	condition: returns true to continue looping.
+//	maxIter:   hard upper bound to prevent infinite loops (<=0 defaults to 10).
 func NewLoop(name string, body agent.Agent, condition func(*message.Msg) bool, maxIter int) *Loop {
 	if maxIter <= 0 {
 		maxIter = 10

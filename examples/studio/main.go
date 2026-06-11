@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
@@ -11,7 +12,9 @@ import (
 	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/embedding"
 	"github.com/linkerlin/agentscope.go/gateway"
+	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model/openai"
+	"github.com/linkerlin/agentscope.go/observability"
 	"github.com/linkerlin/agentscope.go/service"
 )
 
@@ -23,7 +26,8 @@ var templatesFS embed.FS
 // and serves as the foundation for the full pure-Go Studio (Phase 4).
 //
 // Run:
-//   OPENAI_API_KEY=sk-... JWT_SECRET=dev go run ./examples/studio
+//
+//	OPENAI_API_KEY=sk-... JWT_SECRET=dev go run ./examples/studio
 //
 // Then open http://localhost:8081
 //
@@ -56,15 +60,29 @@ func main() {
 		IncludeTask:     true,
 		IncludeSchedule: false,
 	})
+
+	// Phase 5: add tracing middleware demo in studio too
+	tracingMW := &observability.TracingMiddlewareAdapter{
+		Tracer: observability.NoopTracer,
+		Name:   "StudioDemo",
+	}
+
 	agent, err := react.Builder().
 		Name("StudioDemo").
 		SysPrompt("You are a helpful assistant in the AgentScope Go Studio demo with access to auto tools (workspace, tasks, web, json). Try commands that trigger tools.").
 		Model(model).
 		Tools(demoTools...).
+		Middlewares(tracingMW).
 		Build()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Phase 5 demo: RecordingTracer to show traced spans (visible in console before server start)
+	rec := &observability.RecordingTracer{}
+	demoTraced := observability.NewTracedAgent("studio-phase5-demo", agent).WithTracer(rec)
+	_, _ = demoTraced.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("studio tracing demo").Build())
+	fmt.Println("Phase 5 tracing demo recorded spans in studio:", rec.Spans)
 
 	// Storage + Auth
 	storage := service.NewMemoryStorage()

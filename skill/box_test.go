@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,7 +128,7 @@ func TestLoadSkillTool_Execute(t *testing.T) {
 	r.Register(s)
 	lt := newLoadSkillTool(r)
 
-	resp, err := lt.Execute(nil, map[string]any{"skill_id": s.SkillID(), "path": "SKILL.md"})
+	resp, err := lt.Execute(context.TODO(), map[string]any{"skill_id": s.SkillID(), "path": "SKILL.md"})
 	if err != nil {
 		t.Fatal(err)
 	}

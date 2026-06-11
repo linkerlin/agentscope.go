@@ -12,8 +12,8 @@ import (
 // OTelMiddleware wraps an HTTP handler with OpenTelemetry tracing and metrics.
 // It records request latency, count, and status code.
 type OTelMiddleware struct {
-	tracer     trace.Tracer
-	reqCounter metric.Int64Counter
+	tracer      trace.Tracer
+	reqCounter  metric.Int64Counter
 	reqDuration metric.Float64Histogram
 }
 

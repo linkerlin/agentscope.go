@@ -527,6 +527,8 @@ func (a *ReActAgent) runModelStream(
 }
 
 // executeToolsStream executes tool calls concurrently and emits ToolResult* events.
+//
+//nolint:unparam
 func (a *ReActAgent) executeToolsStream(
 	ctx context.Context,
 	history []*message.Msg,
@@ -596,15 +598,15 @@ func (a *ReActAgent) executeToolsStream(
 	}
 
 	type result struct {
-		blocks      []message.ContentBlock
-		resultMsg   *message.Msg
-		toolName    string
-		toolInput   map[string]any
-		toolCallID  string
-		tcr         memory.ToolCallResult
-		hasTcr      bool
-		elapsed     float64
-		err         error
+		blocks     []message.ContentBlock
+		resultMsg  *message.Msg
+		toolName   string
+		toolInput  map[string]any
+		toolCallID string
+		tcr        memory.ToolCallResult
+		hasTcr     bool
+		elapsed    float64
+		err        error
 	}
 
 	results := make([]result, len(toolCalls))

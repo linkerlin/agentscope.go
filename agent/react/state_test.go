@@ -16,7 +16,7 @@ func TestReActAgentStateRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &ReActAgent{
-		Base: agent.NewBase("aid", "n", "d", "sys", map[string]any{"k": 1}, nil, nil),
+		Base:          agent.NewBase("aid", "n", "d", "sys", map[string]any{"k": 1}, nil, nil),
 		maxIterations: 7,
 		memory:        memory.NewInMemoryMemory(),
 	}
@@ -36,7 +36,6 @@ func TestReActAgentStateRoundTrip(t *testing.T) {
 		t.Fatalf("meta %#v", b.Base.Meta)
 	}
 }
-
 
 func TestAgentState_StateType(t *testing.T) {
 	st := AgentState{}

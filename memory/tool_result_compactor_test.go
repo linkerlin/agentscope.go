@@ -67,7 +67,6 @@ func TestToolResultCompactorNil(t *testing.T) {
 	}
 }
 
-
 func TestToolResultCompactorDefaults(t *testing.T) {
 	c := NewToolResultCompactor("/tmp/tool", 0, 0, 0)
 	if c.recentMax != 100*1024 || c.oldMax != 3000 || c.retentionDays != 3 {

@@ -18,8 +18,9 @@ type MultimodalRouter struct {
 }
 
 // NewMultimodalRouter creates a router.
-//   defaultModel: used when no media content is detected.
-//   visionModel:  used when any message contains ImageBlock, AudioBlock, or VideoBlock.
+//
+//	defaultModel: used when no media content is detected.
+//	visionModel:  used when any message contains ImageBlock, AudioBlock, or VideoBlock.
 func NewMultimodalRouter(defaultModel, visionModel ChatModel) *MultimodalRouter {
 	return &MultimodalRouter{
 		defaultModel: defaultModel,

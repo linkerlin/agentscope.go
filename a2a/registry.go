@@ -11,10 +11,10 @@ import (
 
 // RegistryEntry wraps an AgentCard with discovery metadata.
 type RegistryEntry struct {
-	Card      AgentCard `json:"card"`
+	Card         AgentCard `json:"card"`
 	DiscoveredAt time.Time `json:"discovered_at"`
-	LastSeen  time.Time `json:"last_seen"`
-	Healthy   bool      `json:"healthy"`
+	LastSeen     time.Time `json:"last_seen"`
+	Healthy      bool      `json:"healthy"`
 }
 
 // Registry maintains a dynamic set of discoverable A2A agents.

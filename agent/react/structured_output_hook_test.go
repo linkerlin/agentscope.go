@@ -20,7 +20,7 @@ func TestStructuredOutputHook_PreReasoning_ForcesToolChoice(t *testing.T) {
 	}
 	h.handlePreReasoning(e)
 
-	if e.ChatOpts == nil || len(e.ChatOpts) == 0 {
+	if len(e.ChatOpts) == 0 {
 		t.Fatal("expected ChatOpts to be set")
 	}
 	opts := &model.ChatOptions{}
@@ -189,7 +189,6 @@ func TestStructuredOutputHook_OnStreamEvent(t *testing.T) {
 		t.Fatal("expected goto reasoning from OnStreamEvent")
 	}
 }
-
 
 func TestStructuredOutputHook_collectMetadata_NoUsage(t *testing.T) {
 	h := NewStructuredOutputHook(ReminderPrompt, nil, nil)

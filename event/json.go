@@ -8,7 +8,7 @@ import (
 
 // rawEvent is used for deserialization to peek at event_type before
 // creating the concrete struct.
-type rawEvent struct {
+type rawEvent struct { //nolint:unused // used via reflection or future JSON handling
 	EventType string          `json:"event_type"`
 	Timestamp time.Time       `json:"timestamp"`
 	ReplyID   string          `json:"reply_id"`

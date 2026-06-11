@@ -39,7 +39,7 @@ func (s *JSONFileStorage) AddPlan(p *Plan) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return os.WriteFile(s.filePath(p.ID), data, 0o644)
+	return os.WriteFile(s.filePath(p.ID), data, 0o600)
 }
 
 // GetPlan reads a plan from its JSON file.

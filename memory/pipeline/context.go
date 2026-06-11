@@ -5,17 +5,17 @@ import "github.com/linkerlin/agentscope.go/memory"
 // FlowContext 在流水线步骤之间传递数据。
 // 每个步骤从 context 读取输入，将结果写回 context。
 type FlowContext struct {
-	Query          string
-	Messages       []interface{}
-	MemoryNodes    []*memory.MemoryNode
-	TopK           int
-	MinScore       float64
-	Threshold      float64
-	EnableLLMRerank   bool
-	EnableScoreFilter bool
-	EnableLLMRewrite  bool
+	Query               string
+	Messages            []interface{}
+	MemoryNodes         []*memory.MemoryNode
+	TopK                int
+	MinScore            float64
+	Threshold           float64
+	EnableLLMRerank     bool
+	EnableScoreFilter   bool
+	EnableLLMRewrite    bool
 	ValidationThreshold float64
-	SuccessThreshold   float64
+	SuccessThreshold    float64
 
 	// 由步骤填充的结果
 	RetrievedNodes []*memory.MemoryNode

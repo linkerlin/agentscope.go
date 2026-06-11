@@ -47,8 +47,8 @@ func (a *e2eAuthAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-cha
 	}()
 	return ch, nil
 }
-func (a *e2eAuthAgent) LoadState(state *agent.AgentState) error { return nil }
-func (a *e2eAuthAgent) SaveState() (*agent.AgentState, error)   { return nil, nil }
+func (a *e2eAuthAgent) LoadState(state *agent.AgentState) error                    { return nil }
+func (a *e2eAuthAgent) SaveState() (*agent.AgentState, error)                      { return nil, nil }
 func (a *e2eAuthAgent) InjectEvent(ctx context.Context, ev event.AgentEvent) error { return nil }
 
 var _ agent.V2Agent = (*e2eAuthAgent)(nil)
@@ -234,10 +234,10 @@ func TestE2E_AGUI_ProtocolWithContentNegotiation(t *testing.T) {
 	user := &service.User{ID: "u-agui", Name: "tester"}
 	storage.SaveUser(ctx, user)
 	cred := &service.Credential{
-		ID:       "c-agui",
-		UserID:   "u-agui",
-		Provider: "api_key",
-		Label:    "default",
+		ID:        "c-agui",
+		UserID:    "u-agui",
+		Provider:  "api_key",
+		Label:     "default",
 		Encrypted: "test-api-key-xyz",
 	}
 	storage.SaveCredential(ctx, cred)

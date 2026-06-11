@@ -111,7 +111,7 @@ func (m *OpenAITTS) SynthesizeSpeech(ctx context.Context, text string, opts Audi
 	if err != nil {
 		return nil, fmt.Errorf("openai_tts: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -137,7 +137,7 @@ func (m *OpenAITTS) TranscribeSpeech(ctx context.Context, audio []byte, opts Aud
 		_ = w.WriteField("language", opts.Language)
 	}
 	_ = w.WriteField("response_format", "json")
-	w.Close()
+	_ = w.Close()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", m.baseURL+"/audio/transcriptions", &buf)
 	if err != nil {
@@ -150,7 +150,7 @@ func (m *OpenAITTS) TranscribeSpeech(ctx context.Context, audio []byte, opts Aud
 	if err != nil {
 		return "", fmt.Errorf("openai_tts: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

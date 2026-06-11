@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] / 追赶 Python v2 工作 (2026-06)
 
+### Added — Phase 5: 追踪、文档、测试、发布
+- **Tracing middleware 对齐**：增强 `TracingMiddlewareAdapter` (支持更多 OnCall/OnResult 集成)，添加使用示例。参考 Python `middleware/_tracing/`。
+- 在 `examples/full_service` 中集成 `observability.NewTracedAgent` 演示 tracing + auto-assembly 组合。
+- 补充测试：tracing adapter、embedding providers/cache、observability。
+- 文档全面更新：README（新增 tracing middleware 章节）、CHANGELOG、AGENTS.md（架构+模块表）、DEV_PLAN_CATCHUP.md、tutorial.md（新增 tracing 小节）、deployment.md（生产 tracing 示例）、concepts.md、index.md。突出 Phase 5 tracing、auto bootstrap、embedding、Studio。
+- 保持全量 `-race` 测试通过，构建验证。
+
 ### Added — 高层自动装配与生产级 bootstrap (Phase 1-2)
 - `gateway/app.go` + `AppConfig`：`NewApp(cfg)` 一键装配 Storage、SessionManager、BackgroundTaskManager (含 schedule 自动 restore on Start)、WorkspaceManager (by WorkspaceBaseDir)、ToolOffload、默认 StandardTools 注入。
 - 自动 `StandardTools` + `AutoStandardTools` / `AutoToolOffload` / `EmbeddingCacheDir`：为 static agent 和动态 per-session agents 自动提供 file/task/web/json + permission + cache。
@@ -38,6 +45,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `AppConfig` / `NewApp` 成为推荐高层入口，显著降低“生产级 Agent Service”搭建门槛，接近 Python `create_app` + lifespan 体验。
 - Embedding 成为一等公民包。
+
+### Added — Phase 6: 对齐 ./evolver/ GEP 自演化优势 (进入新阶段)
+- 新 `evolver/` 包（types + client + flow）：
+  - `types.go`：Gene/Capsule/Task 等完整 Go 结构体 + Create/Validate（严格对齐 evolver/src/gep/schemas/gene.js, capsule.js, task.js + 实时 MCP 基因样本 + seed）。
+  - 支持 category (repair/optimize/innovate/explore)、constraints、blast_radius、routing_hint、tool_policy、epigenetic、skill2gep source 等。
+  - `client.go`：Evolver 接口（list/upsert/run/reflect/solidify/remember/recall/meeting/claim/complete/stats/safety）。MockEvolver（预加载真实基因）、RecordingEvolver（调用记录，对齐 Phase5 tracing）。
+  - `gep.go`：NewGEPFlow + RunAndSolidify（完整 run→reflect→solidify 闭环）、DistillSkillToGene（skill2gep 风格）。
+- `skill/skill.go`：AgentSkill.DistillToGene 一行委托（将 ad-hoc skill 蒸馏为可演化 Gene）。
+- `memory/reme_types.go`：新增 MemoryTypeGene/Capsule/EvoEvent（支持 narrativeMemory / gene 记忆图风格）。
+- `gateway/app.go`：AppConfig.EvolverEnabled 提示（通过现有 MCP 网关即可让 agent 调用 evolver 全部工具）。
+- `examples/evolver/main.go`：可独立运行完整 demo，展示 GEP 闭环、distill、recall、meeting、recording calls、与 ReMe 结合。
+- 验证：`go build ./...`、`go test ./evolver -race`、`go run ./examples/evolver` 全绿；输出清晰打印 signals/gene/capsule/distilled/recall 等。
+- 文档/计划同步：DEV_PLAN_CATCHUP 新 Phase 6 详尽章节（含优势列表、互补策略、API 示例）；本 CHANGELOG；后续将更新 README/AGENTS/docs。
+
+**定位**：agentscope.go 现在不仅追上 Python v2 生产体验，还通过 evolver GEP 对齐获得了工业级“策略基因驱动的自演化”能力，同时保留轻量 Go 实现与强大 ReMe/a2a 优势。
 
 ## [2.0.0-rc.1] - 2026-06-10
 

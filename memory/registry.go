@@ -58,6 +58,6 @@ func (r *Registry[T]) Has(name string) bool {
 
 // 全局注册中心实例
 var (
-	VectorStores     = NewRegistry[VectorStore]()
-	EmbeddingModels  = NewRegistry[EmbeddingModel]()
+	VectorStores    = NewRegistry[VectorStore]()
+	EmbeddingModels = NewRegistry[EmbeddingModel]()
 )

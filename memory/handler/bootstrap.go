@@ -28,7 +28,7 @@ func BuildReMeVectorMemory(cfg *config.ReMeMemoryConfig, embed memory.EmbeddingM
 			store, err = memory.NewQdrantVectorStore(
 				cfg.VectorStore.Host, port,
 				cfg.VectorStore.Collection,
-				uint64(cfg.VectorStore.Dimension), embed,
+				uint64(cfg.VectorStore.Dimension), embed, //nolint:gosec // G115: Dimension is validated positive earlier, safe for demo vector dims
 			)
 		case "chroma":
 			store, err = memory.NewChromaVectorStore(

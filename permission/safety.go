@@ -1,9 +1,9 @@
 package permission
 
 import (
+	pathpkg "path"
 	"path/filepath"
 	"strings"
-	pathpkg "path"
 )
 
 // IsDangerousPath checks if a file path contains a sensitive file or directory.

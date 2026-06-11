@@ -14,12 +14,12 @@ import (
 
 // AgentCard describes the capabilities of an A2A agent.
 type AgentCard struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	URL         string            `json:"url"`
-	Version     string            `json:"version"`
-	Capabilities []string         `json:"capabilities,omitempty"`
-	Skills      []SkillInfo       `json:"skills,omitempty"`
+	Name         string      `json:"name"`
+	Description  string      `json:"description,omitempty"`
+	URL          string      `json:"url"`
+	Version      string      `json:"version"`
+	Capabilities []string    `json:"capabilities,omitempty"`
+	Skills       []SkillInfo `json:"skills,omitempty"`
 }
 
 // SkillInfo describes a skill exposed by the agent.
@@ -31,37 +31,37 @@ type SkillInfo struct {
 
 // Task represents an A2A task unit.
 type Task struct {
-	ID        string      `json:"id"`
-	Status    TaskStatus  `json:"status"`
-	Messages  []Message   `json:"messages"`
-	Artifacts []Artifact  `json:"artifacts,omitempty"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID        string     `json:"id"`
+	Status    TaskStatus `json:"status"`
+	Messages  []Message  `json:"messages"`
+	Artifacts []Artifact `json:"artifacts,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // TaskStatus indicates the lifecycle state of a task.
 type TaskStatus string
 
 const (
-	TaskStatusSubmitted  TaskStatus = "submitted"
-	TaskStatusWorking    TaskStatus = "working"
+	TaskStatusSubmitted     TaskStatus = "submitted"
+	TaskStatusWorking       TaskStatus = "working"
 	TaskStatusInputRequired TaskStatus = "input-required"
-	TaskStatusCompleted  TaskStatus = "completed"
-	TaskStatusFailed     TaskStatus = "failed"
-	TaskStatusCanceled   TaskStatus = "canceled"
+	TaskStatusCompleted     TaskStatus = "completed"
+	TaskStatusFailed        TaskStatus = "failed"
+	TaskStatusCanceled      TaskStatus = "canceled"
 )
 
 // Artifact represents an output artifact produced by the agent.
 type Artifact struct {
-	Name    string         `json:"name,omitempty"`
-	Parts   []Message      `json:"parts"`
+	Name     string         `json:"name,omitempty"`
+	Parts    []Message      `json:"parts"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // TaskUpdateRequest is the payload for sending a message to a task.
 type TaskUpdateRequest struct {
-	ID       string    `json:"id"`
-	Message  *Message  `json:"message,omitempty"`
+	ID       string         `json:"id"`
+	Message  *Message       `json:"message,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
@@ -120,10 +120,10 @@ type StreamingAgentRunner interface {
 
 // Server is the minimal A2A HTTP server.
 type Server struct {
-	card    AgentCard
-	runner  AgentRunner
-	store   TaskStore
-	mux     *http.ServeMux
+	card   AgentCard
+	runner AgentRunner
+	store  TaskStore
+	mux    *http.ServeMux
 }
 
 // NewServer creates an A2A HTTP server.

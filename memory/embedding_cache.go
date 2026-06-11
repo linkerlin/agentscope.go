@@ -1,8 +1,8 @@
 package memory
 
 import (
-	"context"
 	"container/list"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -108,7 +108,7 @@ func (c *EmbeddingCache) SaveToDisk() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.diskPath, data, 0o644)
+	return os.WriteFile(c.diskPath, data, 0o600) //nolint:gosec // G306: cache file, 0600 for safety
 }
 
 // Embed 单条嵌入（带缓存）

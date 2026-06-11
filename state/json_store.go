@@ -42,7 +42,7 @@ func (s *JSONStore) Save(key string, value State) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return os.WriteFile(s.filePath(key), data, 0o644)
+	return os.WriteFile(s.filePath(key), data, 0o600)
 }
 
 // Get 从磁盘读取并反序列化到 dest（dest 须为指向具体类型的指针，且实现 State）

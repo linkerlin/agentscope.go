@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
 	goopenai "github.com/sashabaranov/go-openai"
 
 	"github.com/linkerlin/agentscope.go/message"

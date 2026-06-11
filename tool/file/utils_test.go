@@ -32,10 +32,10 @@ func TestValidatePath(t *testing.T) {
 
 func TestParseRanges(t *testing.T) {
 	cases := []struct {
-		in        string
-		expStart  int
-		expEnd    int
-		expOk     bool
+		in       string
+		expStart int
+		expEnd   int
+		expOk    bool
 	}{
 		{"1,5", 1, 5, true},
 		{"[1,5]", 1, 5, true},

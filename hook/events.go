@@ -43,9 +43,9 @@ type BaseEvent struct {
 	Iteration int
 }
 
-func (e BaseEvent) EventType() EventType   { return e.Type }
+func (e BaseEvent) EventType() EventType { return e.Type }
 func (e BaseEvent) Timestamp() time.Time { return e.Ts }
-func (e BaseEvent) AgentName() string      { return e.Agent }
+func (e BaseEvent) AgentName() string    { return e.Agent }
 
 // PreReasoningEvent 模型推理前（可携带将送入模型的历史快照）
 type PreReasoningEvent struct {

@@ -156,7 +156,6 @@ func TestFTSIndexDBFileCreated(t *testing.T) {
 	}
 }
 
-
 func TestFTSIndexNilClose(t *testing.T) {
 	var idx *FTSIndex
 	if err := idx.Close(); err != nil {

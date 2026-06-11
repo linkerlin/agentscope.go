@@ -263,8 +263,8 @@ type thinkingOpts struct {
 }
 
 type responseBody struct {
-	ID     string        `json:"id"`
-	Output []outputItem  `json:"output"`
+	ID     string         `json:"id"`
+	Output []outputItem   `json:"output"`
 	Usage  *responseUsage `json:"usage,omitempty"`
 }
 
@@ -429,8 +429,8 @@ func (m *OpenAIResponseModel) parseStream(r io.Reader, ch chan<- *model.StreamCh
 }
 
 type streamEvent struct {
-	Type     string       `json:"type"`
-	Delta    string       `json:"delta,omitempty"`
+	Type     string        `json:"type"`
+	Delta    string        `json:"delta,omitempty"`
 	Response *responseBody `json:"response,omitempty"`
 }
 

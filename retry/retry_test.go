@@ -46,7 +46,6 @@ func TestDoPermanent(t *testing.T) {
 	}
 }
 
-
 func TestDoExhausted(t *testing.T) {
 	ctx := context.Background()
 	n := 0

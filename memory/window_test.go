@@ -37,7 +37,6 @@ func msg(text string) *message.Msg {
 	return message.NewMsg().Role(message.RoleUser).TextContent(text).Build()
 }
 
-
 func TestWindowMemoryGetRecentAndSizeAndClear(t *testing.T) {
 	m := NewWindowMemory(WindowOptions{MaxMessages: 3})
 	_ = m.Add(msg("a"))

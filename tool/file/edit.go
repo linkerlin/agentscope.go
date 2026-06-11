@@ -102,7 +102,7 @@ func (e *EditFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 		if e.ws != nil {
 			return e.ws.WriteFile(ctx, path, data, 0o644)
 		}
-		return os.WriteFile(path, data, 0o644)
+		return os.WriteFile(path, data, 0o600) //nolint:gosec // G306: edit file, use 0600 for safety
 	}
 
 	data, err := readFile()

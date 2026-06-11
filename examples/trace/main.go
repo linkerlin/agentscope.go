@@ -54,6 +54,7 @@ func main() {
 		Model(chatModel).
 		StreamHooks(exporter).
 		Build()
+	// Phase 5 note: for agent-level tracing, combine with observability.TracedAgent or TracingMiddlewareAdapter (see full_service/studio)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -12,12 +12,12 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/embedding"
 	"github.com/linkerlin/agentscope.go/examples/shared/slowtool"
 	"github.com/linkerlin/agentscope.go/gateway"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/model/dashscope"
 	modelembed "github.com/linkerlin/agentscope.go/model/embedding"
-	memembed "github.com/linkerlin/agentscope.go/memory/embedding"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/schedule"
 	"github.com/linkerlin/agentscope.go/service"
@@ -35,10 +35,10 @@ import (
 const defaultAgentID = "MultiTenantAgent"
 
 type agentDeps struct {
-	taskStore    *state.TaskStore
-	scheduleMgr  scheduletool.Manager
-	taskStop     tool.Tool
-	toolOffload  *gateway.ToolOffloadManager
+	taskStore     *state.TaskStore
+	scheduleMgr   scheduletool.Manager
+	taskStop      tool.Tool
+	toolOffload   *gateway.ToolOffloadManager
 	slowDemoDelay time.Duration
 }
 
@@ -289,18 +289,13 @@ func resolveEmbeddingModel() model.EmbeddingModel {
 		return modelembed.NewOllamaEmbedder(url, envOr("EMBEDDING_MODEL", "nomic-embed-text"), dim).AsModel()
 	}
 	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		dim := 1536
-		if d := os.Getenv("EMBEDDING_DIMENSIONS"); d != "" {
-			if v, err := parsePositiveInt(d); err == nil {
-				dim = v
-			}
+		modelName := envOr("EMBEDDING_MODEL", "text-embedding-3-small")
+		emb := embedding.NewOpenAIWithBaseURL(key, envOr("EMBEDDING_BASE_URL", ""), modelName)
+		// Optional file cache for production (recommended)
+		if cacheDir := envOr("EMBEDDING_CACHE_DIR", ""); cacheDir != "" {
+			emb = embedding.WithFileCache(emb, cacheDir)
 		}
-		embedder := memembed.NewOpenAIEmbedderWithBaseURL(
-			key,
-			envOr("EMBEDDING_BASE_URL", ""),
-			envOr("EMBEDDING_MODEL", ""),
-		)
-		return embedder.AsModel(dim)
+		return emb
 	}
 	return nil
 }

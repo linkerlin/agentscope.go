@@ -37,7 +37,7 @@ type Span interface {
 // noopSpan is used when no tracer is configured.
 type noopSpan struct{}
 
-func (noopSpan) End()             {}
+func (noopSpan) End()              {}
 func (noopSpan) RecordError(error) {}
 
 // Tracer is a minimal tracer abstraction used by TracedAgent.

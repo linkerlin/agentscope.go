@@ -9,16 +9,16 @@ import (
 type Type string
 
 const (
-	TypeOpenAI      Type = "openai"
-	TypeAnthropic   Type = "anthropic"
-	TypeGemini      Type = "gemini"
-	TypeDashScope   Type = "dashscope"
-	TypeDeepSeek    Type = "deepseek"
-	TypeMoonshot    Type = "moonshot"
-	TypeXAI         Type = "xai"
-	TypeOllama      Type = "ollama"
-	TypeOpenAIResp  Type = "openai_response" // for Responses API creds if needed
-	TypeVLLM        Type = "vllm"
+	TypeOpenAI     Type = "openai"
+	TypeAnthropic  Type = "anthropic"
+	TypeGemini     Type = "gemini"
+	TypeDashScope  Type = "dashscope"
+	TypeDeepSeek   Type = "deepseek"
+	TypeMoonshot   Type = "moonshot"
+	TypeXAI        Type = "xai"
+	TypeOllama     Type = "ollama"
+	TypeOpenAIResp Type = "openai_response" // for Responses API creds if needed
+	TypeVLLM       Type = "vllm"
 )
 
 // Credential is the interface implemented by all typed credentials.

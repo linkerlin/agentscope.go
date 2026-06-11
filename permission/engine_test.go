@@ -149,7 +149,6 @@ func TestMatchRegex(t *testing.T) {
 	}
 }
 
-
 func TestEngine_ModeAcceptEdits(t *testing.T) {
 	e := NewEngine(ModeAcceptEdits, nil)
 

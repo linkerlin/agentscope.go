@@ -42,12 +42,12 @@ func main() {
 
 	// Also generate a simple event-like JSON with nested source structure
 	raw := map[string]any{
-		"id":         "evt-go-001",
-		"type":       "text_block_delta",
-		"delta":      "hello",
+		"id":          "evt-go-001",
+		"type":        "text_block_delta",
+		"delta":       "hello",
 		"block_index": 0,
-		"reply_id":   "reply-001",
-		"timestamp":  "2024-01-01T00:00:00Z",
+		"reply_id":    "reply-001",
+		"timestamp":   "2024-01-01T00:00:00Z",
 	}
 	data2, _ := json.MarshalIndent(raw, "", "  ")
 	_ = os.WriteFile("tests/cross_lang/fixtures/go_event.json", data2, 0644)

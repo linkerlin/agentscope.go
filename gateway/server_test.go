@@ -151,7 +151,6 @@ func TestGateway_ChatStream_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-
 func TestGateway_Chat_MethodNotAllowed(t *testing.T) {
 	srv := NewServer(&mockAgent{name: "test"})
 	req := httptest.NewRequest(http.MethodGet, "/chat", nil)

@@ -7,13 +7,26 @@ import (
 	"github.com/linkerlin/agentscope.go/memory"
 )
 
+// Package embedding (memory/embedding) provides backward-compatible adapters
+// that implement memory.EmbeddingModel (single-text + batch []float32 API).
+//
+// Deprecated: Prefer the top-level "github.com/linkerlin/agentscope.go/embedding"
+// package for all new code. It provides NewOpenAI/NewOllama/NewGemini/NewDashScope +
+// WithFileCache and returns model.EmbeddingModel directly (used by gateway, studio, etc.).
+//
+// These adapters exist only to keep internal memory/* (ReMe, vector stores, caches)
+// and a few legacy tests working without breaking changes. They delegate to the
+// new package under the hood.
+
 // LocalEmbedder wraps the top-level embedding.NewOllama for self-hosted models.
-// This reduces duplication by delegating to the new embedding/ package.
+// Deprecated: use embedding.NewOllama + embedding.Model (or WithFileCache) instead.
 type LocalEmbedder struct {
 	inner embedding.Model
 }
 
 // NewLocalEmbedder creates an Ollama-backed local embedder (delegates to embedding.NewOllama).
+//
+// Deprecated: use embedding.NewOllama (top level) directly.
 func NewLocalEmbedder(endpoint, modelName string, dimension int) *LocalEmbedder {
 	m := embedding.NewOllama(endpoint, modelName, dimension)
 	return &LocalEmbedder{inner: m}

@@ -97,8 +97,8 @@ func TestServer_TaskGet_NotFound(t *testing.T) {
 }
 
 type mockStreamingRunner struct {
-	resp  *Message
-	err   error
+	resp   *Message
+	err    error
 	stream []string
 }
 
@@ -208,7 +208,6 @@ func TestServer_TaskSendSubscribe_StreamError(t *testing.T) {
 		t.Fatalf("expected status failed, got %s", task.Status)
 	}
 }
-
 
 func TestServer_Addr(t *testing.T) {
 	srv := NewServer(AgentCard{Name: "A", URL: "http://localhost:9090"}, &mockRunner{}, nil)

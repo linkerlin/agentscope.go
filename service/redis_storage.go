@@ -566,16 +566,16 @@ func (s *RedisStorage) ListSessionsBySchedule(ctx context.Context, userID, sched
 
 // --- key helpers ---
 
-func keyUser(id string) string        { return fmt.Sprintf("users:%s", id) }
-func keySession(id string) string     { return fmt.Sprintf("sessions:%s", id) }
+func keyUser(id string) string    { return fmt.Sprintf("users:%s", id) }
+func keySession(id string) string { return fmt.Sprintf("sessions:%s", id) }
 func keySessionsByUser(uid string) string {
 	return fmt.Sprintf("sessions_by_user:%s", uid)
 }
-func keyAgent(id string) string       { return fmt.Sprintf("agents:%s", id) }
+func keyAgent(id string) string { return fmt.Sprintf("agents:%s", id) }
 func keyAgentsByUser(uid string) string {
 	return fmt.Sprintf("agents_by_user:%s", uid)
 }
-func keyCredential(id string) string  { return fmt.Sprintf("credentials:%s", id) }
+func keyCredential(id string) string { return fmt.Sprintf("credentials:%s", id) }
 func keyCredentialsByUser(uid string) string {
 	return fmt.Sprintf("credentials_by_user:%s", uid)
 }

@@ -49,7 +49,7 @@ func TestMetricsCollector(t *testing.T) {
 
 func TestBusWithMetrics(t *testing.T) {
 	bus := NewBusWithMetrics()
-	_, ch := bus.Subscribe()
+	_, ch, _ := bus.Subscribe()
 
 	ev := &TextBlockDeltaEvent{baseEvent: baseEvent{EventType_: "text_delta"}}
 	bus.PublishWithLatency(ev, 5*time.Millisecond)
@@ -76,7 +76,7 @@ func TestMetricsHandler(t *testing.T) {
 	m.RecordReceived()
 	m.RecordLatency(5)
 
-	 handler := MetricsHandler(m)
+	handler := MetricsHandler(m)
 	req := httptest.NewRequest(http.MethodGet, "/metrics/events", nil)
 	rr := httptest.NewRecorder()
 	handler(rr, req)

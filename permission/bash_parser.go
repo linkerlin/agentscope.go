@@ -6,8 +6,8 @@ import (
 )
 
 type shellScanState struct {
-	inSingle  bool
-	inDouble  bool
+	inSingle   bool
+	inDouble   bool
 	inBacktick bool
 	parenDepth int
 }

@@ -161,7 +161,6 @@ func TestGateway_BroadcastToRoom(t *testing.T) {
 	}
 }
 
-
 func TestGateway_ChatWSV2_Success(t *testing.T) {
 	srv := NewServer(&mockV2Agent{})
 	srv.RegisterV2Routes()

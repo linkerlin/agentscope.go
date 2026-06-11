@@ -71,11 +71,11 @@ type Server struct {
 	mu            sync.RWMutex
 
 	// Multi-agent & session management (V2 service layer)
-	registry          *AgentRegistry
-	sessionMgr        *SessionManager
-	backgroundTaskMgr *BackgroundTaskManager
-	modelCardsDir     string
-	toolOffload       *ToolOffloadManager
+	registry            *AgentRegistry
+	sessionMgr          *SessionManager
+	backgroundTaskMgr   *BackgroundTaskManager
+	modelCardsDir       string
+	toolOffload         *ToolOffloadManager
 	workspaceMgr        *WorkspaceManager
 	embeddingModel      model.EmbeddingModel
 	sessionAgentBuilder SessionAgentBuilder
@@ -392,5 +392,5 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		status["active_sessions"] = s.sessionMgr.ActiveCount()
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }

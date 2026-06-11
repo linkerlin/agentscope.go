@@ -30,9 +30,9 @@ func (a *V2AgentAdapter) Run(ctx context.Context, msg *Message) (*Message, error
 // EventStreamMessage is an A2A message enriched with V2 event metadata.
 type EventStreamMessage struct {
 	Message
-	EventType string `json:"event_type,omitempty"` // e.g. "text_block_delta"
-	BlockIndex int   `json:"block_index,omitempty"`
-	Delta     string `json:"delta,omitempty"`
+	EventType  string `json:"event_type,omitempty"` // e.g. "text_block_delta"
+	BlockIndex int    `json:"block_index,omitempty"`
+	Delta      string `json:"delta,omitempty"`
 }
 
 // RunStream implements StreamingAgentRunner using ReplyStream.
@@ -78,8 +78,8 @@ func (a *V2AgentAdapter) RunStream(ctx context.Context, msg *Message) (<-chan *M
 					Role:    "agent",
 					Content: "",
 					Meta: map[string]any{
-						"event_type": "tool_call_start",
-						"tool_name":  e.ToolName,
+						"event_type":   "tool_call_start",
+						"tool_name":    e.ToolName,
 						"tool_call_id": e.ToolCallID,
 					},
 				}

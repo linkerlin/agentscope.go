@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/message"
@@ -60,7 +61,7 @@ func TestMultimodalRouter_SelectModel_DataBlock(t *testing.T) {
 	visionModel := &mockModel{name: "vision-model"}
 	router := NewMultimodalRouter(textModel, visionModel)
 
-	resp, err := router.Chat(nil, []*message.Msg{
+	resp, err := router.Chat(context.TODO(), []*message.Msg{
 		message.NewMsg().Role(message.RoleUser).
 			Content(message.NewDataBlock(message.TypeText, &message.Source{MediaType: "text/plain", Data: "x"})).
 			Build(),

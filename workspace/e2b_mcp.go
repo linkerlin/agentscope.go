@@ -41,7 +41,7 @@ func StartE2BMCPGateway(ctx context.Context, cfg E2BMCPConfig, register func(*MC
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	srv := &http.Server{Addr: addr, Handler: gw.Handler()}
+	srv := &http.Server{Addr: addr, Handler: gw.Handler(), ReadHeaderTimeout: 10 * time.Second} // G112 fix: prevent Slowloris
 
 	go func() {
 		_ = srv.ListenAndServe()

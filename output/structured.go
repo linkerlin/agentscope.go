@@ -13,8 +13,8 @@ import (
 
 // StructuredRunner 使用 ChatModel 生成符合 schema 的 JSON 并解析到 target
 type StructuredRunner struct {
-	Model       model.ChatModel
-	MaxRetries  int // 默认 0 表示不自动纠正；>0 时启用 SelfCorrectingParser
+	Model      model.ChatModel
+	MaxRetries int // 默认 0 表示不自动纠正；>0 时启用 SelfCorrectingParser
 }
 
 // Run 单次调用：将 schema 注入 system 提示，解析助手回复中的 JSON

@@ -4,9 +4,11 @@
 
 **最新追赶亮点**（接近 Python v2）：
 - 高层 `gateway.AppConfig` + `NewApp` 自动装配（workspace、标准工具、schedule restore、embedding cache 等）。
-- 独立 `embedding/` 包（多 provider + FileCache）。
+- 独立 `embedding/` 包（OpenAI/Ollama/Gemini/DashScope + FileCache，多模态支持）。
 - 纯 Go 轻量 `examples/studio`（HTMX + 实时 SSE + auto tools 结果展示 + 完整 CRUD）。
+- **Phase 5 追踪中间件**：`TracingMiddlewareAdapter` 实现完整 middleware 接口（on_reply/on_reasoning/on_acting/on_model_call/on_system_prompt），支持 OTel/LangSmith tracing；结合 `TracedAgent` + RecordingTracer 用于调试。参考 Python `_tracing/`。
 - 更多 provider parity（Gemini / DashScope 等）。
+- 全面文档更新 + 测试 + 示例（full_service 演示 tracing + auto）。
 
 ---
 

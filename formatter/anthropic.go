@@ -87,9 +87,9 @@ func (f *AnthropicFormatter) formatContentBlocks(blocks []message.ContentBlock) 
 				}
 			}
 			out = append(out, map[string]any{
-				"type":      "tool_result",
+				"type":        "tool_result",
 				"tool_use_id": block.ToolUseID,
-				"content":   result,
+				"content":     result,
 			})
 		}
 	}
@@ -111,8 +111,8 @@ func (f *AnthropicFormatter) FormatTools(specs []model.ToolSpec) []map[string]an
 	out := make([]map[string]any, 0, len(specs))
 	for _, s := range specs {
 		out = append(out, map[string]any{
-			"name":        s.Name,
-			"description": s.Description,
+			"name":         s.Name,
+			"description":  s.Description,
 			"input_schema": s.Parameters,
 		})
 	}

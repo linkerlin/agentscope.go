@@ -15,9 +15,9 @@ import (
 
 // recordingTransport intercepts HTTP requests and records JSON bodies.
 type recordingTransport struct {
-	mu      sync.Mutex
-	bodies  []map[string]any
-	status  int
+	mu     sync.Mutex
+	bodies []map[string]any
+	status int
 }
 
 func (rt *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -40,9 +40,7 @@ func (rt *recordingTransport) runs() []map[string]any {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	var out []map[string]any
-	for _, b := range rt.bodies {
-		out = append(out, b)
-	}
+	out = append(out, rt.bodies...)
 	return out
 }
 
@@ -287,7 +285,7 @@ func TestLangSmithClient_CreateRunsBatch_HTTPError(t *testing.T) {
 }
 
 // badMarshalRun contains a value that cannot be JSON-marshalled.
-type badMarshalRun struct {
+type badMarshalRun struct { //nolint:unused // test-only struct for marshal failure case
 	Ch chan int
 }
 

@@ -12,9 +12,9 @@ type RequireUserConfirmEvent struct {
 
 // ToolCallSummary is a lightweight summary of a tool call for confirmation UI.
 type ToolCallSummary struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	Input  map[string]any `json:"input"`
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input"`
 }
 
 // NewRequireUserConfirm creates a RequireUserConfirmEvent.
@@ -64,7 +64,7 @@ func NewUserConfirmResult(replyID, confirmID string, decisions []ConfirmDecision
 // the agent after a RequireExternalExecutionEvent.
 type ExternalExecutionResultEvent struct {
 	baseEvent
-	ConfirmID string                  `json:"confirm_id"`
+	ConfirmID string                    `json:"confirm_id"`
 	Results   []ExternalExecutionResult `json:"results"`
 }
 

@@ -88,22 +88,22 @@ type Credential struct {
 
 // StoredMessage is a persisted message within a session.
 type StoredMessage struct {
-	ID         string         `json:"id"`
-	SessionID  string         `json:"session_id"`
-	Role       string         `json:"role"`
-	Name       string         `json:"name,omitempty"`
-	Content    string         `json:"content"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	CreatedAt  time.Time      `json:"created_at"`
-	FinishedAt *time.Time     `json:"finished_at,omitempty"`
-	Blocks     string         `json:"blocks,omitempty"` // JSON-serialized content blocks
+	ID         string              `json:"id"`
+	SessionID  string              `json:"session_id"`
+	Role       string              `json:"role"`
+	Name       string              `json:"name,omitempty"`
+	Content    string              `json:"content"`
+	Metadata   map[string]any      `json:"metadata,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	FinishedAt *time.Time          `json:"finished_at,omitempty"`
+	Blocks     string              `json:"blocks,omitempty"` // JSON-serialized content blocks
 	Usage      *message.TokenUsage `json:"usage,omitempty"`
 }
 
 // AgentSnapshot is a serialised runtime snapshot for suspend-resume.
 type AgentSnapshot struct {
-	SessionID  string          `json:"session_id"`
-	ReplyID    string          `json:"reply_id"`
-	State      *agent.AgentState `json:"state"`
-	CreatedAt  time.Time       `json:"created_at"`
+	SessionID string            `json:"session_id"`
+	ReplyID   string            `json:"reply_id"`
+	State     *agent.AgentState `json:"state"`
+	CreatedAt time.Time         `json:"created_at"`
 }

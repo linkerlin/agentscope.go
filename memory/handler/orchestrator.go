@@ -25,8 +25,8 @@ type MemoryOrchestrator struct {
 	Config memory.OrchestratorConfig
 
 	mu          sync.Mutex
-	toolMu       sync.Mutex
-	toolResults  map[string][]memory.ToolCallResult
+	toolMu      sync.Mutex
+	toolResults map[string][]memory.ToolCallResult
 }
 
 // NewMemoryOrchestrator 创建编排器
@@ -176,9 +176,10 @@ func (o *MemoryOrchestrator) Retrieve(ctx context.Context, query string, userNam
 }
 
 // summarizePersonal 个人记忆提取与持久化；两阶段流水线：
-//   S1: ExtractObservations（从对话提取原始观察）
-//   Profile 上下文加载
-//   S2: ExtractInsightsWithProfile（基于已有画像提取洞察，避免重复/矛盾）
+//
+//	S1: ExtractObservations（从对话提取原始观察）
+//	Profile 上下文加载
+//	S2: ExtractInsightsWithProfile（基于已有画像提取洞察，避免重复/矛盾）
 func (o *MemoryOrchestrator) summarizePersonal(ctx context.Context, msgs []*message.Msg, userName string) ([]*memory.MemoryNode, map[string]any, error) {
 	// S1: 提取观察
 	observations, err := o.PersonalSum.ExtractObservations(ctx, msgs, userName)

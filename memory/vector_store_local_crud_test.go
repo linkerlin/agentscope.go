@@ -78,7 +78,6 @@ func TestLocalVectorStoreNilEmbed(t *testing.T) {
 	}
 }
 
-
 func TestLocalVectorStoreList(t *testing.T) {
 	e := fixedEmbed{dim: 2}
 	s := NewLocalVectorStore(e)

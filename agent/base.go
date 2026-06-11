@@ -17,6 +17,9 @@ import (
 // Base provides common fields and lifecycle methods for all agent implementations.
 // Concrete agent types should embed *Base to inherit shutdown, usage tracking,
 // and hook firing capabilities.
+//
+// All ReActAgent and custom agents are expected to embed this for consistent
+// middleware, interrupt, and observability support. See agent/react for example.
 type Base struct {
 	ID          string
 	Name        string
@@ -308,7 +311,7 @@ func (b *Base) callWithHooks(ctx context.Context, msg *message.Msg, reply func(c
 
 	// PostReply
 	if resp != nil {
-		b.FireHooks(ctx, hook.HookPostReply, append(msgs, resp), resp, "", nil)
+		b.FireHooks(ctx, hook.HookPostReply, append(msgs, resp), resp, "", nil) //nolint:errcheck
 	}
 	return resp, nil
 }
@@ -335,6 +338,6 @@ func (b *Base) Observe(ctx context.Context, msg *message.Msg, observe func(conte
 	}
 
 	// PostObserve
-	b.FireHooks(ctx, hook.HookPostObserve, msgs, nil, "", nil)
+	b.FireHooks(ctx, hook.HookPostObserve, msgs, nil, "", nil) //nolint:errcheck
 	return nil
 }

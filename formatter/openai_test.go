@@ -91,7 +91,6 @@ func TestOpenAIFormatter_ParseResponse(t *testing.T) {
 	}
 }
 
-
 func TestOpenAIFormatter_FormatToolChoice_Nil(t *testing.T) {
 	f := NewOpenAIFormatter()
 	result, err := f.FormatToolChoice(nil)

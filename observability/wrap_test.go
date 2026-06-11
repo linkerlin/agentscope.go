@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/middleware"
 )
 
 type mockAgent struct {
@@ -68,7 +69,6 @@ func TestTracedAgentCallError(t *testing.T) {
 		t.Fatal(err, sawErr)
 	}
 }
-
 
 func TestTracedAgentWithTracer(t *testing.T) {
 	inner := &mockAgent{name: "inner"}
@@ -157,4 +157,50 @@ func TestTracingMiddlewareAdapter(t *testing.T) {
 	adapter.OnCall(context.Background(), "reply", &message.Msg{})
 	adapter.OnResult(context.Background(), "reply", &message.Msg{}, nil)
 	// no panic = success for Phase 5 tracing middleware start
+}
+
+func TestTracedAgentWithTracingAdapter(t *testing.T) {
+	// 演示组合使用
+	adapter := &TracingMiddlewareAdapter{Name: "combo", Tracer: NoopTracer}
+	_ = adapter // 可用于 middleware 链
+	mock := &mockAgent{name: "inner", resp: message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build()}
+	tw := NewTracedAgent("combo", mock)
+	tw.WithTracer(NoopTracer)
+	resp, err := tw.Call(context.Background(), message.NewMsg().Role(message.RoleUser).Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp == nil {
+		t.Fatal("expected resp")
+	}
+}
+
+func TestTracingAdapterImplementsMiddlewareInterfaces(t *testing.T) {
+	adapter := &TracingMiddlewareAdapter{Tracer: NoopTracer, Name: "test"}
+	chain := middleware.Classify([]middleware.Middleware{adapter})
+	if len(chain.Reply) == 0 || len(chain.Reasoning) == 0 {
+		t.Error("expected adapter to implement reply and reasoning interceptors for tracing")
+	}
+}
+
+func TestTracingMiddlewareWithChain(t *testing.T) {
+	adapter := &TracingMiddlewareAdapter{Tracer: NoopTracer, Name: "test"}
+	chain := middleware.Classify([]middleware.Middleware{adapter})
+	if len(chain.Reply) != 1 || len(chain.Reasoning) != 1 || len(chain.Acting) != 1 {
+		t.Error("expected tracing adapter to be classified into multiple interceptor chains")
+	}
+	// Note: full chain execution would require mock agent and next funcs, but classification verifies interface satisfaction
+}
+
+func TestRecordingTracerWithTracedAgent(t *testing.T) {
+	rec := &RecordingTracer{}
+	tw := NewTracedAgent("rec-test", &mockAgent{name: "inner", resp: message.NewMsg().Role(message.RoleAssistant).TextContent("traced").Build()})
+	tw.WithTracer(rec)
+	_, err := tw.Call(context.Background(), message.NewMsg().Role(message.RoleUser).Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.Spans) == 0 {
+		t.Error("expected recording tracer to capture spans from traced call")
+	}
 }

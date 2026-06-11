@@ -68,7 +68,6 @@ func TestReActAgent_CallStructured_SelfCorrecting(t *testing.T) {
 	}
 }
 
-
 func TestReActAgent_CallStructured_NilUser(t *testing.T) {
 	a, _ := Builder().Name("Test").Model(&structuredMockModel{}).Build()
 	err := a.CallStructured(context.Background(), nil, nil, nil)

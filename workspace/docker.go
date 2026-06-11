@@ -190,7 +190,7 @@ func (w *DockerWorkspace) Execute(ctx context.Context, command string, opts Exec
 	exitCode := 0
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		exitCode = exitErr.ExitCode()
-		err = nil // non-zero exit is still a successful execution from workspace perspective
+		err = nil // non-zero exit is still a successful execution from workspace perspective //nolint:ineffassign // intentional per comment
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return &ExecuteResult{
@@ -245,12 +245,12 @@ const defaultDockerBaseImage = "python:3.11-slim"
 // DockerBuildConfig controls Dockerfile rendering for agent workspaces.
 // Extended for more flavors to match Python reference (pypi install, src install, node support etc.).
 type DockerBuildConfig struct {
-	BaseImage      string
-	WorkDir        string
-	PythonPackages []string
-	ExtraRunLines  []string
-	Flavor         string // "default", "pypi", "src", "node", "full"
-	InstallAgentscopeFromSrc bool // for src flavor
+	BaseImage                string
+	WorkDir                  string
+	PythonPackages           []string
+	ExtraRunLines            []string
+	Flavor                   string // "default", "pypi", "src", "node", "full"
+	InstallAgentscopeFromSrc bool   // for src flavor
 }
 
 // RenderDockerfile renders a workspace Dockerfile from config.
@@ -299,8 +299,8 @@ func RenderDockerfile(cfg DockerBuildConfig) string {
 			pkgs = []string{"agentscope"}
 		}
 		data = map[string]any{
-			"BaseImage":    base,
-			"WorkDir":      workdir,
+			"BaseImage":      base,
+			"WorkDir":        workdir,
 			"PythonPackages": strings.Join(pkgs, " "),
 			"ExtraRunLines":  cfg.ExtraRunLines,
 		}

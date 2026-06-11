@@ -46,7 +46,6 @@ func TestExecutorParallel(t *testing.T) {
 	}
 }
 
-
 func TestRegistry_MustRegister(t *testing.T) {
 	r := NewRegistry()
 	r.MustRegister(tool.NewFunctionTool("must", "", nil, nil))

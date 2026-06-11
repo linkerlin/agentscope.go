@@ -16,14 +16,14 @@ type Benchmark interface {
 
 // BenchmarkResult 基准评估结果
 type BenchmarkResult struct {
-	Name            string             `json:"name"`
-	OverallScore    float64            `json:"overall_score"`
-	MemoryAccuracy  float64            `json:"memory_accuracy"`
-	QAAccuracy      float64            `json:"qa_accuracy"`
-	DetailScores    map[string]float64 `json:"detail_scores"`
-	TotalTime       time.Duration      `json:"total_time"`
-	MemoryCount     int                `json:"memory_count"`
-	Notes           []string           `json:"notes"`
+	Name           string             `json:"name"`
+	OverallScore   float64            `json:"overall_score"`
+	MemoryAccuracy float64            `json:"memory_accuracy"`
+	QAAccuracy     float64            `json:"qa_accuracy"`
+	DetailScores   map[string]float64 `json:"detail_scores"`
+	TotalTime      time.Duration      `json:"total_time"`
+	MemoryCount    int                `json:"memory_count"`
+	Notes          []string           `json:"notes"`
 }
 
 // HaluMemBenchmark 幻觉检测基准
@@ -113,9 +113,9 @@ func (b *HaluMemBenchmark) Run(ctx context.Context, mem VectorMemory) (*Benchmar
 
 // LoCoMoBenchmark 长对话记忆基准
 type LoCoMoBenchmark struct {
-	TestConversations  [][]*message.Msg
-	TestQueries        []string
-	ExpectedRetrieval  []string
+	TestConversations [][]*message.Msg
+	TestQueries       []string
+	ExpectedRetrieval []string
 }
 
 func (b *LoCoMoBenchmark) Name() string {

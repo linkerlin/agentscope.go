@@ -96,11 +96,11 @@ func (c ContextConfig) FormatCompressionSummary(s CompressionSummary) string {
 	}
 	out := tpl
 	repl := map[string]string{
-		"{task_overview}":          s.TaskOverview,
-		"{current_state}":          s.CurrentState,
-		"{important_discoveries}":  s.ImportantDiscoveries,
-		"{next_steps}":             s.NextSteps,
-		"{context_to_preserve}":    s.ContextToPreserve,
+		"{task_overview}":         s.TaskOverview,
+		"{current_state}":         s.CurrentState,
+		"{important_discoveries}": s.ImportantDiscoveries,
+		"{next_steps}":            s.NextSteps,
+		"{context_to_preserve}":   s.ContextToPreserve,
 	}
 	for k, v := range repl {
 		out = strings.ReplaceAll(out, k, v)

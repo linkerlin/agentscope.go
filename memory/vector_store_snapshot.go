@@ -7,8 +7,8 @@ import (
 )
 
 type localVectorSnapshotV1 struct {
-	Version int            `json:"version"`
-	Dim     int            `json:"dim"`
+	Version int           `json:"version"`
+	Dim     int           `json:"dim"`
 	Nodes   []*MemoryNode `json:"nodes"`
 }
 

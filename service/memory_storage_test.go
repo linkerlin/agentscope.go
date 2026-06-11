@@ -221,7 +221,6 @@ func TestMemoryStorage_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-
 func TestMemoryStorage_UpdateUser(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStorage()

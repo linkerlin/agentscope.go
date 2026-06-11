@@ -91,7 +91,7 @@ func (a *ReActAgent) compressToolResultBlocks(
 		return blocks
 	}
 
-	reminder := toolResultTruncationReminder
+	var reminder string
 	if a.offloader != nil {
 		data, _ := json.Marshal(offload.Content)
 		if path, err := a.offloader.OffloadToolResult(ctx, a.sessionID(), toolCallID, data); err == nil && path != "" {

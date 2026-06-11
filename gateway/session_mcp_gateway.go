@@ -10,9 +10,9 @@ import (
 
 // SessionMCPGatewayPool manages one MCP gateway sidecar per session.
 type SessionMCPGatewayPool struct {
-	mu        sync.Mutex
-	token     string
-	gateways  map[string]*workspace.MCPSidecar
+	mu       sync.Mutex
+	token    string
+	gateways map[string]*workspace.MCPSidecar
 }
 
 // NewSessionMCPGatewayPool creates an empty per-session gateway pool.

@@ -37,14 +37,14 @@ type FileMetadata struct {
 
 // MemorySearchResult 检索结果（对标 ReMe Python MemorySearchResult）
 type MemorySearchResult struct {
-	Path       string       `json:"path"`
-	StartLine  int          `json:"start_line"`
-	EndLine    int          `json:"end_line"`
-	Score      float64      `json:"score"`
-	Snippet    string       `json:"snippet"`
-	Source     MemorySource `json:"source"`
-	RawMetric  float64      `json:"raw_metric"`
-	Metadata   map[string]any `json:"metadata"`
+	Path      string         `json:"path"`
+	StartLine int            `json:"start_line"`
+	EndLine   int            `json:"end_line"`
+	Score     float64        `json:"score"`
+	Snippet   string         `json:"snippet"`
+	Source    MemorySource   `json:"source"`
+	RawMetric float64        `json:"raw_metric"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // MergeKey 去重键（对口 ReMe Python merge_key 属性）

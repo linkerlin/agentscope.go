@@ -311,11 +311,11 @@ func buildChromaWhere(opts RetrieveOptions) map[string]any {
 
 // chromaQueryResult 解析 Chroma /query 返回
 type chromaQueryResult struct {
-	IDs        [][]string           `json:"ids"`
-	Documents  [][]string           `json:"documents"`
-	Metadatas  [][]map[string]any   `json:"metadatas"`
-	Distances  [][]float64          `json:"distances"`
-	Embeddings [][][]float32        `json:"embeddings"`
+	IDs        [][]string         `json:"ids"`
+	Documents  [][]string         `json:"documents"`
+	Metadatas  [][]map[string]any `json:"metadatas"`
+	Distances  [][]float64        `json:"distances"`
+	Embeddings [][][]float32      `json:"embeddings"`
 }
 
 func (r *chromaQueryResult) toNodes(minScore float64) []*MemoryNode {
@@ -356,10 +356,10 @@ func (r *chromaQueryResult) toNodes(minScore float64) []*MemoryNode {
 
 // chromaGetResult 解析 Chroma /get 返回
 type chromaGetResult struct {
-	IDs       []string         `json:"ids"`
-	Documents []string         `json:"documents"`
-	Metadatas []map[string]any `json:"metadatas"`
-	Embeddings [][]float32     `json:"embeddings"`
+	IDs        []string         `json:"ids"`
+	Documents  []string         `json:"documents"`
+	Metadatas  []map[string]any `json:"metadatas"`
+	Embeddings [][]float32      `json:"embeddings"`
 }
 
 func (r *chromaGetResult) toNodes() []*MemoryNode {

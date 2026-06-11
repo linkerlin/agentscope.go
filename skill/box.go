@@ -14,14 +14,14 @@ import (
 
 // Box manages registered skills, prompt injection, and code execution tooling.
 type Box struct {
-	registry    *Registry
-	provider    *PromptProvider
-	tk          *toolkit.Toolkit
-	workDir     string
-	uploadDir   string
-	fileFilter  FileFilter
-	autoUpload  bool
-	loadTool    tool.Tool
+	registry   *Registry
+	provider   *PromptProvider
+	tk         *toolkit.Toolkit
+	workDir    string
+	uploadDir  string
+	fileFilter FileFilter
+	autoUpload bool
+	loadTool   tool.Tool //nolint:unused // reserved for optional skill loading tool in future extensions
 }
 
 // NewBox creates a SkillBox with an optional toolkit binding.
@@ -101,7 +101,7 @@ func (b *Box) UploadSkillFiles() error {
 				continue // path traversal protection
 			}
 			_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
-			_ = os.WriteFile(targetPath, []byte(content), 0o644)
+			_ = os.WriteFile(targetPath, []byte(content), 0o600) //nolint:gosec // G306: skill content is trusted internal, but use 0600 for safety
 		}
 	}
 	return nil
@@ -144,17 +144,17 @@ func (b *Box) RegisterSkillLoadTool() error {
 
 // CodeExecutionBuilder configures and enables code execution tools.
 type CodeExecutionBuilder struct {
-	box              *Box
-	workDir          string
-	uploadDir        string
-	customFilter     FileFilter
-	includeFolders   []string
+	box               *Box
+	workDir           string
+	uploadDir         string
+	customFilter      FileFilter
+	includeFolders    []string
 	includeExtensions []string
-	customShellTool  *shell.ShellCommandTool
-	withShellCalled  bool
-	enableRead       bool
-	enableWrite      bool
-	codeExecPrompt   string
+	customShellTool   *shell.ShellCommandTool
+	withShellCalled   bool
+	enableRead        bool
+	enableWrite       bool
+	codeExecPrompt    string
 }
 
 // WorkDir sets the working directory for code execution.

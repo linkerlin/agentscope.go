@@ -23,10 +23,11 @@ type MapReduce struct {
 }
 
 // NewMapReduce creates a MapReduce workflow step.
-//   split:       splits the input message into independent text chunks.
-//   mapper:      agent that processes each chunk.
-//   reducer:     agent that combines all mapped outputs into the final result.
-//   parallelism: max concurrent mapper calls (<=0 defaults to 4).
+//
+//	split:       splits the input message into independent text chunks.
+//	mapper:      agent that processes each chunk.
+//	reducer:     agent that combines all mapped outputs into the final result.
+//	parallelism: max concurrent mapper calls (<=0 defaults to 4).
 func NewMapReduce(name string, split func(*message.Msg) []string, mapper, reducer agent.Agent, parallelism int) *MapReduce {
 	if parallelism <= 0 {
 		parallelism = 4

@@ -119,6 +119,7 @@ func (e *Engine) resolveTool(name string) tool.Tool {
 	}
 	return e.toolResolver(name)
 }
+
 // It returns a per-tool-call decision. If any decision is ASK, the caller
 // (typically the agent) should suspend and emit a RequireUserConfirmEvent.
 func (e *Engine) Evaluate(toolCalls []*message.ToolUseBlock) ([]Result, error) {
@@ -365,7 +366,7 @@ func (e *Engine) pathInWorkingDirs(filePath string) bool {
 	return false
 }
 
-func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePath, command string, t tool.Tool) Result {
+func (e *Engine) defaultResult(tc *message.ToolUseBlock, isReadOnly bool, filePath, command string, t tool.Tool) Result { //nolint:unparam // isReadOnly reserved for future mode logic
 	switch e.ctx.Mode {
 	case ModeBypass:
 		return Result{

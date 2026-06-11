@@ -4,9 +4,9 @@ import "context"
 
 // AudioOptions controls audio synthesis / streaming parameters.
 type AudioOptions struct {
-	Voice   string
-	Format  string // mp3 | wav | pcm | opus
-	Speed   float64
+	Voice    string
+	Format   string // mp3 | wav | pcm | opus
+	Speed    float64
 	Language string
 }
 

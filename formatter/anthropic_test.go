@@ -328,7 +328,6 @@ func TestAnthropicFormatter_ParseResponse_MissingContentError(t *testing.T) {
 	}
 }
 
-
 func TestAnthropicFormatter_WrapThinkingBlock(t *testing.T) {
 	f := NewAnthropicFormatter()
 	got := f.WrapThinkingBlock("thinking content")

@@ -1,0 +1,27 @@
+# Handle line endings for cross-platform (Windows + Linux dev)
+* text=auto
+
+# Go files should use LF
+*.go text eol=lf
+
+# Shell / Makefile / scripts use LF
+*.sh text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+
+# Markdown and docs - auto, but prefer LF
+*.md text=auto
+
+# Configs
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# Ignore binary artifacts (already in .gitignore)
+*.exe binary
+*.out binary
+*.test binary
+
+# Windows specific if any (but we prefer cross)
+*.bat text eol=crlf
+*.ps1 text eol=crlf

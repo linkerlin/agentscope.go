@@ -8,7 +8,7 @@ import (
 
 func TestBus_PublishSubscribe(t *testing.T) {
 	bus := NewBus(10)
-	id, ch := bus.Subscribe()
+	id, ch, _ := bus.Subscribe()
 	defer bus.Unsubscribe(id)
 
 	ev := &TextBlockDeltaEvent{baseEvent: baseEvent{EventType_: TypeTextBlockDelta, Ts: time.Now(), ReplyID_: "r1"}, Delta: "hello"}
@@ -26,8 +26,8 @@ func TestBus_PublishSubscribe(t *testing.T) {
 
 func TestBus_MultipleSubscribers(t *testing.T) {
 	bus := NewBus(10)
-	id1, ch1 := bus.Subscribe()
-	id2, ch2 := bus.Subscribe()
+	id1, ch1, _ := bus.Subscribe()
+	id2, ch2, _ := bus.Subscribe()
 	defer bus.Unsubscribe(id1)
 	defer bus.Unsubscribe(id2)
 
@@ -52,21 +52,27 @@ func TestBus_MultipleSubscribers(t *testing.T) {
 
 func TestBus_Unsubscribe(t *testing.T) {
 	bus := NewBus(10)
-	id, ch := bus.Subscribe()
+	id, ch, done := bus.Subscribe()
 	bus.Unsubscribe(id)
 
-	_, ok := <-ch
-	if ok {
-		t.Fatal("expected closed channel after unsubscribe")
+	// ch is intentionally not closed by Unsubscribe (to avoid send/close races);
+	// done is closed instead. Receiver should select on done or use ctx.
+	select {
+	case <-done:
+		// expected
+	default:
+		t.Fatal("expected done to be closed after unsubscribe")
 	}
 	if bus.SubscriberCount() != 0 {
 		t.Fatalf("expected 0 subscribers, got %d", bus.SubscriberCount())
 	}
+	// ch may still deliver a buffered event; we do not assert close here.
+	_ = ch
 }
 
 func TestBus_Forward(t *testing.T) {
 	bus := NewBus(10)
-	id, ch := bus.Subscribe()
+	id, ch, _ := bus.Subscribe()
 	defer bus.Unsubscribe(id)
 
 	src := make(chan AgentEvent, 2)
@@ -94,7 +100,7 @@ func TestBus_Forward(t *testing.T) {
 
 func TestBus_DropSlowConsumer(t *testing.T) {
 	bus := NewBus(1) // tiny buffer
-	id, ch := bus.Subscribe()
+	id, ch, _ := bus.Subscribe()
 	defer bus.Unsubscribe(id)
 
 	// Fill the buffer
@@ -105,7 +111,7 @@ func TestBus_DropSlowConsumer(t *testing.T) {
 	// Should not block; slow consumer simply drops.
 	// Drain what we can.
 	count := 0
-	drain:
+drain:
 	for {
 		select {
 		case <-ch:

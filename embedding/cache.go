@@ -23,7 +23,7 @@ func cacheKey(model string, input []string) string {
 func cachePath(dir, key string) string {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		// best effort
-	}
+	} //nolint:staticcheck // SA9003: empty branch is intentional for best-effort cache dir creation (errors are non-fatal)
 	return filepath.Join(dir, key+".gob")
 }
 

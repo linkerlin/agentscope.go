@@ -14,11 +14,11 @@ type MemoryLibrary struct {
 
 // LibraryEntry 库中的一条记忆条目
 type LibraryEntry struct {
-	MemoryType string `json:"memory_type"`
-	Target     string `json:"target"`
-	Content    string `json:"content"`
-	WhenToUse  string `json:"when_to_use"`
-	Category   string `json:"category"`
+	MemoryType string   `json:"memory_type"`
+	Target     string   `json:"target"`
+	Content    string   `json:"content"`
+	WhenToUse  string   `json:"when_to_use"`
+	Category   string   `json:"category"`
 	Tags       []string `json:"tags"`
 }
 

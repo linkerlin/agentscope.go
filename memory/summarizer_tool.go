@@ -14,17 +14,17 @@ import (
 
 // ToolCallResult 工具调用结果记录
 type ToolCallResult struct {
-	CreateTime   time.Time
-	ToolName     string
-	Input        map[string]any
-	Output       string
-	TokenCost    int
-	Success      bool
-	TimeCost     float64 // 执行耗时（秒）
-	IsSummarized bool    // 是否已被总结
-	Summary      string  // LLM生成的调用摘要
-	Evaluation   string  // LLM对调用质量的评价
-	Score        float64 // 评分 0.0-1.0
+	CreateTime        time.Time
+	ToolName          string
+	Input             map[string]any
+	Output            string
+	TokenCost         int
+	Success           bool
+	TimeCost          float64            // 执行耗时（秒）
+	IsSummarized      bool               // 是否已被总结
+	Summary           string             // LLM生成的调用摘要
+	Evaluation        string             // LLM对调用质量的评价
+	Score             float64            // 评分 0.0-1.0
 	ParameterInsights []ParameterInsight `json:"parameter_insights,omitempty"` // 参数优化学习
 }
 
@@ -32,17 +32,17 @@ type ToolCallResult struct {
 type ParameterInsight struct {
 	Parameter string  `json:"parameter"`
 	Pattern   string  `json:"pattern"`   // 有效的参数模式
-	Outcome   string  `json:"outcome"`    // 使用此模式的结果
-	Frequency int     `json:"frequency"`  // 观察到的频率
-	Score     float64 `json:"score"`      // 效果评分
+	Outcome   string  `json:"outcome"`   // 使用此模式的结果
+	Frequency int     `json:"frequency"` // 观察到的频率
+	Score     float64 `json:"score"`     // 效果评分
 }
 
 // ToolSummarizer 生成工具使用指南
 type ToolSummarizer struct {
-	Model            model.ChatModel
-	Language         string
-	RecentCallCount  int     // 分析最近N条调用记录，默认30
-	SummaryInterval  float64 // 总结间隔（秒），用于并发控制
+	Model           model.ChatModel
+	Language        string
+	RecentCallCount int     // 分析最近N条调用记录，默认30
+	SummaryInterval float64 // 总结间隔（秒），用于并发控制
 }
 
 // NewToolSummarizer 创建工具记忆总结器
@@ -169,16 +169,16 @@ func (s *ToolSummarizer) GenerateBestPractices(ctx context.Context, toolName str
 
 // ToolStatistics 工具使用统计
 type ToolStatistics struct {
-	TotalCalls    int
-	SuccessCount  int
-	SuccessRate   float64
-	AvgScore      float64
-	AvgTimeCost   float64
-	AvgTokenCost  float64
-	MinTimeCost   float64
-	MaxTimeCost   float64
-	MinTokenCost  int
-	MaxTokenCost  int
+	TotalCalls   int
+	SuccessCount int
+	SuccessRate  float64
+	AvgScore     float64
+	AvgTimeCost  float64
+	AvgTokenCost float64
+	MinTimeCost  float64
+	MaxTimeCost  float64
+	MinTokenCost int
+	MaxTokenCost int
 }
 
 // 内部方法

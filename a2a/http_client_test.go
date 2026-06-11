@@ -143,7 +143,6 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
-
 func TestHTTPClient_Send_NoMessages(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)

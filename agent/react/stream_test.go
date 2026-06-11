@@ -71,10 +71,9 @@ func TestRunModelStreamChunks(t *testing.T) {
 	}
 }
 
-
 func TestRunModelChatStreamError(t *testing.T) {
 	a := &ReActAgent{
-		Base: agent.NewBase("", "t", "", "", nil, nil, []hook.StreamHook{hook.StreamHookFunc(func(ctx context.Context, ev hook.Event) (*hook.StreamHookResult, error) { return nil, nil })}),
+		Base:      agent.NewBase("", "t", "", "", nil, nil, []hook.StreamHook{hook.StreamHookFunc(func(ctx context.Context, ev hook.Event) (*hook.StreamHookResult, error) { return nil, nil })}),
 		chatModel: &mockModel{name: "m", streamErr: errors.New("stream err")},
 		memory:    memory.NewInMemoryMemory(),
 	}

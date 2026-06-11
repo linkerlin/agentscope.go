@@ -50,7 +50,6 @@ func TestMemoryDeduplicateByVector(t *testing.T) {
 	}
 }
 
-
 func TestMemoryDeduplicatorWithLLM(t *testing.T) {
 	ctx := context.Background()
 	embed := &mockEmbeddingModel{}

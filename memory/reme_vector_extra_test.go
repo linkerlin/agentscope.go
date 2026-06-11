@@ -16,7 +16,6 @@ func TestMessagesToMemoryNodes(t *testing.T) {
 	}
 }
 
-
 func TestReMeVectorMemory_UpdateMemory(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultReMeFileConfig()

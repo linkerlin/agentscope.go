@@ -9,9 +9,9 @@ import (
 // Factory manages registration and (de)serialization of Credential implementations.
 // It is the Go counterpart to Python's CredentialFactory (with list_schemas for dynamic UIs).
 type Factory struct {
-	mu       sync.RWMutex
-	creds    map[Type]func(map[string]any) (Credential, error)
-	schemas  map[Type]map[string]any // pre-registered JSON schema fragments (title + properties style)
+	mu      sync.RWMutex
+	creds   map[Type]func(map[string]any) (Credential, error)
+	schemas map[Type]map[string]any // pre-registered JSON schema fragments (title + properties style)
 }
 
 var DefaultFactory = NewFactory()

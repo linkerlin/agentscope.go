@@ -61,7 +61,6 @@ func TestInMemoryClear(t *testing.T) {
 	}
 }
 
-
 func TestInMemoryGetRecentMoreThanSize(t *testing.T) {
 	m := NewInMemoryMemory()
 	_ = m.Add(makeMsg("a"))

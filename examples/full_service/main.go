@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/linkerlin/agentscope.go/embedding"
 	"github.com/linkerlin/agentscope.go/gateway"
 	"github.com/linkerlin/agentscope.go/memory"
+	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/observability"
 	"github.com/linkerlin/agentscope.go/permission"
@@ -57,9 +59,15 @@ func main() {
 		ReadOnly:        false,
 		IncludeWeb:      true,
 		IncludeJSON:     true,
-		IncludeTask:     true,  // will auto-create in-memory TaskStore inside StandardTools
+		IncludeTask:     true, // will auto-create in-memory TaskStore inside StandardTools
 		IncludeSchedule: false,
 	})
+
+	// Phase 5: demonstrate tracing middleware (adapter implements the interceptor interfaces)
+	tracingMW := &observability.TracingMiddlewareAdapter{
+		Tracer: observability.NoopTracer,
+		Name:   "FullServiceBase",
+	}
 
 	base, err := react.Builder().
 		Name("FullServiceBase").
@@ -68,13 +76,21 @@ func main() {
 		Memory(memory.NewInMemoryMemory()).
 		Tools(baseTools...).
 		PermissionEngine(permission.NewEngine(permission.ModeExplore, nil)).
+		Middlewares(tracingMW). // use the tracing middleware
 		Build()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Phase 5: wrap with TracedAgent to demonstrate tracing middleware integration (OTel/LangSmith ready)
+	// Phase 5: also wrap with TracedAgent for additional tracing (can combine with middleware)
 	tracedBase := observability.NewTracedAgent("FullServiceBase", base)
+
+	// Phase 5 demo: use RecordingTracer to visibly show traced spans during a call
+	// (in real use, replace with OTel or LangSmith tracer)
+	rec := &observability.RecordingTracer{}
+	demoTraced := observability.NewTracedAgent("phase5-demo", tracedBase).WithTracer(rec)
+	_, _ = demoTraced.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("demo tracing call").Build())
+	fmt.Println("Phase 5 tracing demo recorded spans:", rec.Spans)
 
 	// 4. One-liner rich config with heavy auto-assembly.
 	//    - Auto BTM (schedule persistence + restore on Start)
@@ -82,7 +98,7 @@ func main() {
 	//    - Auto StandardTools + auto in-mem TaskStore for both static and dynamic agents
 	//    - Auto ToolOffload
 	//    - Default permission
-	//    - (Optional) Embeddings via the new top-level embedding/ package:
+	//    - (Optional) Embeddings via the recommended top-level "embedding/" package:
 	//      emb := embedding.NewOpenAI(apiKey, "text-embedding-3-small")
 	//      // or with cache: emb = embedding.WithFileCache(emb, ".cache/embed")
 	//      appCfg.EmbeddingModel = emb
@@ -95,8 +111,8 @@ func main() {
 		AutoStandardTools:     true,
 		AutoToolOffload:       true,
 		DefaultPermissionMode: permission.ModeExplore,
-		// Phase 3: enable embedding with auto cache from new embedding/ package (uses FileCache for repeated calls)
-		EmbeddingModel:    embedding.WithFileCache(embedding.NewOpenAI(apiKey, "text-embedding-3-small"), "./workspaces/.embed_cache"),
+		// Phase 3: enable embedding with auto cache from the recommended top-level embedding/ package (uses FileCache)
+		EmbeddingModel: embedding.WithFileCache(embedding.NewOpenAI(apiKey, "text-embedding-3-small"), "./workspaces/.embed_cache"),
 	}
 	srv := gateway.NewApp(appCfg)
 	srv.RegisterAppRoutes(jwt)
@@ -107,8 +123,9 @@ func main() {
 	addr := ":" + envOrDefault("PORT", "8080")
 	fmt.Printf("=== AgentScope Full-Service (heavy auto-assembly) ===\n")
 	fmt.Printf("Health: http://localhost%s/health\n", addr)
-	fmt.Printf("Auto: workspace + standard tools (auto TaskStore) + schedule restore + tool offload\n")
+	fmt.Printf("Auto: workspace + standard tools (auto TaskStore) + schedule restore + tool offload + tracing middleware\n")
 	fmt.Printf("SSE:    http://localhost%s/v2/chat/stream\n", addr)
+	fmt.Printf("Phase 5 tracing demo spans logged above (use real OTel tracer in prod)\n")
 	fmt.Printf("====================================================\n")
 	log.Fatal(http.ListenAndServe(addr, srv))
 }

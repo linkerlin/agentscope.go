@@ -12,10 +12,10 @@ import (
 
 // MemoryDeduplicator 记忆去重器
 type MemoryDeduplicator struct {
-	EmbedModel      EmbeddingModel
-	SimilarityThreshold float64 // 相似度阈值，默认0.85
-	LLM             model.ChatModel // 可选，用于语义去重判断
-	Language        string
+	EmbedModel          EmbeddingModel
+	SimilarityThreshold float64         // 相似度阈值，默认0.85
+	LLM                 model.ChatModel // 可选，用于语义去重判断
+	Language            string
 }
 
 // NewMemoryDeduplicator 创建记忆去重器
@@ -334,7 +334,7 @@ func (d *MemoryDeduplicator) parseDeduplicationResponse(text string, memories []
 		}
 
 		idx := 0
-		fmt.Sscanf(match[1], "%d", &idx)
+		_, _ = fmt.Sscanf(match[1], "%d", &idx)
 		action := strings.ToLower(match[2])
 
 		if idx > 0 && idx <= len(memories) {

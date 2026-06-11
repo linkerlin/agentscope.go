@@ -33,10 +33,10 @@ func EncryptToService(c Credential, cipher *service.Cipher) (*service.Credential
 	}
 
 	sc := &service.Credential{
-		ID:       c.ID(),
-		UserID:   "", // caller should set
-		Provider: c.Provider(),
-		Label:    c.Name(),
+		ID:        c.ID(),
+		UserID:    "", // caller should set
+		Provider:  c.Provider(),
+		Label:     c.Name(),
 		Encrypted: enc,
 	}
 	return sc, nil

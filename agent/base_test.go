@@ -13,9 +13,9 @@ import (
 
 // trackingHook records which points were fired and allows mutating messages.
 type trackingHook struct {
-	points         []hook.HookPoint
-	injectOnPoint  hook.HookPoint
-	overrideOnPoint hook.HookPoint
+	points           []hook.HookPoint
+	injectOnPoint    hook.HookPoint
+	overrideOnPoint  hook.HookPoint
 	interruptOnPoint hook.HookPoint
 }
 
@@ -208,7 +208,6 @@ func TestBase_Observe_Error(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
-
 
 func TestBase_AgentName(t *testing.T) {
 	b := NewBase("id", "agent-name", "", "", nil, nil, nil)

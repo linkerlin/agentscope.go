@@ -194,3 +194,18 @@ func TestInterfaceCheck(t *testing.T) {
 	var _ tool.Tool = (*ParseTool)(nil)
 	var _ tool.Tool = (*QueryTool)(nil)
 }
+
+// FuzzParseTool is a basic fuzz test for json_parse tool (P3 testing enhancement example).
+// Run with: go test -fuzz=FuzzParseTool -fuzztime=10s ./tool/json
+func FuzzParseTool(f *testing.F) {
+	p := NewParseTool()
+	f.Add(`{"a":1,"b":"x"}`)
+	f.Add(`[1,2,3]`)
+	f.Add(`"string"`)
+	f.Add(`null`)
+	f.Fuzz(func(t *testing.T, input string) {
+		_, _ = p.Execute(context.Background(), map[string]any{
+			"json_string": input,
+		})
+	})
+}

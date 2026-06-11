@@ -84,8 +84,8 @@ func TestSimpleDeduplicate(t *testing.T) {
 	memories := []*MemoryNode{
 		{MemoryID: "1", Content: "用户喜欢喝咖啡"},
 		{MemoryID: "2", Content: "用户喜欢喝咖啡和茶"}, // 相似但不完全相同
-		{MemoryID: "3", Content: "用户是一名工程师"},      // 不同
-		{MemoryID: "4", Content: "用户喜欢喝咖啡"},      // 完全重复
+		{MemoryID: "3", Content: "用户是一名工程师"},  // 不同
+		{MemoryID: "4", Content: "用户喜欢喝咖啡"},   // 完全重复
 	}
 
 	unique, removed := SimpleDeduplicate(memories, 0.7)
@@ -126,7 +126,6 @@ func (m *mockEmbeddingModel) EmbedBatch(ctx context.Context, texts []string) ([]
 	}
 	return result, nil
 }
-
 
 func TestSummarizerAppendToMemoryMD(t *testing.T) {
 	dir := t.TempDir()

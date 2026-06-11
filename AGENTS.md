@@ -28,7 +28,8 @@ Agent 层   agent/         Base 基类 + ReActAgent (事件流 + 状态机)
           permission/    规则引擎 + Bash AST 解析
           embedding/     独立 Embedding 包 (OpenAI/Ollama/Gemini/DashScope + FileCache，多模态支持)
 记忆层     memory/        ReMe (文件/向量) + 5 向量后端 + Hybrid Search
-可观测性   observability/ OpenTelemetry + LangSmith
+可观测性   observability/ OpenTelemetry + LangSmith + TracingMiddlewareAdapter (agent 生命周期 hook 追踪)
+演化层     evolver/       GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill2GEP 蒸馏（对齐 ./evolver 优势）
 ```
 
 ## 核心模块与代码量
@@ -49,24 +50,40 @@ Agent 层   agent/         Base 基类 + ReActAgent (事件流 + 状态机)
 | `permission/` | ~698 | 2 | 规则引擎 + Bash AST |
 | `formatter/` | ~652 | 5 | 多后端 Formatter |
 | `embedding/` | 新 | 5+ | 独立 Embedding (providers + cache) |
-| `observability/` | ~404 | 4 | OTel + LangSmith |
-| **总计** | **~30,800** | **230** | 1,157 测试函数 |
+| `observability/` | ~404 | 4 | OTel + LangSmith + TracingMiddlewareAdapter (支持完整 middleware 接口) |
+| `evolver/` | 新 | 3 | GEP Gene/Capsule + Mock/Recording 客户端 + 高层 Flow + Distill（Phase 6 对齐 evolver） |
+| **总计** | **~31,300** | **233** | 持续增长 |
+
 
 ## 测试
 
 ```bash
-go test ./... -race -count=1   # 全量通过
+go test ./... -race -count=1   # 全量通过（提交前强制）
 ```
 
-## 编码规范
+推荐使用 `make test`（见根目录 Makefile）或 `make ci` 进行本地模拟。
 
-- 所有包必须通过 `go test ./... -race`
+## 编码规范（更新于 P0/P1 工程化）
+
+- **所有包必须通过** `go test ./... -race -count=1`
+- **提交前必须** `gofmt -l .` 返回空（或使用 `make fmt` / `make fmt-check`）。CI 会严格阻断未格式化代码。
 - 优先使用 `golang.org/x/sync/errgroup` 进行并发控制
 - 中断检查优先使用原子操作，配合 `sync.RWMutex` 保护复杂状态
 - 多模态结果使用 `message.ContentBlock` 子类型封装
 - 工具返回值使用 `tool.Response` 规范类型
 - 事件流使用 `<-chan event.AgentEvent` channel 模式
 - Agent 状态挂起/恢复通过 `InjectEvent()` + `pendingExternalEvents` 实现
+- 推荐安装 golangci-lint 并通过 `make lint` / `golangci-lint run ./...`（CI 中有独立 golangci job，使用项目根 .golangci.yml 配置）
+- 新代码优先使用顶级 `embedding/` 包（NewOpenAI / NewOllama / ... + WithFileCache）。`memory/embedding` 仅为向后兼容的 adapter（已标记 Deprecated）。
+
+本地推荐流程（使用 Makefile）：
+```bash
+make fmt
+make vet
+make lint   # 如已安装 golangci-lint
+make build
+make test   # 或 make ci
+```
 
 ## 关键设计决策
 
@@ -76,3 +93,5 @@ go test ./... -race -count=1   # 全量通过
 4. **struct embedding 复用**：`agent.Base` 通过 embedding 提供统一生命周期
 5. **Formatter 解耦**：消息格式化与模型实现分离，通过 interface 注入
 6. **Workspace 沙箱**：工具执行隔离在 Local/Docker/E2B 环境中
+7. **可观测性对齐**：TracingMiddlewareAdapter 实现完整 middleware 接口，支持 agent 生命周期 tracing（on_reply/on_reasoning/on_acting/on_model_call/on_system_prompt），与 Python _tracing/ 对齐；结合 TracedAgent + OTel/LangSmith。
+8. **GEP 自演化对齐 (Phase 6)**：通过 evolver/ 包引入 Gene（紧凑策略模板，优于 ad-hoc skill）/ Capsule（演化快照）/ 演化闭环（run/reflect/solidify）、typed remember/recall（narrative + memoryGraph 风格）、skill2gep 蒸馏、meeting/ATP 任务。利用现有 gateway MCP 网关 + ReMe + a2a 实现“轻量桥接”，不重造 evolver 引擎。Mock + Recording 便于测试/可见性。

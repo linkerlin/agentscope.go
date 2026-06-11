@@ -93,16 +93,16 @@ func (s *PersonalSummarizer) UpdateInsights(ctx context.Context, insights, obser
 
 		// 创建更新的洞察节点
 		updatedInsight := &MemoryNode{
-			MemoryID:      insight.MemoryID,
-			MemoryType:    MemoryTypePersonal,
-			MemoryTarget:  insight.MemoryTarget,
-			Content:       newContent,
-			WhenToUse:     insight.WhenToUse,
-			RefMemoryID:   insight.RefMemoryID,
-			TimeCreated:   insight.TimeCreated,
-			TimeModified:  time.Now(),
-			Author:        insight.Author,
-			Metadata:      insight.Metadata,
+			MemoryID:     insight.MemoryID,
+			MemoryType:   MemoryTypePersonal,
+			MemoryTarget: insight.MemoryTarget,
+			Content:      newContent,
+			WhenToUse:    insight.WhenToUse,
+			RefMemoryID:  insight.RefMemoryID,
+			TimeCreated:  insight.TimeCreated,
+			TimeModified: time.Now(),
+			Author:       insight.Author,
+			Metadata:     insight.Metadata,
 		}
 		updatedInsight.Metadata["updated_by"] = "personal_summarizer"
 		updatedInsight.Metadata["original_content"] = insight.Content
@@ -326,7 +326,7 @@ func (s *PersonalSummarizer) parseObservations(text string, msgs []*message.Msg,
 		}
 
 		idx := 0
-		fmt.Sscanf(match[1], "%d", &idx)
+		_, _ = fmt.Sscanf(match[1], "%d", &idx)
 		content := strings.TrimSpace(match[2])
 		keywords := strings.TrimSpace(match[3])
 
@@ -395,7 +395,7 @@ func (s *PersonalSummarizer) parseContraRepeatResponse(text string, memories []*
 		}
 
 		idx := 0
-		fmt.Sscanf(match[1], "%d", &idx)
+		_, _ = fmt.Sscanf(match[1], "%d", &idx)
 		judgment := strings.ToLower(match[2])
 
 		if idx > 0 && idx <= len(memories) {

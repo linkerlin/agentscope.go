@@ -18,7 +18,7 @@ func init() {
 		span := trace.SpanFromContext(ctx)
 		if !span.IsRecording() && !span.SpanContext().IsValid() {
 			// fallback: try SpanContext even if not recording
-		}
+		} //nolint:staticcheck // SA9003: intentional empty for fallback comment
 		sc := span.SpanContext()
 		if !sc.IsValid() {
 			return observability.TraceContext{}

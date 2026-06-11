@@ -17,17 +17,27 @@ func TestBus_StressManySubscribers(t *testing.T) {
 	var ids []string
 
 	for i := 0; i < subs; i++ {
-		id, ch := bus.Subscribe()
+		id, ch, done := bus.Subscribe()
 		ids = append(ids, id)
-		go func() {
+		go func(ch <-chan AgentEvent, done <-chan struct{}) {
 			var count int64
-			for range ch {
-				count++
+			for {
+				select {
+				case _, ok := <-ch:
+					if !ok {
+						// defensive
+						goto doneAppend
+					}
+					count++
+				case <-done:
+					goto doneAppend
+				}
 			}
+		doneAppend:
 			mu.Lock()
 			received = append(received, count)
 			mu.Unlock()
-		}()
+		}(ch, done)
 	}
 
 	for i := 0; i < events; i++ {
@@ -58,7 +68,7 @@ func TestBus_StressManySubscribers(t *testing.T) {
 
 func TestBus_StressRapidPublish(t *testing.T) {
 	bus := NewBus(10)
-	id, ch := bus.Subscribe()
+	id, ch, doneCh := bus.Subscribe()
 	defer bus.Unsubscribe(id)
 
 	const n = 10000
@@ -66,10 +76,19 @@ func TestBus_StressRapidPublish(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		for range ch {
-			atomic.AddInt64(&received, 1)
+		for {
+			select {
+			case _, ok := <-ch:
+				if !ok {
+					done <- true
+					return
+				}
+				atomic.AddInt64(&received, 1)
+			case <-doneCh:
+				done <- true
+				return
+			}
 		}
-		done <- true
 	}()
 
 	var wg sync.WaitGroup
@@ -104,10 +123,11 @@ func TestBus_StressSubscribeUnsubscribe(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id, ch := bus.Subscribe()
+			id, ch, done := bus.Subscribe()
 			bus.Publish(&TextBlockDeltaEvent{baseEvent: baseEvent{EventType_: TypeTextBlockDelta, Ts: time.Now(), ReplyID_: "r1"}, Delta: "x"})
 			select {
 			case <-ch:
+			case <-done:
 			case <-time.After(50 * time.Millisecond):
 			}
 			bus.Unsubscribe(id)

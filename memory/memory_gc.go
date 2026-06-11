@@ -10,11 +10,11 @@ import (
 // MemoryCollector 基于使用频率和效用的记忆自动清理器。
 // 对标 ReMe Python delete_task_memory 流水线。
 type MemoryCollector struct {
-	Store             VectorStore
-	FreqThreshold     int     // 检索频率达到此阈值时才考虑删除
-	UtilityThreshold  float64 // utility/freq 低于此值则删除
-	MaxAge            time.Duration // 最大保留时间，超时自动删除
-	mu                sync.Mutex
+	Store            VectorStore
+	FreqThreshold    int           // 检索频率达到此阈值时才考虑删除
+	UtilityThreshold float64       // utility/freq 低于此值则删除
+	MaxAge           time.Duration // 最大保留时间，超时自动删除
+	mu               sync.Mutex
 }
 
 // NewMemoryCollector 创建记忆清理器

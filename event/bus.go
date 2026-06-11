@@ -30,9 +30,10 @@ func NewBus(bufferSize int) *Bus {
 	return &Bus{subs: make(map[string]*subscription), capacity: bufferSize}
 }
 
-// Subscribe registers a new subscriber and returns a receive-only channel.
-// The caller must call Unsubscribe with the returned id when done.
-func (b *Bus) Subscribe() (id string, ch <-chan AgentEvent) {
+// Subscribe registers a new subscriber and returns a receive-only channel plus a done
+// channel that is closed by Unsubscribe. The caller must call Unsubscribe(id) when done.
+// Receivers can select on done to exit cleanly without bus closing the event ch.
+func (b *Bus) Subscribe() (id string, ch <-chan AgentEvent, done <-chan struct{}) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.nextID++
@@ -43,10 +44,11 @@ func (b *Bus) Subscribe() (id string, ch <-chan AgentEvent) {
 		done: make(chan struct{}),
 	}
 	b.subs[id] = sub
-	return id, sub.ch
+	return id, sub.ch, sub.done
 }
 
-// Unsubscribe removes a subscriber and closes its channel.
+// Unsubscribe removes a subscriber and closes its done channel (ch is left open for GC;
+// no close(ch) to avoid any send-on-closed race with concurrent Publish).
 func (b *Bus) Unsubscribe(id string) {
 	b.mu.Lock()
 	sub, ok := b.subs[id]
@@ -54,7 +56,7 @@ func (b *Bus) Unsubscribe(id string) {
 	b.mu.Unlock()
 	if ok {
 		close(sub.done)
-		close(sub.ch)
+		// Intentionally not closing sub.ch to eliminate close/send data race window.
 	}
 }
 
@@ -69,15 +71,13 @@ func (b *Bus) Publish(ev AgentEvent) {
 	b.mu.RUnlock()
 
 	for _, sub := range subs {
-		func() {
-			// Guard against unsubscribe closing the channel during send.
-			defer func() { recover() }()
-			select {
-			case sub.ch <- ev:
-			default:
-				// Drop event for slow consumer to avoid blocking the bus.
-			}
-		}()
+		select {
+		case sub.ch <- ev:
+		case <-sub.done:
+			// subscriber unsubbed
+		default:
+			// Drop event for slow consumer to avoid blocking the bus.
+		}
 	}
 }
 

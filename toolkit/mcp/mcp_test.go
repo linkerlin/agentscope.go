@@ -101,7 +101,7 @@ func TestToolAdapter_ExecuteError(t *testing.T) {
 
 type mockClientFailCall struct{}
 
-func (m *mockClientFailCall) Connect(ctx context.Context, cfg MCPConfig) error { return nil }
+func (m *mockClientFailCall) Connect(ctx context.Context, cfg MCPConfig) error  { return nil }
 func (m *mockClientFailCall) ListTools(ctx context.Context) ([]ToolInfo, error) { return nil, nil }
 func (m *mockClientFailCall) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
 	return nil, errors.New("call failed")

@@ -88,7 +88,7 @@ func TestOpenAIMultiModalTool_TextToImage_Base64(t *testing.T) {
 	toolFn := mmt.TextToImageTool()
 
 	resp, err := toolFn.Execute(context.Background(), map[string]any{
-		"prompt": "a dog",
+		"prompt":          "a dog",
 		"response_format": "b64_json",
 	})
 	if err != nil {

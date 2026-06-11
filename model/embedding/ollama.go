@@ -27,9 +27,9 @@ func NewOllamaEmbedder(baseURL, modelName string, dimension int) *OllamaEmbedder
 		baseURL = "http://127.0.0.1:11434"
 	}
 	return &OllamaEmbedder{
-		baseURL:   strings.TrimRight(baseURL, "/"),
-		modelName: modelName,
-		dimension: dimension,
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		modelName:  modelName,
+		dimension:  dimension,
 		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
 }

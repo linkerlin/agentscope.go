@@ -21,8 +21,9 @@ type SelfReflectingAgent struct {
 }
 
 // NewSelfReflectingAgent creates a reflection loop.
-//   judge: returns true to accept the draft and stop iterating.
-//   maxIter: hard upper bound (<=0 defaults to 3).
+//
+//	judge: returns true to accept the draft and stop iterating.
+//	maxIter: hard upper bound (<=0 defaults to 3).
 func NewSelfReflectingAgent(name string, writer, critic agent.Agent, judge func(draft, critique *message.Msg) bool, maxIter int) *SelfReflectingAgent {
 	if maxIter <= 0 {
 		maxIter = 3
@@ -57,7 +58,7 @@ func (s *SelfReflectingAgent) Call(ctx context.Context, msg *message.Msg) (*mess
 			return draft, nil
 		}
 		revisionMsg := message.NewMsg().Role(message.RoleUser).TextContent(
-			"Revise your previous output based on this feedback:\n"+critique.GetTextContent(),
+			"Revise your previous output based on this feedback:\n" + critique.GetTextContent(),
 		).Build()
 		draft, err = s.writer.Call(ctx, revisionMsg)
 		if err != nil {

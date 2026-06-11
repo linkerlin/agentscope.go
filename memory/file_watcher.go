@@ -60,7 +60,7 @@ func (w *FileWatcher) Start(ctx context.Context) error {
 		for {
 			select {
 			case <-ticker.C:
-				w.scan()
+				_ = w.scan()
 			case <-w.stopCh:
 				return
 			case <-ctx.Done():
@@ -142,7 +142,7 @@ func (w *DeltaFileWatcher) OnDelta(callback func(path string, isAppend bool, new
 	w.onDelta = callback
 }
 
-func (w *DeltaFileWatcher) scan() error {
+func (w *DeltaFileWatcher) scan() error { //nolint:unused // internal scan, called via watcher or for future use
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

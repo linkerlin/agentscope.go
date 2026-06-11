@@ -111,7 +111,7 @@ func (b *FileProfileBackend) Update(ctx context.Context, userName string, update
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func (b *FileProfileBackend) Delete(ctx context.Context, userName string, key string) error {
@@ -125,7 +125,7 @@ func (b *FileProfileBackend) Delete(ctx context.Context, userName string, key st
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func (b *FileProfileBackend) Retrieve(ctx context.Context, userName, query string, topK int) (map[string]any, error) {

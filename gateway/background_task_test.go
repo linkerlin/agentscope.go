@@ -23,10 +23,10 @@ func TestBackgroundTaskManager_ScheduleAndCancel(t *testing.T) {
 	defer btm.Stop()
 
 	job := &schedule.Job{
-		ID:      "j1",
-		AgentID: "a1",
+		ID:       "j1",
+		AgentID:  "a1",
 		CronExpr: "*/1 * * * *",
-		Payload: "hello",
+		Payload:  "hello",
 	}
 	if err := btm.Schedule(context.Background(), job); err != nil {
 		t.Fatal(err)

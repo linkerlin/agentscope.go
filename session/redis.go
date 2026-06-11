@@ -38,12 +38,12 @@ func (s *RedisSessionService) key(sessionID string) string {
 
 // redisSession is a serializable snapshot of a Session.
 type redisSession struct {
-	ID        string          `json:"id"`
-	AgentName string          `json:"agent_name"`
-	Messages  []*message.Msg  `json:"messages"`
-	Metadata  map[string]any  `json:"metadata"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        string         `json:"id"`
+	AgentName string         `json:"agent_name"`
+	Messages  []*message.Msg `json:"messages"`
+	Metadata  map[string]any `json:"metadata"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 func (s *RedisSessionService) Create(agentName string) (*Session, error) {

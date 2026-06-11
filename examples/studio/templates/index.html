@@ -32,7 +32,7 @@
 
   <div class="card" style="background:#f0f8ff">
     <h3>🚀 自动装配 (Auto-Assembly) 效果演示</h3>
-    <p>因为本 Studio 使用了 <code>AutoStandardTools: true</code> + <code>WorkspaceBaseDir</code> + <code>AutoToolOffload</code> 等：</p>
+    <p>因为本 Studio 使用了 <code>AutoStandardTools: true</code> + <code>WorkspaceBaseDir</code> + <code>AutoToolOffload</code> + <code>tracingMW</code> (Phase 5) 等：</p>
     <ul>
       <li><strong>Workspace</strong>：每个 session 自动获得隔离的工作目录（文件读写、list、shell 受限）。</li>
       <li><strong>Standard Tools</strong>（自动 + 内部 auto in-memory TaskStore）：
@@ -47,6 +47,7 @@
       <li><strong>Tool Offload</strong>：长耗时工具自动后台化 + Hint 注入恢复上下文。</li>
       <li><strong>Schedule Restore</strong>：持久化 schedule 重启后自动恢复（通过 BTM.Start + loadPersistedSchedules）。</li>
       <li><strong>Permission</strong>：默认 Explore 模式 + 合理规则（写操作 ask，读允许）。</li>
+      <li><strong>Tracing (Phase 5)</strong>：TracingMiddlewareAdapter 注入 spans 到 on_reply/on_reasoning 等 hook，可与 OTel/LangSmith 结合（demo 用 NoopTracer，实际用真实 tracer）。</li>
     </ul>
     <p>动态创建的 agent/session 会自动获得以上能力。使用下方导航尝试 <a href="/agents">Agents</a> → 创建 → <a href="/chat">Chat Demo</a> 来测试自动工具。</p>
   </div>

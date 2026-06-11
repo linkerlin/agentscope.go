@@ -13,8 +13,13 @@ import (
 )
 
 // OpenAIEmbedder uses the top-level embedding package under the hood
-// to generate text embeddings (reduces duplication with new embedding/ package).
-// Fields kept for test compatibility.
+// to generate text embeddings.
+//
+// Deprecated: Prefer "github.com/linkerlin/agentscope.go/embedding" (NewOpenAI / NewOpenAIWithBaseURL + WithFileCache).
+// This type only exists for memory.EmbeddingModel compatibility inside ReMe/vector stores
+// and for a few existing tests/examples that rely on the old Embed/EmbedBatch + AsModel API.
+//
+// New code should import the top-level package directly.
 type OpenAIEmbedder struct {
 	inner     embedding.Model
 	client    *goopenai.Client // for test compat / AsModel
@@ -23,6 +28,8 @@ type OpenAIEmbedder struct {
 
 // NewOpenAIEmbedder creates an embedder with the given API key and model.
 // Delegates to embedding.NewOpenAI for the core implementation.
+//
+// Deprecated: use embedding.NewOpenAI (top level) directly.
 func NewOpenAIEmbedder(apiKey, modelName string) *OpenAIEmbedder {
 	if modelName == "" {
 		modelName = "text-embedding-3-small"
@@ -39,6 +46,8 @@ func NewOpenAIEmbedder(apiKey, modelName string) *OpenAIEmbedder {
 
 // NewOpenAIEmbedderWithBaseURL creates an embedder with a custom base URL.
 // Delegates to embedding.NewOpenAIWithBaseURL.
+//
+// Deprecated: use embedding.NewOpenAIWithBaseURL (top level) directly.
 func NewOpenAIEmbedderWithBaseURL(apiKey, baseURL, modelName string) *OpenAIEmbedder {
 	if modelName == "" {
 		modelName = "text-embedding-3-small"

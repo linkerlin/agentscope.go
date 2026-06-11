@@ -50,7 +50,6 @@ func TestTikaClient_Parse_ErrorStatus(t *testing.T) {
 	}
 }
 
-
 func TestTikaClient_DefaultURL(t *testing.T) {
 	c := NewTikaClient("")
 	if c.BaseURL != "http://localhost:9998" {

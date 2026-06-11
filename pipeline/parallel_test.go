@@ -111,7 +111,7 @@ func TestParallel_CustomAggregator(t *testing.T) {
 			sum += len(m.GetTextContent())
 		}
 		return message.NewMsg().Role(message.RoleAssistant).TextContent(
-			string(rune('0'+sum)),
+			string(rune('0' + sum)),
 		).Build()
 	})
 

@@ -189,7 +189,6 @@ func TestReActAgent_ContextCancellation(t *testing.T) {
 	}
 }
 
-
 func TestReActAgent_Observe(t *testing.T) {
 	mem := memory.NewInMemoryMemory()
 	agent, err := Builder().
@@ -325,11 +324,11 @@ func (m *mockPromptMemory) GetMemoryForPrompt(prepend bool) ([]*message.Msg, err
 // badMemory always errors on GetAll.
 type badMemory struct{}
 
-func (b *badMemory) GetAll() ([]*message.Msg, error)   { return nil, errors.New("bad memory") }
-func (b *badMemory) Add(msg *message.Msg) error        { return nil }
+func (b *badMemory) GetAll() ([]*message.Msg, error)         { return nil, errors.New("bad memory") }
+func (b *badMemory) Add(msg *message.Msg) error              { return nil }
 func (b *badMemory) GetRecent(n int) ([]*message.Msg, error) { return nil, nil }
-func (b *badMemory) Clear() error                      { return nil }
-func (b *badMemory) Size() int                         { return 0 }
+func (b *badMemory) Clear() error                            { return nil }
+func (b *badMemory) Size() int                               { return 0 }
 
 func TestReActAgent_BuilderChainAndDefaults(t *testing.T) {
 	tk := toolkit.NewToolkit()
@@ -876,7 +875,6 @@ func (m *slowToolCallModel) ChatStream(ctx context.Context, messages []*message.
 }
 
 func (m *slowToolCallModel) ModelName() string { return m.name }
-
 
 // trackingHook records which points were fired.
 type trackingHook struct {

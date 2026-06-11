@@ -12,10 +12,10 @@ type AgentConfig struct {
 	SystemPrompt  string `json:"system_prompt"`
 	MaxIterations int    `json:"max_iterations"`
 
-	Model   ModelConfig   `json:"model"`
-	Memory  MemoryConfig  `json:"memory"`
+	Model   ModelConfig       `json:"model"`
+	Memory  MemoryConfig      `json:"memory"`
 	ReMe    *ReMeMemoryConfig `json:"reme,omitempty" yaml:"reme,omitempty"`
-	Toolkit ToolkitConfig `json:"toolkit"`
+	Toolkit ToolkitConfig     `json:"toolkit"`
 }
 
 // ModelConfig 模型连接
@@ -45,7 +45,7 @@ type ToolkitConfig struct {
 	Parallel    bool `json:"parallel"`
 	MaxParallel int  `json:"max_parallel"`
 	TimeoutMs   int  `json:"timeout_ms"`
-	MaxRetries    int  `json:"max_retries"`
+	MaxRetries  int  `json:"max_retries"`
 }
 
 // LoadFromFile 从 JSON 文件加载

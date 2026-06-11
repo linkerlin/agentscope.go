@@ -44,4 +44,3 @@ func TestRegisterAll_WriteToolsOmitted(t *testing.T) {
 }
 
 var _ tool.Tool = NewReadFileTool("/tmp")
-

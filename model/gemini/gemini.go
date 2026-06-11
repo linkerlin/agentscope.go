@@ -133,7 +133,7 @@ func (m *ChatModel) chatOnce(ctx context.Context, messages []*message.Msg, optio
 	if err != nil {
 		return nil, fmt.Errorf("gemini chat: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -194,7 +194,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 	ch := make(chan *model.StreamChunk, 64)
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		scanner := bufio.NewScanner(resp.Body)
 		var usage model.ChatUsage
 		for scanner.Scan() {
@@ -251,7 +251,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 	return ch, nil
 }
 
-func (m *ChatModel) buildRequestBody(messages []*message.Msg, stream bool, options ...model.ChatOption) ([]byte, error) {
+func (m *ChatModel) buildRequestBody(messages []*message.Msg, stream bool, options ...model.ChatOption) ([]byte, error) { //nolint:unparam // stream reserved for future streaming body variants
 	opts := &model.ChatOptions{}
 	for _, o := range options {
 		o(opts)

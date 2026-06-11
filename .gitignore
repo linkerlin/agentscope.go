@@ -15,3 +15,6 @@ cov
 coverage
 react_coverage
 react_coverage_func.txt
+**/*coverage*
+!memory/TEST_COVERAGE.md
+**/coverage/

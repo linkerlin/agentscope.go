@@ -220,8 +220,8 @@ func (t *GatewayMCPTool) Execute(ctx context.Context, input map[string]any) (*to
 	return tool.NewTextResponse(result), nil
 }
 
-func (t *GatewayMCPTool) IsMCPTool() bool { return true }
-func (t *GatewayMCPTool) MCPName() string { return t.mcpName }
+func (t *GatewayMCPTool) IsMCPTool() bool  { return true }
+func (t *GatewayMCPTool) MCPName() string  { return t.mcpName }
 func (t *GatewayMCPTool) IsReadOnly() bool { return t.info.ReadOnly }
 
 func (t *GatewayMCPTool) CheckPermissions(_ map[string]any, _ any) (tool.PermissionDecision, string, string, bool) {

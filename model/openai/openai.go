@@ -206,7 +206,7 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 	ch := make(chan *model.StreamChunk, 64)
 	go func() {
 		defer close(ch)
-		defer stream.Close()
+		defer func() { _ = stream.Close() }()
 		var usage model.ChatUsage
 		for {
 			resp, err := stream.Recv()
@@ -274,5 +274,3 @@ func toOpenAIResponseFormat(rf *model.ResponseFormat) *goopenai.ChatCompletionRe
 	}
 	return out
 }
-
-

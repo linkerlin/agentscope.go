@@ -23,30 +23,38 @@ import (
 //
 // The high-level NewApp + RegisterAppRoutes + existing managers give a close
 // experience to Python's create_app + lifespan automatic wiring.
+//
+// See examples/full_service and examples/production for complete production bootstrap.
 
 type AppConfig struct {
-	Agent               agent.Agent
-	Storage             service.Storage
-	Authenticator       service.Authenticator
-	JWTAuth             *service.JWTAuthenticator
-	Cipher              *service.Cipher
-	Registry            *AgentRegistry
-	SessionManager      *SessionManager
-	BackgroundTaskMgr   *BackgroundTaskManager
-	WorkspaceManager    *WorkspaceManager
-	ToolOffloadManager  *ToolOffloadManager
-	ModelCardsDir       string
-	EmbeddingModel      model.EmbeddingModel
+	Agent              agent.Agent
+	Storage            service.Storage
+	Authenticator      service.Authenticator
+	JWTAuth            *service.JWTAuthenticator
+	Cipher             *service.Cipher
+	Registry           *AgentRegistry
+	SessionManager     *SessionManager
+	BackgroundTaskMgr  *BackgroundTaskManager
+	WorkspaceManager   *WorkspaceManager
+	ToolOffloadManager *ToolOffloadManager
+	ModelCardsDir      string
+	EmbeddingModel     model.EmbeddingModel
 
 	// --- Auto-assembly options (more "create_app" like experience) ---
-	WorkspaceBaseDir     string                 // if set and WorkspaceManager==nil, auto-create Local WorkspaceManager
-	AutoStandardTools    bool                   // if true, auto-inject StandardTools (file+task+schedule+web+json) for session agents
-	StandardToolsOptions StandardToolsOptions   // customization for auto tools (WorkspaceDir etc. will be overridden by base dir if set)
-	DefaultPermissionMode permission.Mode       // default permission mode for auto-wired agents (defaults to Explore)
-	AutoToolOffload      bool                   // ensure ToolOffload is wired into BTM and session deps
+	WorkspaceBaseDir      string               // if set and WorkspaceManager==nil, auto-create Local WorkspaceManager
+	AutoStandardTools     bool                 // if true, auto-inject StandardTools (file+task+schedule+web+json) for session agents
+	StandardToolsOptions  StandardToolsOptions // customization for auto tools (WorkspaceDir etc. will be overridden by base dir if set)
+	DefaultPermissionMode permission.Mode      // default permission mode for auto-wired agents (defaults to Explore)
+	AutoToolOffload       bool                 // ensure ToolOffload is wired into BTM and session deps
 
 	// Embedding cache dir: if set and EmbeddingModel provided, auto-wrap with embedding.WithFileCache
 	EmbeddingCacheDir string
+
+	// Evolver integration (Phase 6 GEP alignment): set true or provide external MCP URL
+	// to allow session agents to discover/call evolver tools (run/reflect/solidify, genes, capsules,
+	// remember/recall, meetings, ATP tasks) via the existing MCP gateway.
+	// See evolver/ package, examples/evolver, and docs for wiring + MockEvolver for tests.
+	EvolverEnabled bool
 }
 
 // NewApp builds a configured gateway Server from AppConfig.
@@ -167,7 +175,6 @@ func NewApp(cfg AppConfig) *Server {
 // schedule restore on startup, workspace manager lifecycle etc.), see Phase 2
 // work and the updated production example. The current NewApp + RegisterAppRoutes
 // + AppConfig already provides a very close equivalent to the Python pattern.
-
 
 // RegisterAppRoutes registers all built-in HTTP routes (auth, CRUD, chat, schedule, workspace).
 func (s *Server) RegisterAppRoutes(jwtAuth *service.JWTAuthenticator) {

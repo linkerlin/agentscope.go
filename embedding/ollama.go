@@ -1,8 +1,8 @@
 package embedding
 
 import (
-	modelembed "github.com/linkerlin/agentscope.go/model/embedding"
 	"github.com/linkerlin/agentscope.go/model"
+	modelembed "github.com/linkerlin/agentscope.go/model/embedding"
 )
 
 // NewOllama creates an embedding model that talks to a local Ollama server

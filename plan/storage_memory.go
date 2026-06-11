@@ -7,8 +7,8 @@ import (
 
 // InMemoryStorage is a thread-safe in-memory implementation of Storage.
 type InMemoryStorage struct {
-	mu     sync.RWMutex
-	plans  map[string]*Plan
+	mu    sync.RWMutex
+	plans map[string]*Plan
 }
 
 // NewInMemoryStorage creates a new in-memory plan storage.

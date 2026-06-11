@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/google/uuid" // goimports fix placeholder (re-run will clean)
 	"github.com/linkerlin/agentscope.go/message"
 )
 

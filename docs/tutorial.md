@@ -203,6 +203,27 @@ agent.InjectEvent(ctx, event.NewUserConfirmResult(replyID, confirmID, []event.Co
 }))
 ```
 
+### 可观测性与 Tracing（Phase 5）
+
+使用 `TracingMiddlewareAdapter` 包装 agent 生命周期进行追踪（对齐 Python `_tracing/`）：
+
+```go
+tracingMW := &observability.TracingMiddlewareAdapter{
+    Tracer: myTracer, // OTel 或 LangSmith tracer
+    Name:   "my-agent",
+}
+
+agent, _ := react.Builder().
+    Name("bot").
+    Model(model).
+    Middlewares(tracingMW). // 自动 trace on_reply/on_reasoning 等
+    Build()
+```
+
+也可用 `TracedAgent` 简单包装，或结合 `RecordingTracer` 调试（见 examples/full_service）。
+
+事件总线 + LangSmith/OTel 观察器可用于异步上报。
+
 ---
 
 ## 4. 多 Agent 编排

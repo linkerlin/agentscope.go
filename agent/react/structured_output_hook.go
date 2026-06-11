@@ -35,10 +35,10 @@ type StructuredOutputHook struct {
 	baseOpts     []model.ChatOption
 	memory       memory.Memory
 
-	completed        bool
-	resultMsg        *message.Msg
-	retryCount       int
-	aggregatedUsage  model.ChatUsage
+	completed          bool
+	resultMsg          *message.Msg
+	retryCount         int
+	aggregatedUsage    model.ChatUsage
 	aggregatedThinking *message.ThinkingBlock
 }
 

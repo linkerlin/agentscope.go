@@ -28,14 +28,14 @@ const (
 type Request struct {
 	Stage     MiddlewareStage
 	ToolCalls []ToolCall
-	ToolName  string            // set for single-tool execution
-	ToolInput map[string]any    // set for single-tool execution
+	ToolName  string         // set for single-tool execution
+	ToolInput map[string]any // set for single-tool execution
 }
 
 // Response carries the output from a middleware-wrapped execution.
 type Response struct {
-	Results  []ToolResult
-	Single   *tool.Response // set for single-tool execution
+	Results []ToolResult
+	Single  *tool.Response // set for single-tool execution
 }
 
 // Handler is the core execution function wrapped by middleware.
@@ -93,7 +93,7 @@ func (m *LoggingMiddleware) Wrap(next Handler) Handler {
 
 // MetricsMiddleware counts executions and records latency.
 type MetricsMiddleware struct {
-	OnExecute     func(stage MiddlewareStage, count int, dur time.Duration, err error)
+	OnExecute func(stage MiddlewareStage, count int, dur time.Duration, err error)
 }
 
 func NewMetricsMiddleware(onExecute func(stage MiddlewareStage, count int, dur time.Duration, err error)) *MetricsMiddleware {

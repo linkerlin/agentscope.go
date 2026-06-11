@@ -2,6 +2,10 @@
 
 AgentScope.Go V2 已完成从"消息为中心"到"事件为中心"的架构范式转移。理解以下四个核心概念是掌握本框架的关键。
 
+（Phase 5 扩展）可观测性通过 TracingMiddlewareAdapter 实现 agent 生命周期的细粒度 tracing，支持与 OTel/LangSmith 集成。
+
+（Phase 6 新阶段）GEP 自演化：通过 evolver 包对齐 Evolver 的 Gene/Capsule/闭环/typed memory/ATP 等优势。详见 README GEP 章节与 examples/evolver。
+
 ---
 
 ## 1. 事件系统（Event System）

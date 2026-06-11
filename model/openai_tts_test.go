@@ -21,11 +21,11 @@ func TestOpenAITTS_SynthesizeSpeech(t *testing.T) {
 			return
 		}
 		var req struct {
-			Model   string  `json:"model"`
-			Input   string  `json:"input"`
-			Voice   string  `json:"voice"`
-			Format  string  `json:"response_format"`
-			Speed   float64 `json:"speed"`
+			Model  string  `json:"model"`
+			Input  string  `json:"input"`
+			Voice  string  `json:"voice"`
+			Format string  `json:"response_format"`
+			Speed  float64 `json:"speed"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)

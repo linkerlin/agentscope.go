@@ -18,8 +18,8 @@ func CheckContext(ctx context.Context, msgs []*message.Msg, threshold, reserve i
 	}
 	res := &ContextCheckResult{
 		TotalTokens: total,
-		Threshold: threshold,
-		IsValid:   true,
+		Threshold:   threshold,
+		IsValid:     true,
 	}
 	if total <= threshold {
 		res.MessagesToKeep = cloneMsgSlice(msgs)
@@ -77,4 +77,3 @@ func splitRespectsToolPairs(msgs []*message.Msg, start int) bool {
 	}
 	return len(pending) == 0
 }
-

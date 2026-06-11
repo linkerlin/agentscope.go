@@ -89,6 +89,7 @@ func main() {
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
 | `embedding` | 独立 Embedding 包：OpenAI / Ollama / Gemini / DashScope + FileCache（多模态支持提示），可直接用于 gateway / memory / RAG |
+| `evolver` | GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill→Gene 蒸馏（Phase 6 对齐 evolver 优势） |
 
 ## 高层生产服务 Bootstrap（强烈推荐）
 
@@ -435,9 +436,41 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/production`](examples/production/main.go) —— 全功能生产级服务（Auth + 工具 + 权限 + Gateway）
 - [`examples/full_service`](examples/full_service/main.go) —— 极简重度自动装配生产服务（推荐）
 - [`examples/studio`](examples/studio/main.go) —— 纯 Go 轻量 Studio (HTMX) —— 完整 Auth/Agents/Credentials/Schedules/Chat + 实时 SSE + auto tools 结果展示
+- [`examples/evolver`](examples/evolver/main.go) —— GEP 自演化 demo（Gene/Capsule、Run/Reflect/Solidify 闭环、Skill 蒸馏、Recording 调用、演化记忆 recall）
 - [`examples/langsmith`](examples/langsmith/main.go) —— Agent 事件流转发到 LangSmith
 
 ## 可观测性
+
+### 追踪中间件（Phase 5 新增，对齐 Python）
+
+使用 `TracingMiddlewareAdapter` 可在 Agent 生命周期（on_reply、on_reasoning、on_acting、on_model_call、on_system_prompt）注入 tracing spans。
+
+```go
+import (
+    "github.com/linkerlin/agentscope.go/observability"
+    "github.com/linkerlin/agentscope.go/agent/react"
+)
+
+tracer := observability.NewOTelTracer(...) // 或 LangSmith tracer 等
+tracingMW := &observability.TracingMiddlewareAdapter{
+    Tracer: tracer,
+    Name:   "my-agent",
+}
+
+agent, _ := react.Builder().
+    Name("TracedAgent").
+    Model(chatModel).
+    Middlewares(tracingMW).  // 直接用于 middleware 链
+    Build()
+```
+
+也可用 `TracedAgent` 包装：
+
+```go
+traced := observability.NewTracedAgent("my-agent", baseAgent).WithTracer(tracer)
+```
+
+支持 RecordingTracer 用于调试（见 examples/full_service）。
 
 ### LangSmith 追踪
 
@@ -471,7 +504,58 @@ tp, _ := observability.InitTracerProvider("agent-service")
 defer tp.Shutdown(context.Background())
 ```
 
-Gateway 自动集成 OTel HTTP 中间件，所有请求都会被追踪。
+Gateway 自动集成 OTel HTTP 中间件，所有请求都会被追踪。Toolkit 层也有 TracingMiddleware。
+
+## GEP 自演化与 Evolver 对齐（Phase 6 新阶段）
+
+agentscope.go 现在对齐了 [Evolver](https://github.com/EvoMap/evolver)（及 evolver.py）的核心优势——**基于 GEP（Gene Evolution Protocol）的自演化能力**。
+
+### 为什么对齐 Evolver？
+Evolver 的论文与实践表明：**紧凑的 Gene（策略基因，带 signals_match + strategy + constraints + validation）** 作为演化资产，远优于松散的 ad-hoc prompt / skill 文档。它提供：
+- 可审计、可复用、可固化的演化闭环（run → reflect → solidify）
+- Capsule（成功快照，含 blast_radius、execution_trace、outcome）
+- 带类型的记忆（remember/recall gene/capsule/event，支持 narrativeMemory / memoryGraph）
+- 结构化会议（meeting_start / proceed / human_input / finalize）
+- ATP 任务市场（claim / complete + hub 复用）
+- Skill ↔ Gene 蒸馏（skill2gep / distiller / publisher）
+- 安全与回滚（safety_status、policy、gitOps rollback）
+
+agentscope.go 已有 ReMe（世界级记忆）、a2a（领先协议）、gateway（MCP 完美桥接）、事件+tracing 基础设施，因此我们**轻量桥接**而非重造：
+- 提供原生 Go 类型 + 高层流程 API
+- 通过现有 MCP 网关即可让你的 Agent 直接调用 evolver 全部工具
+- ReMe + 新 MemoryTypeGene/Capsule 天然承载演化资产
+- Skill 蒸馏 + Recording 风格可见性（类似 Phase 5 tracing）
+
+### 快速使用（Mock 先行，生产接 MCP）
+```go
+import "github.com/linkerlin/agentscope.go/evolver"
+
+flow := evolver.NewGEPFlow(evolver.NewMockEvolver()) // 生产：换成真实 backed client
+runCfg := evolver.RunConfig{Context: "recurring gateway timeout on large payload", Strategy: "repair-only"}
+runRes, solRes, _ := flow.RunAndSolidify(ctx, runCfg, false /* 设 true 干运行 */)
+
+fmt.Println("Selected gene:", runRes.SelectedGene.ID)
+fmt.Println("Solidified capsule:", solRes.CapsuleID)
+
+// Skill 蒸馏为 Gene（对齐 skillDistiller）
+sk := &skill.AgentSkill{Name: "timeout_recovery", Description: "...", SkillContent: "..."}
+gene := sk.DistillToGene(evolver.CategoryRepair)
+flow.Client.UpsertGene(ctx, gene)
+
+// 演化记忆 recall（narrative 风格）
+_ = flow.Client.Remember(ctx, evolver.RememberRequest{Text: "...", Type: "capsule", Category: evolver.CategoryRepair})
+hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Category: "capsule"})
+```
+
+**生产集成**：在 `gateway.AppConfig{EvolverEnabled: true}` 启动后，session agent 即可通过 MCP 工具调用 `evolver__evolver_run` / `evolver_solidify` 等（见 gateway/session_mcp_gateway）。配合 ReMe 持久化 gene/capsule 资产，即可实现“遇到错误自动触发 GEP 修复 + 固化 + 审计”。
+
+详见：
+- `evolver/` 包（types, client, gep flow, tests）
+- `examples/evolver/main.go`（完整可运行 demo，含 recording calls、distill、recall）
+- `DEV_PLAN_CATCHUP.md` Phase 6 章节（含优势对比、实施策略）
+- evolver 官方：基因优于 skill 的论文 arXiv:2604.15097
+
+未来将持续增强：真实 MCP 客户端包装、Studio 演化资产 UI、a2a ATP 任务扩展、ReMe 深度 memoryGraph 实现。
 
 ## 许可证
 

@@ -20,7 +20,7 @@ func TestDashScopeMultiModalTool_TextToImage(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"output": map[string]any{
-					"task_id":    "task-123",
+					"task_id":     "task-123",
 					"task_status": "PENDING",
 				},
 			})
@@ -89,7 +89,7 @@ func TestDashScopeMultiModalTool_TextToImage_Base64(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"output": map[string]any{
-					"task_id":    "task-123",
+					"task_id":     "task-123",
 					"task_status": "PENDING",
 				},
 			})
@@ -168,7 +168,7 @@ func TestDashScopeMultiModalTool_TextToVideo(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"output": map[string]any{
-					"task_id":    "task-vid",
+					"task_id":     "task-vid",
 					"task_status": "PENDING",
 				},
 			})
@@ -227,7 +227,7 @@ func TestDashScopeMultiModalTool_ImageToVideo(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"output": map[string]any{
-					"task_id":    "task-i2v",
+					"task_id":     "task-i2v",
 					"task_status": "PENDING",
 				},
 			})
@@ -283,7 +283,7 @@ func TestDashScopeMultiModalTool_TextToImage_TaskFailed(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"output": map[string]any{
-					"task_id":    "task-fail",
+					"task_id":     "task-fail",
 					"task_status": "PENDING",
 				},
 			})
@@ -330,7 +330,7 @@ func TestDashScopeMultiModalTool_TextToVideo_Timeout(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"output": map[string]any{
-					"task_id":    "task-to",
+					"task_id":     "task-to",
 					"task_status": "PENDING",
 				},
 			})

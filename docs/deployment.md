@@ -50,6 +50,7 @@ func main() {
 import (
     "github.com/redis/go-redis/v9"
     "github.com/linkerlin/agentscope.go/gateway"
+    "github.com/linkerlin/agentscope.go/observability"
     "github.com/linkerlin/agentscope.go/service"
 )
 
@@ -61,11 +62,18 @@ func main() {
     // 2. 创建 Agent
     agent, _ := /* ... */
 
-    // 3. 创建 Gateway，注入存储
+    // 3. 创建 Gateway，注入存储 + tracing (Phase 5)
+    tracingMW := &observability.TracingMiddlewareAdapter{
+        Tracer: observability.NewOTelTracer(...), // 或 LangSmith
+        Name:   "prod",
+    }
     srv := gateway.NewServer(agent).
         WithStorage(storage).
         WithAuthenticator(gateway.NewJWTAuthenticator("your-secret"))
     srv.RegisterV2Routes()
+
+    // 可选：tracing middleware 可在 agent builder 中使用
+    // agentBuilder.Middlewares(tracingMW)
 
     log.Fatal(http.ListenAndServe(":8080", srv))
 }

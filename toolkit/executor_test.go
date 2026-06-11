@@ -131,7 +131,6 @@ func TestToolExecutor_Parallel(t *testing.T) {
 	}
 }
 
-
 func TestToolExecutor_ExecuteTool(t *testing.T) {
 	reg := newTestRegistry(tool.NewFunctionTool("echo", "", nil, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
 		return tool.NewTextResponse("ok"), nil

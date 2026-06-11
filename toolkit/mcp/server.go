@@ -31,10 +31,10 @@ func newFullSession(id string) *fullSession {
 	}
 }
 
-func (s *fullSession) Initialize()                        { s.init = true }
-func (s *fullSession) Initialized() bool                  { return s.init }
+func (s *fullSession) Initialize()                                         { s.init = true }
+func (s *fullSession) Initialized() bool                                   { return s.init }
 func (s *fullSession) NotificationChannel() chan<- mcp.JSONRPCNotification { return s.ch }
-func (s *fullSession) SessionID() string                  { return s.sessionID }
+func (s *fullSession) SessionID() string                                   { return s.sessionID }
 
 // GetSessionTools returns a copy of the session-specific tools.
 func (s *fullSession) GetSessionTools() map[string]mcpserver.ServerTool {

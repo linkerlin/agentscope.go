@@ -100,7 +100,7 @@ func (gm *GroupManager) RemoveGroup(name string) error {
 		if !inOtherGroup {
 			// We cannot delete from Registry here because Registry doesn't expose delete.
 			// We'll leave it in registry; just remove from group.
-		}
+		} //nolint:staticcheck // SA9003: intentional placeholder for future registry delete logic
 	}
 	delete(gm.groups, name)
 	delete(gm.active, name)

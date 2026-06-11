@@ -18,8 +18,10 @@ func newLoadSkillTool(r *Registry) tool.Tool {
 	return &loadSkillTool{registry: r}
 }
 
-func (t *loadSkillTool) Name() string        { return "load_skill_through_path" }
-func (t *loadSkillTool) Description() string { return "Load and activate a skill resource by its ID and resource path." }
+func (t *loadSkillTool) Name() string { return "load_skill_through_path" }
+func (t *loadSkillTool) Description() string {
+	return "Load and activate a skill resource by its ID and resource path."
+}
 
 func (t *loadSkillTool) Spec() model.ToolSpec {
 	skills := t.registry.List()

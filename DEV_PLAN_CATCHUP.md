@@ -123,13 +123,17 @@ Phase 3/4 按请求大幅推进并进一步完善：
 下一步: 更多多模态实现、e2e 测试脚本、Phase 5 文档/发布。
   - 打印和 UI 都突出 auto 效果。
 
-**Phase 5 继续研发** (当前)：
-- Tracing middleware 对齐：增强 TracingMiddlewareAdapter (支持更多 interceptor)，在 full_service 示例中集成 TracedAgent 演示。
-- 测试：embedding/memory/gateway/observability 测试通过，新增 tracing adapter 测试。
-- 示例：full_service 使用 tracedBase + tracing。
-- 文档：全面更新 (README, CHANGELOG, AGENTS, tutorial, deployment, DEV_PLAN) 突出 Phase 5 tracing。
-- 验证：full build + targeted tests 通过。
-下一步: 更多 e2e (app bootstrap, studio), 完善 tracing middleware 实现 (添加更多 hook), version bump, 发布准备。
+**Phase 5 继续研发** (当前，继续)：
+- Tracing middleware 对齐：TracingMiddlewareAdapter 完整实现 middleware 接口，可直接 .Middlewares() 使用。添加 RecordingTracer 用于可见演示 spans。
+- 在 full_service 和 studio 中实际使用 tracingMW + RecordingTracer 演示，打印 recorded spans。
+- 测试补充：新增 TestRecordingTracerWithTracedAgent；在 gateway/app_test 增强 bootstrap tracing 测试；observability 测试通过。
+- 示例/文档：full_service/studio 打印 tracing demo spans；更新 index.html 列表 tracing；全面完善 README（tracing 章节）、AGENTS.md（架构）、tutorial/deployment/concepts/index（tracing/embedding 扩展）；DEV_PLAN/CHANGELOG 同步。
+- 验证：build + tests OK。
+下一步: 更多 e2e (结合真实 OTel + schedule + studio 流程), 发布 prep (full test, notes, migration guide)。Phase 5 追踪/测试/示例/文档基本完成，可视为追赶工作阶段性完成。
+- 新增 TestTracingAdapterImplementsMiddlewareInterfaces 验证 chain 集成。
+- 构建/测试验证通过 (observability, gateway)。
+- 文档/计划更新记录本次完善。
+所有 Phase 5 tracing 子项已推进。构建 OK。
 
 **“添加更多自动装配”增强（最新迭代）**：
 - AppConfig 扩展支持更多“一键”选项：
@@ -145,3 +149,66 @@ Phase 3/4 按请求大幅推进并进一步完善：
 - `examples/production/main.go` 演示使用这些字段实现更简洁的丰富配置。
 - 效果：用户只需在 AppConfig 里设置几个布尔/路径字段，即可获得 workspace + 标准工具 + tool offload + schedule restore + 权限 等自动能力，极大接近 Python `create_app(storage, workspace_manager=...)` 的体验。
 - 测试与构建验证通过。
+
+---
+
+## Phase 6: Evolver GEP 自演化优势对齐 (当前阶段)
+
+**目标**：将 ./evolver/ (及 evolver.py) 的核心优势引入 agentscope.go ，同时保持 Go 轻量、事件驱动、MCP 友好、不引入重依赖。重点不是全量 port，而是**类型+协议+高层流程对齐 + 桥接现有能力**（ReMe 记忆 + a2a + gateway MCP + skill + tracing）。
+
+**evolver 核心优势 (来自源码 schemas + MCP 工具 + README + 论文)**：
+- **Genes vs Skills**：紧凑、可复用、带 signals_match + strategy + constraints + validation + routing_hint 的“策略基因”，而非冗长 ad-hoc 文档式 skill。研究证明在演化中信号更强、迭代更好（arXiv:2604.15097）。
+- **Capsules**：成功演化的快照（带 blast_radius、outcome、execution_trace、derivation_tokens、a2a eligible）。
+- **GEP Pipeline**：evolver_run（信号提取+基因选择+GEP提示生成）→ evolver_reflect（风险检测）→ evolver_solidify（验证、记事件、更新基因、存 capsule，支持 dryRun、human_intervention、reused_asset、git 回滚语义）。
+- **Typed Memory**：remember/recall/reflect（gene/capsule/event 类型）、narrativeMemory + memoryGraph（vs 扁平检索）。
+- **Meetings**：结构化多代理演化会议（research/code/debug/grokteam 等，带 proceed/human_input/finalize/playback/audit）。
+- **ATP / Hub**：fetch/claim/complete 任务 + sync_to_hub + 资产复用审查（A2A 协议增强）。
+- **Skill <-> GEP**：skill2gep / skillDistiller / skillPublisher / autoDistill，可将既有 skill 蒸馏成 gene 并发布。
+- **Safety & Audit**：safety_status、事件列表、policy/guard、rollback 保障。
+- **Proxy/Mailbox 解耦**：与 agentscope.go a2a/ 及 gateway 天然互补。
+
+**Go 已有互补优势**（继续发扬）：
+- ReMe 记忆系统（混合检索、向量化 summarizer、window/compactor、5+ 向量后端）已非常成熟，可作为 gene/capsule 存储的强载体。
+- a2a 协议（Go 领先 PyV2）。
+- gateway 完整 MCP 暴露（session_mcp_gateway）—— agent 可直接调用 evolver MCP 工具。
+- 事件驱动 + middleware + Phase5 tracing（RecordingEvolver 类似 RecordingTracer）。
+- 轻量 HTMX Studio + auto-assembly。
+
+**实施策略**：
+- 新 `evolver/` 包（types + client interface + mock/recording + high-level GEP flow）。
+- 最小侵入集成：skill.DistillToGene、memory 增加 evolution 记忆类型标签、a2a 文档提及 ATP 模式、gateway AppConfig 增加 EvolverEnabled 提示。
+- 示例 + Mock 先行，真实后端通过 MCP 桥接（零额外二进制依赖）。
+- 文档先行同步（中英）。
+
+**已交付（本次迭代）**：
+- `evolver/types.go`：Gene / Capsule / Task / BlastRadius / Outcome 等完整结构体（JSON 标签 + Create/Validate 对齐 evolver/src/gep/schemas/* + seed + 实时 MCP 数据）。支持 category=repair/optimize/innovate/explore，constraints、routing_hint、tool_policy、epigenetic、source 等。
+- `evolver/client.go`：Evolver 接口（覆盖 list_genes/upsert、run/reflect/solidify、remember/recall、meeting_*、fetch/claim/complete、stats/safety）。提供 NewMockEvolver（预加载真实基因样本）、RecordingEvolver（调用追踪，对齐 Phase5）。
+- `evolver/gep.go`：NewGEPFlow + RunAndSolidify（run→reflect→solidify 完整演示闭环）、DistillSkillToGene（skill2gep 风格启发式蒸馏）。
+- `evolver/evolver_test.go`：类型验证、Mock GEP 流程、distill、recording 全覆盖，-race 通过。
+- `skill/skill.go`：AgentSkill.DistillToGene 委托（零拷贝集成）。
+- `memory/reme_types.go`：新增 MemoryTypeGene / Capsule / EvoEvent（与 narrativeMemory 对齐，可直接存取）。
+- `gateway/app.go`：AppConfig.EvolverEnabled 注释 + 建议。
+- `examples/evolver/main.go`：完整可运行 demo（GEP 闭环、distill、recall、meeting、recording calls 打印、与 ReMe 结合说明）。
+- 验证：`go build ./...` + `go test ./evolver -race` + `go run ./examples/evolver` 全部通过，输出清晰展示 calls、gene 选择、capsule 固化、distilled gene 等。
+
+**使用示例（代码即文档）**：
+```go
+flow := evolver.NewGEPFlow(evolver.NewMockEvolver())
+// 或真实：通过 gateway MCP 让 agent 工具调用 evolver__evolver_run 等
+res, sol, _ := flow.RunAndSolidify(ctx, evolver.RunConfig{Context: "timeout recurring", Strategy: "repair-only"}, false)
+gene := evolver.CreateGene(...) ; flow.Client.UpsertGene(ctx, gene)
+```
+
+**下一步（持续）**：
+- 丰富真实 MCP client 实现（当前示例用 Mock；用户可基于 agentscope toolkit.MCPClient 快速包装 evolver__* 工具名调用）。
+- a2a 增强：引入 ATP Task 拾取/心跳/claim 模式（复用现有 a2a 注册）。
+- Studio / gateway 端点：可选暴露 /evolver/genes、/capsules 列表（HTMX 表格），或在 chat 中高亮 “GEP gene applied”。
+- ReMe 深度桥接：narrativeMemory / memoryGraph 的 Go 实现或 adapter（当前先用类型标签 + remember 语义）。
+- 固化安全：集成 gitOps / workspace rollback 钩子（参考 evolver gitOps）。
+- 更多端到端：full_service / studio 里演示“自愈 agent”（遇到错误自动触发 GEP）。
+- 跨语言 fixture：tests/cross_lang 增加 gene/capsule JSON。
+- 发布：version rc.3，迁移指南中加入 “如何用 evolver MCP 给你的 Agent 加上自进化”。
+
+**验证标准**：pkg 测试全绿、example 可独立运行并打印有意义 GEP 资产、文档更新、与现有 ReMe/a2a/gateway 无冲突。
+
+此阶段标志“追赶 Python 参考 + 超越 ad-hoc”进入“对齐工业级自演化引擎”新阶段。

@@ -34,7 +34,7 @@ func NewLangSmithObserver(client *LangSmithClient, project, sessionID string) *L
 
 // Observe blocks and consumes events from the bus until ctx is done.
 func (o *LangSmithObserver) Observe(ctx context.Context, bus *event.Bus) {
-	id, ch := bus.Subscribe()
+	id, ch, _ := bus.Subscribe()
 	defer bus.Unsubscribe(id)
 
 	for {

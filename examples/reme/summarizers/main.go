@@ -61,11 +61,11 @@ func (m *mockModel) CallStream(ctx context.Context, msg *message.Msg) (<-chan *m
 }
 
 func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && 
-		(s == substr || 
-		 len(s) > len(substr) && 
-		 (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-		  findInString(s, substr)))
+	return len(s) > 0 && len(substr) > 0 &&
+		(s == substr ||
+			len(s) > len(substr) &&
+				(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+					findInString(s, substr)))
 }
 
 func findInString(s, substr string) bool {

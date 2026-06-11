@@ -15,11 +15,11 @@ const DefaultBaseURL = "https://api.x.ai/v1"
 
 // Default model names supported by xAI.
 const (
-	ModelGrokBeta        = "grok-beta"
-	ModelGrok2           = "grok-2"
-	ModelGrok2Vision     = "grok-2-vision-1212"
-	ModelGrok2Mini       = "grok-2-1212"
-	ModelGrokVisionBeta  = "grok-vision-beta"
+	ModelGrokBeta       = "grok-beta"
+	ModelGrok2          = "grok-2"
+	ModelGrok2Vision    = "grok-2-vision-1212"
+	ModelGrok2Mini      = "grok-2-1212"
+	ModelGrokVisionBeta = "grok-vision-beta"
 )
 
 // XAIChatModelBuilder builds an XAIChatModel.

@@ -46,7 +46,6 @@ func TestSessionService(t *testing.T) {
 	}
 }
 
-
 func TestInMemorySessionService_Errors(t *testing.T) {
 	svc := NewInMemorySessionService()
 	if err := svc.AddMessage("missing", nil); err == nil {

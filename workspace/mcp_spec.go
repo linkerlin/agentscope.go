@@ -9,12 +9,12 @@ import (
 // MCPServerSpec mirrors PyV2 MCPClient.model_dump(mode="json").
 // GET /mcps returns this so the host can rebuild GatewayMCPClient losslessly.
 type MCPServerSpec struct {
-	Name             string         `json:"name"`
-	IsStateful       bool           `json:"is_stateful"`
-	MCPConfig        MCPConfigSpec  `json:"mcp_config"`
-	EnableTools      []string       `json:"enable_tools,omitempty"`
-	DisableTools     []string       `json:"disable_tools,omitempty"`
-	ExecutionTimeout *float64       `json:"execution_timeout,omitempty"`
+	Name             string        `json:"name"`
+	IsStateful       bool          `json:"is_stateful"`
+	MCPConfig        MCPConfigSpec `json:"mcp_config"`
+	EnableTools      []string      `json:"enable_tools,omitempty"`
+	DisableTools     []string      `json:"disable_tools,omitempty"`
+	ExecutionTimeout *float64      `json:"execution_timeout,omitempty"`
 }
 
 // MCPConfigSpec is the stdio_mcp / http_mcp discriminator union from PyV2.

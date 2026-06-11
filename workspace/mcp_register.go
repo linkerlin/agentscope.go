@@ -22,7 +22,7 @@ type MCPRegisterRequest struct {
 
 // MCPGatewayConfig bootstraps a gateway with token and preconfigured servers.
 type MCPGatewayConfig struct {
-	Token   string              `json:"token,omitempty"`
+	Token   string               `json:"token,omitempty"`
 	Servers []MCPRegisterRequest `json:"servers,omitempty"`
 }
 

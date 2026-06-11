@@ -45,23 +45,27 @@ const (
 	MemoryTypeSummary    MemoryType = "summary"
 	MemoryTypeHistory    MemoryType = "history"
 	MemoryTypeIdentity   MemoryType = "identity"
+	// Evolution asset types (aligned with evolver narrativeMemory / gene/capsule/event memory)
+	MemoryTypeGene     MemoryType = "gene"
+	MemoryTypeCapsule  MemoryType = "capsule"
+	MemoryTypeEvoEvent MemoryType = "evolution_event"
 )
 
 // MemoryNode 向量记忆节点
 type MemoryNode struct {
-	MemoryID      string         `json:"memory_id"`
-	MemoryType    MemoryType     `json:"memory_type"`
-	MemoryTarget  string         `json:"memory_target"`
-	WhenToUse     string         `json:"when_to_use"`
-	Content       string         `json:"content"`
-	MessageTime   time.Time      `json:"message_time"`
-	RefMemoryID   string         `json:"ref_memory_id"`
-	TimeCreated   time.Time      `json:"time_created"`
-	TimeModified  time.Time      `json:"time_modified"`
-	Author        string         `json:"author"`
-	Score         float64        `json:"score"`
-	Vector        []float32      `json:"vector,omitempty"`
-	Metadata      map[string]any `json:"metadata"`
+	MemoryID     string         `json:"memory_id"`
+	MemoryType   MemoryType     `json:"memory_type"`
+	MemoryTarget string         `json:"memory_target"`
+	WhenToUse    string         `json:"when_to_use"`
+	Content      string         `json:"content"`
+	MessageTime  time.Time      `json:"message_time"`
+	RefMemoryID  string         `json:"ref_memory_id"`
+	TimeCreated  time.Time      `json:"time_created"`
+	TimeModified time.Time      `json:"time_modified"`
+	Author       string         `json:"author"`
+	Score        float64        `json:"score"`
+	Vector       []float32      `json:"vector,omitempty"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 // EmbeddingContent 返回应被向量嵌入的文本。
@@ -139,14 +143,14 @@ type SummarizeResult struct {
 
 // OrchestratorConfig 编排器配置
 type OrchestratorConfig struct {
-	EnablePersonal         bool
-	EnableProcedural       bool
-	EnableTool             bool
-	EnableProfile          bool
-	EnableHistory          bool
-	RetrieveTopK           int
-	MinScore               float64
-	DeduplicateThreshold   float64
+	EnablePersonal       bool
+	EnableProcedural     bool
+	EnableTool           bool
+	EnableProfile        bool
+	EnableHistory        bool
+	RetrieveTopK         int
+	MinScore             float64
+	DeduplicateThreshold float64
 }
 
 // DefaultOrchestratorConfig 返回默认配置

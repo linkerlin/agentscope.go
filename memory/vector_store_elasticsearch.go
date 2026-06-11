@@ -177,8 +177,8 @@ func (s *ESVectorStore) Search(ctx context.Context, query string, opts RetrieveO
 	}
 
 	body := map[string]any{
-		"knn":    knn,
-		"fields": []string{"content", "memory_type", "memory_target", "when_to_use", "author", "time_created", "time_modified"},
+		"knn":     knn,
+		"fields":  []string{"content", "memory_type", "memory_target", "when_to_use", "author", "time_created", "time_modified"},
 		"_source": true,
 	}
 	resp, err := s.doJSON(ctx, http.MethodPost, fmt.Sprintf("%s/%s/_search", s.baseURL, s.index), body)
@@ -322,10 +322,10 @@ func buildESFilter(opts RetrieveOptions) map[string]any {
 type esSearchResult struct {
 	Hits struct {
 		Hits []struct {
-			ID     string            `json:"_id"`
-			Source map[string]any    `json:"_source"`
-			Fields map[string]any    `json:"fields"`
-			Score  float64           `json:"_score"`
+			ID     string         `json:"_id"`
+			Source map[string]any `json:"_source"`
+			Fields map[string]any `json:"fields"`
+			Score  float64        `json:"_score"`
 		} `json:"hits"`
 	} `json:"hits"`
 }

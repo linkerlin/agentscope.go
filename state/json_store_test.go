@@ -43,7 +43,6 @@ func TestJSONStoreRoundTrip(t *testing.T) {
 	}
 }
 
-
 func TestJSONStore_NewError(t *testing.T) {
 	f, err := os.CreateTemp("", "state-block-*")
 	if err != nil {

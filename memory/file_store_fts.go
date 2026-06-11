@@ -11,11 +11,11 @@ import (
 // FTSFileStore 基于 FTS5 + 嵌入模型的 FileStore 实现。
 // 对标 ReMe Python SqliteFileStore：将文件分块存于内存并对外暴露混合检索。
 type FTSFileStore struct {
-	mu      sync.RWMutex
-	fts     *FTSIndex
-	embed   EmbeddingModel
-	chunks  map[string]*FileChunk
-	files   map[string]map[string]*FileMetadata
+	mu     sync.RWMutex
+	fts    *FTSIndex
+	embed  EmbeddingModel
+	chunks map[string]*FileChunk
+	files  map[string]map[string]*FileMetadata
 }
 
 // NewFTSFileStore 创建 FTS 文件存储器
@@ -346,11 +346,11 @@ func (s sourceSet) Match(src MemorySource) bool {
 
 func mergeHybridResults(vecResults, keyResults []*MemorySearchResult, vectorWeight float64) []*MemorySearchResult {
 	type entry struct {
-		result     *MemorySearchResult
-		vecScore   float64
-		keyScore   float64
-		hasVec     bool
-		hasKey     bool
+		result   *MemorySearchResult
+		vecScore float64
+		keyScore float64
+		hasVec   bool
+		hasKey   bool
 	}
 	merged := make(map[string]*entry)
 

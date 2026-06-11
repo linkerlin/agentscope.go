@@ -32,42 +32,47 @@ type baseEvent struct {
 	ReplyID_   string    `json:"reply_id"`
 }
 
-func (e baseEvent) EventType() string   { return e.EventType_ }
+//nolint:revive
+func (e baseEvent) EventType() string { return e.EventType_ }
+
+//nolint:revive
 func (e baseEvent) Timestamp() time.Time { return e.Ts }
-func (e baseEvent) ReplyID() string      { return e.ReplyID_ }
+
+//nolint:revive
+func (e baseEvent) ReplyID() string { return e.ReplyID_ }
 
 // Event type constants (aligned with Python v2).
 const (
-	TypeReplyStart                = "reply_start"
-	TypeReplyEnd                  = "reply_end"
-	TypeModelCallStart            = "model_call_start"
-	TypeModelCallEnd              = "model_call_end"
-	TypeTextBlockStart            = "text_block_start"
-	TypeTextBlockDelta            = "text_block_delta"
-	TypeTextBlockEnd              = "text_block_end"
-	TypeDataBlockStart            = "data_block_start"
-	TypeDataBlockDelta            = "data_block_delta"
-	TypeDataBlockEnd              = "data_block_end"
-	TypeThinkingBlockStart        = "thinking_block_start"
-	TypeThinkingBlockDelta        = "thinking_block_delta"
-	TypeThinkingBlockEnd          = "thinking_block_end"
-	TypeHintBlockStart            = "hint_block_start"
-	TypeHintBlockDelta            = "hint_block_delta"
-	TypeHintBlockEnd              = "hint_block_end"
-	TypeToolCallStart             = "tool_call_start"
-	TypeToolCallDelta             = "tool_call_delta"
-	TypeToolCallEnd               = "tool_call_end"
-	TypeRequireUserConfirm        = "require_user_confirm"
-	TypeRequireExternalExecution  = "require_external_execution"
-	TypeToolResultStart           = "tool_result_start"
-	TypeToolResultTextDelta       = "tool_result_text_delta"
-	TypeToolResultDataDelta       = "tool_result_data_delta"
-	TypeToolResultEnd             = "tool_result_end"
-	TypeUserConfirmResult         = "user_confirm_result"
-	TypeExternalExecutionResult   = "external_execution_result"
-	TypeExceedMaxIters            = "exceed_max_iters"
-	TypeError                     = "error"
-	TypeInterrupt                 = "interrupt"
+	TypeReplyStart               = "reply_start"
+	TypeReplyEnd                 = "reply_end"
+	TypeModelCallStart           = "model_call_start"
+	TypeModelCallEnd             = "model_call_end"
+	TypeTextBlockStart           = "text_block_start"
+	TypeTextBlockDelta           = "text_block_delta"
+	TypeTextBlockEnd             = "text_block_end"
+	TypeDataBlockStart           = "data_block_start"
+	TypeDataBlockDelta           = "data_block_delta"
+	TypeDataBlockEnd             = "data_block_end"
+	TypeThinkingBlockStart       = "thinking_block_start"
+	TypeThinkingBlockDelta       = "thinking_block_delta"
+	TypeThinkingBlockEnd         = "thinking_block_end"
+	TypeHintBlockStart           = "hint_block_start"
+	TypeHintBlockDelta           = "hint_block_delta"
+	TypeHintBlockEnd             = "hint_block_end"
+	TypeToolCallStart            = "tool_call_start"
+	TypeToolCallDelta            = "tool_call_delta"
+	TypeToolCallEnd              = "tool_call_end"
+	TypeRequireUserConfirm       = "require_user_confirm"
+	TypeRequireExternalExecution = "require_external_execution"
+	TypeToolResultStart          = "tool_result_start"
+	TypeToolResultTextDelta      = "tool_result_text_delta"
+	TypeToolResultDataDelta      = "tool_result_data_delta"
+	TypeToolResultEnd            = "tool_result_end"
+	TypeUserConfirmResult        = "user_confirm_result"
+	TypeExternalExecutionResult  = "external_execution_result"
+	TypeExceedMaxIters           = "exceed_max_iters"
+	TypeError                    = "error"
+	TypeInterrupt                = "interrupt"
 )
 
 // NewBase creates a baseEvent. Used by concrete event constructors.

@@ -16,12 +16,12 @@ import (
 
 // DreamConfig 记忆演化配置
 type DreamConfig struct {
-	VaultDir              string   `json:"vault_dir"`
-	Buckets               []string `json:"buckets"`
-	TopK                  int      `json:"top_k"`
-	ScoreThreshold        float64  `json:"score_threshold"`
-	CorroborateThreshold  float64  `json:"corroborate_threshold"`
-	MinContentLength      int      `json:"min_content_length"`
+	VaultDir             string   `json:"vault_dir"`
+	Buckets              []string `json:"buckets"`
+	TopK                 int      `json:"top_k"`
+	ScoreThreshold       float64  `json:"score_threshold"`
+	CorroborateThreshold float64  `json:"corroborate_threshold"`
+	MinContentLength     int      `json:"min_content_length"`
 }
 
 // DefaultDreamConfig 默认 Dream 配置
@@ -57,21 +57,21 @@ type DreamCandidate struct {
 
 // DreamDecision 整合决策
 type DreamDecision struct {
-	Candidate *DreamCandidate  `json:"candidate"`
-	Action    DreamAction      `json:"action"`
-	Existing  *MemoryNode      `json:"existing,omitempty"`
-	Updated   *MemoryNode      `json:"updated,omitempty"`
-	Reason    string           `json:"reason"`
+	Candidate *DreamCandidate `json:"candidate"`
+	Action    DreamAction     `json:"action"`
+	Existing  *MemoryNode     `json:"existing,omitempty"`
+	Updated   *MemoryNode     `json:"updated,omitempty"`
+	Reason    string          `json:"reason"`
 }
 
 // DreamResult 记忆演化结果
 type DreamResult struct {
-	Created      []*MemoryNode `json:"created"`
-	Corroborated []string      `json:"corroborated"`
-	Refined      []*MemoryNode `json:"refined"`
-	Corrected    []*MemoryNode `json:"corrected"`
-	Skipped      []string      `json:"skipped"`
-	TotalCandidates int        `json:"total_candidates"`
+	Created         []*MemoryNode `json:"created"`
+	Corroborated    []string      `json:"corroborated"`
+	Refined         []*MemoryNode `json:"refined"`
+	Corrected       []*MemoryNode `json:"corrected"`
+	Skipped         []string      `json:"skipped"`
+	TotalCandidates int           `json:"total_candidates"`
 }
 
 // DreamStep 记忆演化管线。

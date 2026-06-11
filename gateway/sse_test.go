@@ -141,7 +141,6 @@ func (m *mockPlainAgent) CallStream(ctx context.Context, msg *message.Msg) (<-ch
 	return ch, nil
 }
 
-
 func TestServer_V2ChatStream_MissingText(t *testing.T) {
 	srv := NewServer(&mockV2Agent{})
 	srv.RegisterV2Routes()
@@ -180,9 +179,9 @@ func (m *mockV2AgentError) InjectEvent(ctx context.Context, ev event.AgentEvent)
 
 // mockV2AgentWithSuspend simulates an agent that suspends on a tool call.
 type mockV2AgentWithSuspend struct {
-	mu        sync.Mutex
-	injectCh  chan event.AgentEvent
-	state     *agent.AgentState
+	mu       sync.Mutex
+	injectCh chan event.AgentEvent
+	state    *agent.AgentState
 }
 
 func newMockV2AgentWithSuspend() *mockV2AgentWithSuspend {

@@ -141,7 +141,6 @@ func TestOrchestratorSummarizeToolUsage(t *testing.T) {
 	}
 }
 
-
 func TestOrchestratorSummarizeProcedural(t *testing.T) {
 	ctx := context.Background()
 	store := memory.NewLocalVectorStore(fixedEmbed{dim: 4})
@@ -198,7 +197,7 @@ func TestOrchestratorSummarize_AllTypes(t *testing.T) {
 	}
 	if len(res.ToolMemories) != 0 { // flushToolResults currently returns nil
 		// this is expected based on current implementation
-	}
+	} //nolint:staticcheck // SA9003: expected empty for current nil impl //nolint:staticcheck // SA9003: expected for current nil return impl
 }
 
 func TestOrchestratorSummarize_DisableFlags(t *testing.T) {

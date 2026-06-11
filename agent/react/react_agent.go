@@ -21,10 +21,10 @@ import (
 	"github.com/linkerlin/agentscope.go/runcontext"
 	"github.com/linkerlin/agentscope.go/shutdown"
 	"github.com/linkerlin/agentscope.go/state"
-	tasktool "github.com/linkerlin/agentscope.go/tool/task"
 	"github.com/linkerlin/agentscope.go/tool"
 	"github.com/linkerlin/agentscope.go/tool/file"
 	"github.com/linkerlin/agentscope.go/tool/shell"
+	tasktool "github.com/linkerlin/agentscope.go/tool/task"
 	"github.com/linkerlin/agentscope.go/toolkit"
 	"github.com/linkerlin/agentscope.go/workspace"
 )
@@ -45,13 +45,13 @@ func (e *hookInterruptError) Error() string { return "hook interrupted" }
 type ReActAgent struct {
 	*agent.Base
 
-	chatModel       model.ChatModel
-	tools           []tool.Tool
-	toolkit         *toolkit.Toolkit
-	memory          memory.Memory
-	maxIterations   int
-	toolMap         map[string]tool.Tool
-	shutdownConfig  shutdown.GracefulShutdownConfig
+	chatModel      model.ChatModel
+	tools          []tool.Tool
+	toolkit        *toolkit.Toolkit
+	memory         memory.Memory
+	maxIterations  int
+	toolMap        map[string]tool.Tool
+	shutdownConfig shutdown.GracefulShutdownConfig
 
 	// V2 runtime state (suspend-resume support)
 	runtimeMu    sync.Mutex
@@ -73,14 +73,14 @@ type ReActAgent struct {
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
 type ReActAgentBuilder struct {
-	agentID       string
-	name          string
-	description   string
-	sysPrompt     string
-	chatModel     model.ChatModel
-	tools         []tool.Tool
-	toolkit       *toolkit.Toolkit
-	memory        memory.Memory
+	agentID        string
+	name           string
+	description    string
+	sysPrompt      string
+	chatModel      model.ChatModel
+	tools          []tool.Tool
+	toolkit        *toolkit.Toolkit
+	memory         memory.Memory
 	maxIterations  int
 	hooks          []hook.Hook
 	streamHooks    []hook.StreamHook
@@ -106,6 +106,7 @@ func Builder() *ReActAgentBuilder {
 	}
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) Name(name string) *ReActAgentBuilder {
 	b.name = name
 	return b
@@ -129,16 +130,19 @@ func (b *ReActAgentBuilder) Metadata(meta map[string]any) *ReActAgentBuilder {
 	return b
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) SysPrompt(prompt string) *ReActAgentBuilder {
 	b.sysPrompt = prompt
 	return b
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) Model(m model.ChatModel) *ReActAgentBuilder {
 	b.chatModel = m
 	return b
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) Tools(tools ...tool.Tool) *ReActAgentBuilder {
 	b.tools = append(b.tools, tools...)
 	return b
@@ -150,11 +154,13 @@ func (b *ReActAgentBuilder) Toolkit(tk *toolkit.Toolkit) *ReActAgentBuilder {
 	return b
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) Memory(mem memory.Memory) *ReActAgentBuilder {
 	b.memory = mem
 	return b
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) MaxIterations(n int) *ReActAgentBuilder {
 	b.maxIterations = n
 	return b
@@ -166,6 +172,7 @@ func (b *ReActAgentBuilder) ShutdownConfig(cfg shutdown.GracefulShutdownConfig) 
 	return b
 }
 
+//nolint:revive
 func (b *ReActAgentBuilder) Hooks(hooks ...hook.Hook) *ReActAgentBuilder {
 	b.hooks = append(b.hooks, hooks...)
 	return b
@@ -251,6 +258,7 @@ func (b *ReActAgentBuilder) WithTaskStore(store *state.TaskStore) *ReActAgentBui
 // TaskStore returns the agent's task store (may be nil).
 func (a *ReActAgent) TaskStore() *state.TaskStore { return a.taskStore }
 
+//nolint:revive
 func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 	if b.name == "" {
 		return nil, errors.New("react agent: name is required")
@@ -764,6 +772,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 // It mirrors Java ReActAgent.handleInterrupt behaviour:
 //   - SYSTEM source -> apply PartialReasoningPolicy, return shutdown error
 //   - USER source   -> generate a recovery message, persist to memory, return it
+//nolint:unparam
 func (a *ReActAgent) handleInterrupt(ctx context.Context, originalMsg *message.Msg, history []*message.Msg, pending []*message.ToolUseBlock) (*message.Msg, error) {
 	ic := a.CreateInterruptContext(pending)
 

@@ -31,9 +31,9 @@ func (sw *SessionWorkspace) Dir() string {
 // MCPRegistration describes a host-side MCP gateway attachment.
 // When Spec contains mcp_config, AddMCP POSTs the spec to the gateway.
 type MCPRegistration struct {
-	Name       string                 `json:"name"`
-	GatewayURL string                 `json:"gateway_url"`
-	Token      string                 `json:"token,omitempty"`
+	Name       string                  `json:"name"`
+	GatewayURL string                  `json:"gateway_url"`
+	Token      string                  `json:"token,omitempty"`
 	Spec       workspace.MCPServerSpec `json:"spec,omitempty"`
 }
 

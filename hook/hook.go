@@ -14,7 +14,7 @@ const (
 	// HookBeforeModel (pre_model): messages formatted, before model API call.
 	HookBeforeModel HookPoint = "before_model"
 	// HookAfterModel (post_model): raw model output, before parsing downstream.
-	HookAfterModel HookPoint = "after_model"
+	HookAfterModel   HookPoint = "after_model"
 	HookBeforeTool   HookPoint = "before_tool"
 	HookAfterTool    HookPoint = "after_tool"
 	HookBeforeFinish HookPoint = "before_finish"

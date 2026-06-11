@@ -16,7 +16,6 @@ func TestNoopClient(t *testing.T) {
 	}
 }
 
-
 func TestNoopClient_SendSubscribe(t *testing.T) {
 	var c NoopClient
 	_, err := c.SendSubscribe(context.Background(), &Message{Role: "user", Content: "hi"})

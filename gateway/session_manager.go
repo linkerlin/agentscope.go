@@ -25,11 +25,11 @@ import (
 //   - Lifecycle: the buffer and subscriber list are created when a run
 //     starts and discarded when it ends, keeping memory bounded.
 type SessionManager struct {
-	locks     map[string]*sync.Mutex      // session_id -> serialisation lock
-	runs      map[string]*sessionRun      // session_id -> in-flight run state
+	locks     map[string]*sync.Mutex        // session_id -> serialisation lock
+	runs      map[string]*sessionRun        // session_id -> in-flight run state
 	completed map[string][]event.AgentEvent // session_id -> final buffer after run ends
 	mu        sync.RWMutex
-	storage   service.Storage             // optional persistence layer for Msg upsert
+	storage   service.Storage // optional persistence layer for Msg upsert
 }
 
 // NewSessionManager creates a new SessionManager.
@@ -50,13 +50,13 @@ func (sm *SessionManager) WithStorage(st service.Storage) *SessionManager {
 // sessionRun holds the state for a single in-flight agent run.
 type sessionRun struct {
 	replyID     string
-	buffer      []event.AgentEvent    // all events produced so far
+	buffer      []event.AgentEvent      // all events produced so far
 	subscribers []chan event.AgentEvent // active subscriber channels
 	agent       agent.Agent
 	cancel      context.CancelFunc
-	mu           sync.RWMutex
-	done         bool
-	terminating  bool
+	mu          sync.RWMutex
+	done        bool
+	terminating bool
 }
 
 // Run executes an agent reply for the given session and returns a channel

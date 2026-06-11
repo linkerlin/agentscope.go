@@ -113,10 +113,10 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 
 // wsV2Message is the wire format for V2 WebSocket messages.
 type wsV2Message struct {
-	Type      string                `json:"type"`
-	Text      string                `json:"text,omitempty"`
-	ConfirmID string                `json:"confirm_id,omitempty"`
-	ReplyID   string                `json:"reply_id,omitempty"`
+	Type      string                  `json:"type"`
+	Text      string                  `json:"text,omitempty"`
+	ConfirmID string                  `json:"confirm_id,omitempty"`
+	ReplyID   string                  `json:"reply_id,omitempty"`
 	Decisions []event.ConfirmDecision `json:"decisions,omitempty"`
 }
 

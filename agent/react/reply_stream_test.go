@@ -141,7 +141,7 @@ func TestReActAgent_ReplyStream_EventBus(t *testing.T) {
 	}
 
 	// Subscribe to the event bus
-	subID, subCh := bus.Subscribe()
+	subID, subCh, _ := bus.Subscribe()
 	defer bus.Unsubscribe(subID)
 
 	ctx := context.Background()
@@ -161,7 +161,7 @@ func TestReActAgent_ReplyStream_EventBus(t *testing.T) {
 	// Also collect events from the bus
 	var busEvents []event.AgentEvent
 	collectDone := time.After(500 * time.Millisecond)
-	collect:
+collect:
 	for {
 		select {
 		case ev, ok := <-subCh:
@@ -191,7 +191,6 @@ func TestReActAgent_ReplyStream_EventBus(t *testing.T) {
 		}
 	}
 }
-
 
 // mockTool is a simple tool for testing HITL flows.
 type mockTool struct {
@@ -444,7 +443,7 @@ func TestReActAgent_Reply_ExceedMaxItersEvent(t *testing.T) {
 // dummyTool is a no-op tool for testing max iters.
 type dummyTool struct{}
 
-func (d *dummyTool) Name() string { return "dummy_tool" }
+func (d *dummyTool) Name() string        { return "dummy_tool" }
 func (d *dummyTool) Description() string { return "dummy" }
 func (d *dummyTool) Spec() model.ToolSpec {
 	return model.ToolSpec{

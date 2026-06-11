@@ -13,10 +13,10 @@ import (
 // It supports both static registration (pre-built agents) and dynamic
 // creation via AgentFactory from persisted AgentConfig + Credential.
 type AgentRegistry struct {
-	agents   map[string]agent.Agent // id -> agent
-	factory  *AgentFactory
-	storage  service.Storage
-	mu       sync.RWMutex
+	agents  map[string]agent.Agent // id -> agent
+	factory *AgentFactory
+	storage service.Storage
+	mu      sync.RWMutex
 }
 
 // NewAgentRegistry creates an empty registry.

@@ -21,9 +21,9 @@ type AGUIConverter interface {
 
 // DefaultAGUIConverter implements the mapping aligned with PyV2 _agui.py.
 type DefaultAGUIConverter struct {
-	mu                 sync.Mutex
-	lastModelName      string
-	toolResultBuffers  map[string][]string
+	mu                sync.Mutex
+	lastModelName     string
+	toolResultBuffers map[string][]string
 }
 
 // NewDefaultAGUIConverter creates an AG-UI converter.

@@ -18,7 +18,7 @@ const MaxBodyBytes = 2 * 1024 * 1024
 // FetchTool lets agents retrieve content from a URL (HTTP GET).
 type FetchTool struct {
 	client  *http.Client
-	timeout time.Duration
+	timeout time.Duration //nolint:unused // reserved for client timeout config (set in New but not all paths use explicitly)
 }
 
 // NewFetchTool creates a FetchTool with a configurable timeout.

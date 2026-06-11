@@ -10,12 +10,12 @@ import (
 // AgentState is a serializable snapshot of an agent's runtime state.
 // It enables suspend-resume across HTTP requests and crash recovery.
 type AgentState struct {
-	Version     string    `json:"version"`
-	ReplyID     string    `json:"reply_id"`
-	CurIter     int       `json:"cur_iter"`
-	MaxIters    int       `json:"max_iters"`
-	AgentName   string    `json:"agent_name"`
-	AgentID     string    `json:"agent_id"`
+	Version   string `json:"version"`
+	ReplyID   string `json:"reply_id"`
+	CurIter   int    `json:"cur_iter"`
+	MaxIters  int    `json:"max_iters"`
+	AgentName string `json:"agent_name"`
+	AgentID   string `json:"agent_id"`
 
 	// Context
 	Messages          []*message.Msg `json:"messages"`
@@ -39,17 +39,17 @@ type AgentState struct {
 
 // ToolContext holds the tool-related runtime state.
 type ToolContext struct {
-	EquippedGroups []string           `json:"equipped_groups,omitempty"`
-	PendingCalls   []PendingToolCall  `json:"pending_calls,omitempty"`
+	EquippedGroups []string                   `json:"equipped_groups,omitempty"`
+	PendingCalls   []PendingToolCall          `json:"pending_calls,omitempty"`
 	Results        map[string]ToolResultState `json:"results,omitempty"`
 }
 
 // PendingToolCall represents a tool call that is in-flight or awaiting confirmation.
 type PendingToolCall struct {
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Args     json.RawMessage `json:"args"`
-	State    string          `json:"state"` // pending | asking | allowed | submitted | finished
+	ID    string          `json:"id"`
+	Name  string          `json:"name"`
+	Args  json.RawMessage `json:"args"`
+	State string          `json:"state"` // pending | asking | allowed | submitted | finished
 }
 
 // ToolResultState represents the outcome of a tool execution.
@@ -62,8 +62,8 @@ type ToolResultState struct {
 
 // PermissionContext holds the permission runtime state.
 type PermissionContext struct {
-	Mode  string             `json:"mode,omitempty"` // explore | accept_edits | bypass | dont_ask
-	Rules []PermissionRule   `json:"rules,omitempty"`
+	Mode  string           `json:"mode,omitempty"` // explore | accept_edits | bypass | dont_ask
+	Rules []PermissionRule `json:"rules,omitempty"`
 }
 
 // PermissionRule is a single permission rule.

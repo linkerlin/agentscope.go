@@ -12,9 +12,9 @@ import (
 
 // resumeRequest is the expected JSON body for /v2/resume.
 type resumeRequest struct {
-	SessionID string                `json:"session_id"`
-	ReplyID   string                `json:"reply_id"`
-	ConfirmID string                `json:"confirm_id"`
+	SessionID string                  `json:"session_id"`
+	ReplyID   string                  `json:"reply_id"`
+	ConfirmID string                  `json:"confirm_id"`
 	Decisions []event.ConfirmDecision `json:"decisions"`
 }
 

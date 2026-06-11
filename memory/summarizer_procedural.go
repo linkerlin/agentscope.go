@@ -21,8 +21,8 @@ type Trajectory struct {
 
 // ProceduralSummarizer 从执行轨迹提取任务经验
 type ProceduralSummarizer struct {
-	Model                model.ChatModel
-	Language             string
+	Model                 model.ChatModel
+	Language              string
 	SuccessScoreThreshold float64 // 视为成功的阈值，默认0.9
 }
 

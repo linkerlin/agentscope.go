@@ -9,6 +9,9 @@ import (
 // Model is an alias for the core embedding interface for convenience.
 // Users can import "github.com/linkerlin/agentscope.go/embedding" and get
 // clean constructors + cache without digging into model/ or memory/.
+//
+// This is the recommended entry point for all embedding needs in new code
+// (replaces legacy memory/embedding adapters which are now deprecated).
 type Model = model.EmbeddingModel
 
 // Embed is a helper for single-text convenience (wraps batch).

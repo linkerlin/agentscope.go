@@ -1,0 +1,81 @@
+# golangci-lint configuration for agentscope.go
+# Run locally: golangci-lint run ./...
+# Compatible with v1.64+ (the common version in GOPATH/CI). 
+# For v2+ see migration guide; current binary in $GOPATH/bin is v1 in this env.
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gosec          # security checks (good for cipher, permission, shell, etc.)
+    - unconvert
+    - unparam
+    - whitespace
+    - gofmt
+    - goimports
+
+  disable:
+    - dupl          # too noisy for a framework with intentional adapters
+    - funlen        # we have a few larger but well-structured files (react_agent etc.)
+    - goconst
+    - gocyclo
+
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: github.com/linkerlin/agentscope.go
+  gosec:
+    excludes:
+      - G104 # errors not checked (we have many intentional in examples/tests)
+  revive:
+    rules:
+      - name: exported
+        disabled: false
+        arguments:
+          - "checkPrivateReceivers"
+          - "disableStutteringCheck"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # New code should not introduce obvious issues
+  new: false
+  exclude-dirs:
+    - examples
+    - tests
+  exclude-rules:
+    # Allow some patterns in test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - unparam
+    # The memory/embedding adapters are intentionally thin compatibility shims (P1 deprecation in progress)
+    - path: memory/embedding/
+      linters:
+        - revive
+        - staticcheck
+    # Permission bash parser and shell validator are heuristics + AST (documented limitations)
+    - path: permission/
+      linters:
+        - gosec
+    # Workspace docker uses os/exec by design (no extra Docker SDK dep)
+    - path: workspace/docker.go
+      linters:
+        - gosec
+    # Builder fluent setters are intentionally exported (chain API); revive exported check is noisy on them
+    - path: agent/react/react_agent.go
+      linters:
+        - revive
+
+# Output uses linter default (removed custom output.format to avoid deprecation warning)

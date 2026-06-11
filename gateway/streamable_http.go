@@ -28,10 +28,10 @@ const (
 )
 
 type chatStreamParams struct {
-	sessionID string
-	agentID   string
-	text      string
-	useAGUI   bool
+	sessionID    string
+	agentID      string
+	text         string
+	useAGUI      bool
 	strictAccept bool
 }
 

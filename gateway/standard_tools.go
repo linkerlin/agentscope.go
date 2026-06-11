@@ -31,12 +31,13 @@ type StandardToolsOptions struct {
 // (Bash/Read/Write/Edit/Glob/Grep + Task* + Schedule* + Web + JSON + ...).
 //
 // Example:
-//   tools := gateway.StandardTools(gateway.StandardToolsOptions{
-//       WorkspaceDir: "/tmp/ws",
-//       IncludeSchedule: true,
-//       ScheduleMgr: myScheduleMgr,
-//   })
-//   agent, _ := react.Builder().Tools(tools...).Build()
+//
+//	tools := gateway.StandardTools(gateway.StandardToolsOptions{
+//	    WorkspaceDir: "/tmp/ws",
+//	    IncludeSchedule: true,
+//	    ScheduleMgr: myScheduleMgr,
+//	})
+//	agent, _ := react.Builder().Tools(tools...).Build()
 func StandardTools(opts StandardToolsOptions) []tool.Tool {
 	dir := opts.WorkspaceDir
 	if dir == "" {

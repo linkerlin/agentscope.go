@@ -37,7 +37,7 @@ func saveMCPFile(wsDir string, mcps map[string]MCPRegistration) error {
 	if err := os.MkdirAll(wsDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(mcpFilePath(wsDir), data, 0o644)
+	return os.WriteFile(mcpFilePath(wsDir), data, 0o600) //nolint:gosec // G306: MCP persist file, use 0600 for safety
 }
 
 func loadMCPFile(wsDir string) ([]MCPRegistration, error) {

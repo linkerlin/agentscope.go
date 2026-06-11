@@ -12,7 +12,7 @@ import (
 
 type tokenCountModel struct {
 	mockChatModel
-	limit int
+	limit int //nolint:unused // test config field, reserved
 }
 
 func (m *tokenCountModel) CountTokens(messages []*message.Msg, tools []model.ToolSpec) (int, error) {

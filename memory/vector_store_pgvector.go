@@ -13,10 +13,10 @@ import (
 
 // PGVectorStore 基于 PostgreSQL + pgvector 的远程向量存储实现
 type PGVectorStore struct {
-	db     *sql.DB
-	table  string
-	embed  EmbeddingModel
-	dim    int
+	db    *sql.DB
+	table string
+	embed EmbeddingModel
+	dim   int
 }
 
 // NewPGVectorStore 创建 PGVector 向量存储
@@ -90,7 +90,7 @@ func (s *PGVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt := fmt.Sprintf(`INSERT INTO %s (memory_id, content, memory_type, memory_target, when_to_use, author, time_created, time_modified, message_time, ref_memory_id, vector)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)

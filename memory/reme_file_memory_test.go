@@ -83,7 +83,6 @@ func TestReMeFileMemorySaveToEmptyID(t *testing.T) {
 	}
 }
 
-
 func TestReMeFileMemoryEstimateTokens(t *testing.T) {
 	dir := t.TempDir()
 	cfg := DefaultReMeFileConfig()

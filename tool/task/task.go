@@ -33,8 +33,10 @@ type createTool struct{ store Store }
 
 func NewCreateTool(store Store) tool.Tool { return &createTool{store: store} }
 
-func (t *createTool) Name() string        { return "TaskCreate" }
-func (t *createTool) Description() string { return "Create a structured task for the current agent session." }
+func (t *createTool) Name() string { return "TaskCreate" }
+func (t *createTool) Description() string {
+	return "Create a structured task for the current agent session."
+}
 func (t *createTool) Spec() model.ToolSpec {
 	return model.ToolSpec{
 		Name: t.Name(), Description: t.Description(),

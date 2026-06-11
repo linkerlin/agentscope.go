@@ -38,7 +38,7 @@ func (m *mockFailingModel) ChatStream(ctx context.Context, messages []*message.M
 
 func (m *mockFailingModel) ModelName() string { return m.name }
 
-type mockPermanentFailModel struct{ name string }
+type mockPermanentFailModel struct{ name string } //nolint:unused // test mock for router failure paths
 
 func (m *mockPermanentFailModel) Chat(ctx context.Context, messages []*message.Msg, options ...ChatOption) (*message.Msg, error) {
 	return nil, errors.New("permanent failure")

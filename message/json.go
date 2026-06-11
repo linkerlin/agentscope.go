@@ -31,26 +31,26 @@ type rawSource struct {
 // It is aligned with Python agentscope v2 Pydantic models for cross-language
 // compatibility.
 type rawBlock struct {
-	Type       BlockType      `json:"type"`
-	Text       string         `json:"text,omitempty"`
-	URL        string         `json:"url,omitempty"`
-	Base64     string         `json:"base64,omitempty"`
-	MimeType   string         `json:"mime_type,omitempty"`
-	Source     *rawSource     `json:"source,omitempty"`
-	ID         string         `json:"id,omitempty"`
-	Name       string         `json:"name,omitempty"`
-	ToolName   string         `json:"tool_name,omitempty"`
-	Input      any            `json:"input,omitempty"`     // string (PyV2) or map[string]any (legacy)
-	RawInput   string         `json:"raw_input,omitempty"` // legacy Go field
-	ToolUseID  string         `json:"tool_use_id,omitempty"`
-	IsError    bool           `json:"is_error,omitempty"`
-	State      string         `json:"state,omitempty"`
-	Thinking   string         `json:"thinking,omitempty"`
-	Signature  string         `json:"signature,omitempty"`
-	Hint       string         `json:"hint,omitempty"`
-	HintKind   string         `json:"hint_kind,omitempty"`
-	SubContent []rawBlock     `json:"sub_content,omitempty"`
-	Output     []rawBlock     `json:"output,omitempty"`     // PyV2 compatibility
+	Type       BlockType  `json:"type"`
+	Text       string     `json:"text,omitempty"`
+	URL        string     `json:"url,omitempty"`
+	Base64     string     `json:"base64,omitempty"`
+	MimeType   string     `json:"mime_type,omitempty"`
+	Source     *rawSource `json:"source,omitempty"`
+	ID         string     `json:"id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	ToolName   string     `json:"tool_name,omitempty"`
+	Input      any        `json:"input,omitempty"`     // string (PyV2) or map[string]any (legacy)
+	RawInput   string     `json:"raw_input,omitempty"` // legacy Go field
+	ToolUseID  string     `json:"tool_use_id,omitempty"`
+	IsError    bool       `json:"is_error,omitempty"`
+	State      string     `json:"state,omitempty"`
+	Thinking   string     `json:"thinking,omitempty"`
+	Signature  string     `json:"signature,omitempty"`
+	Hint       string     `json:"hint,omitempty"`
+	HintKind   string     `json:"hint_kind,omitempty"`
+	SubContent []rawBlock `json:"sub_content,omitempty"`
+	Output     []rawBlock `json:"output,omitempty"` // PyV2 compatibility
 }
 
 func sourceToRaw(s *Source) *rawSource {

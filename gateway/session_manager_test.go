@@ -56,7 +56,7 @@ func (m *smMockAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan
 }
 
 func (m *smMockAgent) SaveState() (*agent.AgentState, error) { return nil, nil }
-func (m *smMockAgent) LoadState(st *agent.AgentState) error { return nil }
+func (m *smMockAgent) LoadState(st *agent.AgentState) error  { return nil }
 func (m *smMockAgent) InjectEvent(ctx context.Context, ev event.AgentEvent) error {
 	return nil
 }

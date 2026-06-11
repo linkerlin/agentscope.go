@@ -64,7 +64,7 @@ func (c *Coordinator) Send(ctx context.Context, msg *a2a.Message) (*a2a.Message,
 }
 
 func (c *Coordinator) sendRandom(ctx context.Context, msg *a2a.Message, cards []a2a.AgentCard) (*a2a.Message, error) {
-	card := cards[rand.Intn(len(cards))]
+	card := cards[rand.Intn(len(cards))] //nolint:gosec // G404: demo coordinator, non-security random selection is fine; use crypto/rand in prod if needed
 	client := c.newClient(card.URL)
 	return client.Send(ctx, msg)
 }

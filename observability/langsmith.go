@@ -48,19 +48,19 @@ func (c *LangSmithClient) WithHTTPClient(client *http.Client) *LangSmithClient {
 
 // Run represents a single traced execution unit in LangSmith.
 type Run struct {
-	ID           string         `json:"id"`
-	Name         string         `json:"name"`
-	RunType      string         `json:"run_type"`
-	StartTime    time.Time      `json:"start_time"`
-	EndTime      *time.Time     `json:"end_time,omitempty"`
-	Inputs       map[string]any `json:"inputs,omitempty"`
-	Outputs      map[string]any `json:"outputs,omitempty"`
-	Error        *string        `json:"error,omitempty"`
-	ParentRunID  *string        `json:"parent_run_id,omitempty"`
-	Tags         []string       `json:"tags,omitempty"`
-	Extra        map[string]any `json:"extra,omitempty"`
-	SessionID    string         `json:"session_id,omitempty"`
-	SessionName  string         `json:"session_name,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	RunType     string         `json:"run_type"`
+	StartTime   time.Time      `json:"start_time"`
+	EndTime     *time.Time     `json:"end_time,omitempty"`
+	Inputs      map[string]any `json:"inputs,omitempty"`
+	Outputs     map[string]any `json:"outputs,omitempty"`
+	Error       *string        `json:"error,omitempty"`
+	ParentRunID *string        `json:"parent_run_id,omitempty"`
+	Tags        []string       `json:"tags,omitempty"`
+	Extra       map[string]any `json:"extra,omitempty"`
+	SessionID   string         `json:"session_id,omitempty"`
+	SessionName string         `json:"session_name,omitempty"`
 }
 
 // CreateRunsBatch uploads a batch of runs to LangSmith.

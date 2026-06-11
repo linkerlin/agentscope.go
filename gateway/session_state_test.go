@@ -43,27 +43,49 @@ func (m *mockStorage) DeleteSnapshot(ctx context.Context, sessionID string) erro
 }
 
 // Stub implementations for the rest of service.Storage
-func (m *mockStorage) SaveUser(ctx context.Context, user *service.User) error     { return nil }
-func (m *mockStorage) GetUser(ctx context.Context, id string) (*service.User, error) { return nil, nil }
-func (m *mockStorage) ListUsers(ctx context.Context) ([]*service.User, error)      { return nil, nil }
-func (m *mockStorage) DeleteUser(ctx context.Context, id string) error             { return nil }
+func (m *mockStorage) SaveUser(ctx context.Context, user *service.User) error          { return nil }
+func (m *mockStorage) GetUser(ctx context.Context, id string) (*service.User, error)   { return nil, nil }
+func (m *mockStorage) ListUsers(ctx context.Context) ([]*service.User, error)          { return nil, nil }
+func (m *mockStorage) DeleteUser(ctx context.Context, id string) error                 { return nil }
 func (m *mockStorage) SaveSession(ctx context.Context, session *service.Session) error { return nil }
-func (m *mockStorage) GetSession(ctx context.Context, id string) (*service.Session, error) { return nil, nil }
-func (m *mockStorage) ListSessionsByUser(ctx context.Context, userID string) ([]*service.Session, error) { return nil, nil }
-func (m *mockStorage) DeleteSession(ctx context.Context, id string) error          { return nil }
-func (m *mockStorage) SaveAgentConfig(ctx context.Context, cfg *service.AgentConfig) error { return nil }
-func (m *mockStorage) GetAgentConfig(ctx context.Context, id string) (*service.AgentConfig, error) { return nil, nil }
-func (m *mockStorage) ListAgentConfigsByUser(ctx context.Context, userID string) ([]*service.AgentConfig, error) { return nil, nil }
-func (m *mockStorage) DeleteAgentConfig(ctx context.Context, id string) error       { return nil }
+func (m *mockStorage) GetSession(ctx context.Context, id string) (*service.Session, error) {
+	return nil, nil
+}
+func (m *mockStorage) ListSessionsByUser(ctx context.Context, userID string) ([]*service.Session, error) {
+	return nil, nil
+}
+func (m *mockStorage) DeleteSession(ctx context.Context, id string) error { return nil }
+func (m *mockStorage) SaveAgentConfig(ctx context.Context, cfg *service.AgentConfig) error {
+	return nil
+}
+func (m *mockStorage) GetAgentConfig(ctx context.Context, id string) (*service.AgentConfig, error) {
+	return nil, nil
+}
+func (m *mockStorage) ListAgentConfigsByUser(ctx context.Context, userID string) ([]*service.AgentConfig, error) {
+	return nil, nil
+}
+func (m *mockStorage) DeleteAgentConfig(ctx context.Context, id string) error             { return nil }
 func (m *mockStorage) SaveCredential(ctx context.Context, cred *service.Credential) error { return nil }
-func (m *mockStorage) GetCredential(ctx context.Context, id string) (*service.Credential, error) { return nil, nil }
-func (m *mockStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*service.Credential, error) { return nil, nil }
-func (m *mockStorage) DeleteCredential(ctx context.Context, id string) error        { return nil }
+func (m *mockStorage) GetCredential(ctx context.Context, id string) (*service.Credential, error) {
+	return nil, nil
+}
+func (m *mockStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*service.Credential, error) {
+	return nil, nil
+}
+func (m *mockStorage) DeleteCredential(ctx context.Context, id string) error             { return nil }
 func (m *mockStorage) SaveMessage(ctx context.Context, msg *service.StoredMessage) error { return nil }
-func (m *mockStorage) GetMessage(ctx context.Context, id string) (*service.StoredMessage, error) { return nil, nil }
-func (m *mockStorage) UpsertMessage(ctx context.Context, msg *service.StoredMessage) error { return nil }
-func (m *mockStorage) ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*service.StoredMessage, error) { return nil, nil }
-func (m *mockStorage) DeleteMessagesBySession(ctx context.Context, sessionID string) error { return nil }
+func (m *mockStorage) GetMessage(ctx context.Context, id string) (*service.StoredMessage, error) {
+	return nil, nil
+}
+func (m *mockStorage) UpsertMessage(ctx context.Context, msg *service.StoredMessage) error {
+	return nil
+}
+func (m *mockStorage) ListMessagesBySession(ctx context.Context, sessionID string, limit, offset int) ([]*service.StoredMessage, error) {
+	return nil, nil
+}
+func (m *mockStorage) DeleteMessagesBySession(ctx context.Context, sessionID string) error {
+	return nil
+}
 func (m *mockStorage) SaveSchedule(ctx context.Context, sched *service.Schedule) error { return nil }
 func (m *mockStorage) GetSchedule(ctx context.Context, id string) (*service.Schedule, error) {
 	return nil, fmt.Errorf("schedule not found: %s", id)

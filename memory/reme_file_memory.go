@@ -139,7 +139,7 @@ func (m *ReMeFileMemory) EstimateTokens(messages []*message.Msg) (*TokenStats, e
 	}
 	return &TokenStats{
 		TotalMessages:     len(messages),
-		EstimatedTokens: n,
+		EstimatedTokens:   n,
 		MaxInputLength:    max,
 		ContextUsageRatio: ratio,
 	}, nil

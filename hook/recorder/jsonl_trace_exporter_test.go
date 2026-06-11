@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -28,27 +29,27 @@ func TestJsonlTraceExporter_BasicEvents(t *testing.T) {
 	now := time.Now()
 
 	// PreCall
-	_, _ = exporter.OnStreamEvent(nil, &hook.PreReasoningEvent{
+	_, _ = exporter.OnStreamEvent(context.TODO(), &hook.PreReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: now, Agent: agent},
 		Messages:  []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hello").Build()},
 		ModelName: "gpt-4o",
 	})
 
 	// PreReasoning
-	_, _ = exporter.OnStreamEvent(nil, &hook.PreReasoningEvent{
+	_, _ = exporter.OnStreamEvent(context.TODO(), &hook.PreReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPreReasoning, Ts: now, Agent: agent},
 		Messages:  []*message.Msg{},
 		ModelName: "gpt-4o",
 	})
 
 	// PostReasoning
-	_, _ = exporter.OnStreamEvent(nil, &hook.PostReasoningEvent{
+	_, _ = exporter.OnStreamEvent(context.TODO(), &hook.PostReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: now, Agent: agent},
 		Response:  message.NewMsg().Role(message.RoleAssistant).TextContent("hi").Build(),
 	})
 
 	// PreActing
-	_, _ = exporter.OnStreamEvent(nil, &hook.PreActingEvent{
+	_, _ = exporter.OnStreamEvent(context.TODO(), &hook.PreActingEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPreActing, Ts: now, Agent: agent},
 		ToolName:  "calc",
 		ToolInput: map[string]any{"a": 1},

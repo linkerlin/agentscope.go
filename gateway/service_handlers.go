@@ -404,8 +404,8 @@ type createCredentialRequest struct {
 }
 
 type updateCredentialRequest struct {
-	Label *string `json:"label,omitempty"`
-	Value *string `json:"value,omitempty"`
+	Label *string        `json:"label,omitempty"`
+	Value *string        `json:"value,omitempty"`
 	Data  map[string]any `json:"data,omitempty"`
 }
 
@@ -415,7 +415,7 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 	ct := r.Header.Get("Content-Type")
 	if ct == "application/x-www-form-urlencoded" || ct == "multipart/form-data" {
 		// Support simple HTMX / form posts (used by the lightweight Go Studio)
-		r.ParseForm()
+		_ = r.ParseForm()
 		req.Label = r.FormValue("label")
 		req.Provider = r.FormValue("provider")
 

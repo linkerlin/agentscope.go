@@ -2,7 +2,9 @@ package vector
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"sort"
 	"sync"
 )
@@ -207,12 +209,6 @@ func (s *LocalVectorStore) BatchSearchWithThreshold(queryStrings []string, candi
 		return result
 	}
 
-	type batchSearchQuery struct {
-		Query    string
-		TopK     int
-		MinScore float64
-	}
-
 	// 收集所有候选节点（有向量）
 	var nodesWithVector []*MemoryNode
 	for _, n := range candidates {
@@ -229,13 +225,11 @@ func (s *LocalVectorStore) BatchSearchWithThreshold(queryStrings []string, candi
 	}
 
 	// 对每个 query 计算嵌入，然后计算与所有候选节点的余弦相似度
-	// 使用 sync embedding 简化实现（batch search 通常是独立调用，不影响主循环）
 	type scoredNode struct {
 		n     *MemoryNode
 		score float64
 	}
 
-	// 累积每个候选节点对所有 query 的相似度之和
 	cumScores := make(map[string]float64, len(nodesWithVector))
 	for _, n := range nodesWithVector {
 		cumScores[n.MemoryID] = 0
@@ -296,11 +290,43 @@ var ErrMemoryNotFound = errors.New("memory: not found")
 var ErrInvalidMemoryNode = errors.New("memory: invalid memory node")
 
 func (s *LocalVectorStore) WriteSnapshot(path string) error {
-	// pilot stub for split; full snapshot logic in vector_store_snapshot.go
-	return nil
+	if s == nil {
+		return errors.New("memory: nil LocalVectorStore")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	data, err := json.MarshalIndent(s.nodes, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 func (s *LocalVectorStore) ReadSnapshot(path string) error {
-	// pilot stub
+	if s == nil {
+		return errors.New("memory: nil LocalVectorStore")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var nodes map[string]*MemoryNode
+	if err := json.Unmarshal(data, &nodes); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nodes = nodes
+	if len(nodes) > 0 {
+		for _, n := range nodes {
+			if len(n.Vector) > 0 {
+				s.dim = len(n.Vector)
+				break
+			}
+		}
+	}
 	return nil
 }
+
+
+

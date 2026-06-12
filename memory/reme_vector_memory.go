@@ -176,11 +176,8 @@ func (v *ReMeVectorMemory) SaveTo(sessionID string) error {
 		return nil
 	}
 	path := filepath.Join(v.sessionsPath, sessionID+".vector.json")
-	_ = path // pilot stub
 	if lv, ok := v.store.(*LocalVectorStore); ok {
-		// pilot: snapshot methods in vector sub; stub for split integration
-		_ = lv     // avoid unused
-		return nil // TODO: lv.WriteSnapshot(path) after full snapshot move
+		return lv.WriteSnapshot(path)
 	}
 	return nil
 }
@@ -197,7 +194,6 @@ func (v *ReMeVectorMemory) LoadFrom(sessionID string) error {
 		return nil
 	}
 	path := filepath.Join(v.sessionsPath, sessionID+".vector.json")
-	_ = path // pilot stub
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -205,9 +201,7 @@ func (v *ReMeVectorMemory) LoadFrom(sessionID string) error {
 		return err
 	}
 	if lv, ok := v.store.(*LocalVectorStore); ok {
-		// pilot: snapshot methods in vector sub; stub for split integration
-		_ = lv     // avoid unused
-		return nil // TODO: lv.ReadSnapshot(path) after full snapshot move
+		return lv.ReadSnapshot(path)
 	}
 	return nil
 }

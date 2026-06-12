@@ -37,13 +37,13 @@ func BuildReMeVectorMemory(cfg *config.ReMeMemoryConfig, embed memory.EmbeddingM
 				cfg.VectorStore.Dimension, embed,
 			)
 		case "elasticsearch", "es":
-			store, err = memory.NewESVectorStore(
-				cfg.VectorStore.BaseURL,
+			store, err = memory.NewElasticsearchVectorStore(
+				[]string{cfg.VectorStore.BaseURL},
 				cfg.VectorStore.Index,
 				cfg.VectorStore.Dimension, embed,
 			)
 		case "pgvector", "pg":
-			store, err = memory.NewPGVectorStore(
+			store, err = memory.NewPgvectorVectorStore(
 				cfg.VectorStore.ConnStr,
 				cfg.VectorStore.Table,
 				cfg.VectorStore.Dimension, embed,

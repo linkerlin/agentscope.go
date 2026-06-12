@@ -772,6 +772,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 // It mirrors Java ReActAgent.handleInterrupt behaviour:
 //   - SYSTEM source -> apply PartialReasoningPolicy, return shutdown error
 //   - USER source   -> generate a recovery message, persist to memory, return it
+//
 //nolint:unparam
 func (a *ReActAgent) handleInterrupt(ctx context.Context, originalMsg *message.Msg, history []*message.Msg, pending []*message.ToolUseBlock) (*message.Msg, error) {
 	ic := a.CreateInterruptContext(pending)

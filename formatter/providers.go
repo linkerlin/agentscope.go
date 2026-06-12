@@ -169,9 +169,10 @@ func (f *MultiAgentDashScopeFormatter) FormatMessages(msgs []*message.Msg) (any,
 	return typed, nil
 }
 
+//nolint:unparam
 func (f *MultiAgentDashScopeFormatter) formatMultiAgent(msgs []*message.Msg) ([]goopenai.ChatCompletionMessage, error) {
 	return FormatOpenAIMultiAgentMessages(NewOpenAIFormatter(), msgs), nil
-} //nolint:unparam // error always nil for this wrapper, for interface compat
+}
 
 // MultiAgentOllamaFormatter wraps OllamaFormatter with multi-agent grouping.
 type MultiAgentOllamaFormatter struct {
@@ -187,6 +188,7 @@ func (f *MultiAgentOllamaFormatter) FormatMessages(msgs []*message.Msg) (any, er
 	return typed, nil
 }
 
+//nolint:unparam
 func (f *MultiAgentOllamaFormatter) formatMultiAgent(msgs []*message.Msg) ([]goopenai.ChatCompletionMessage, error) {
 	return FormatOpenAIMultiAgentMessages(NewOpenAIFormatter(), msgs), nil
-} //nolint:unparam // error always nil for this wrapper, for interface compat
+}

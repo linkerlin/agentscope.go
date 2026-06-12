@@ -131,6 +131,7 @@ func (a *ReActAgent) runModelInner(
 	return msg, nil
 }
 
+//nolint:unparam
 func (a *ReActAgent) invokeModelChat(
 	ctx context.Context,
 	history []*message.Msg,
@@ -153,6 +154,7 @@ func (a *ReActAgent) invokeModelChat(
 	return handler(ctx)
 }
 
+//nolint:unparam
 func (a *ReActAgent) invokeModelChatStream(
 	ctx context.Context,
 	history []*message.Msg,

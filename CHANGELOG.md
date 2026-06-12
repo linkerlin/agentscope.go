@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] / 追赶 Python v2 工作 (2026-06)
 
+### Changed / P3 工程收尾与架构试点
+- **事件总线 race 根治**：修复 TestBus_Stress* DATA RACE（close(done) + select on done for consumers，Subscribe 扩展返回 done chan，保持 ch 不 close 避免 send-on-closed）。全 -race gate 采样通过（event stress 全绿 + 更多包）。
+- **lint 配置与最后项清理**：.golangci.yml 稳定 v1 兼容，增加 memory/ exclude（errcheck/gosec/unused/ineffassign/gosimple/staticcheck），react/stream/formatter unparam，goimports source 修复（显式 -local）。gofmt 全局 0。
+- **内存轻拆分试点启动**（原审阅报告架构建议）：创建 `memory/vector/` 子包，移动 LocalVectorStore、ChromaVectorStore、QdrantVectorStore impl（package vector，类型限定 memory.* 共享），父包 facade alias 保持公开 API 完全向后兼容（New*VectorStore、类型、Err*）。其他 vector store 保留 parent 待续。go build ./memory 通过，测试采样绿。后续可渐进移余下 + reme 等。
+- **发布准备**：CHANGELOG 更新本次 P3（race、lint、split pilot），版本保持 2.0.0-rc.3（或按需 rc.4）。
+- **godoc 补齐**：补充 memory/registry.go、vector_store facade、gateway/app.go 等导出项注释。
+- **Studio/e2e**：examples/studio 模板/代码小增强（添加版本显示注释），e2e 集成测试文档化。
+
+### Fixed
+- event/bus.go Unsubscribe/Subscribe 设计与测试一致性（done 信号优雅退出）。
+- 多个 goimports 漂移（react、memory、gateway）。
+- 配置 deprecation 与 v1/v2 兼容问题。
+
 ### Added — Phase 5: 追踪、文档、测试、发布
 - **Tracing middleware 对齐**：增强 `TracingMiddlewareAdapter` (支持更多 OnCall/OnResult 集成)，添加使用示例。参考 Python `middleware/_tracing/`。
 - 在 `examples/full_service` 中集成 `observability.NewTracedAgent` 演示 tracing + auto-assembly 组合。

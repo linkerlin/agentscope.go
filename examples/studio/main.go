@@ -25,6 +25,8 @@ var templatesFS embed.FS
 // It demonstrates the new typed Credential + /schemas support (Phase 1)
 // and serves as the foundation for the full pure-Go Studio (Phase 4).
 //
+// P3 改进：可扩展 metrics 展示（对接 gateway metrics）；e2e 结合 gateway e2e_integration_test 验证 SSE + 工具结果流。
+//
 // Run:
 //
 //	OPENAI_API_KEY=sk-... JWT_SECRET=dev go run ./examples/studio

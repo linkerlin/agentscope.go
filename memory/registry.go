@@ -5,7 +5,8 @@ import (
 	"sync"
 )
 
-// Registry 泛型组件注册中心
+// Registry 泛型组件注册中心，用于注册和获取 Memory 相关组件（如 VectorStore、EmbeddingModel）。
+// 轻量工厂模式，支持多后端（local/pgvector/qdrant 等）。
 type Registry[T any] struct {
 	mu      sync.RWMutex
 	entries map[string]func() T

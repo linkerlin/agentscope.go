@@ -4,7 +4,10 @@ import (
 	"context"
 )
 
-// VectorStore 向量记忆存储（首版以内存实现为主，可扩展远程后端）
+// VectorStore 向量记忆存储接口。
+// 实现包括 LocalVectorStore（内存余弦）、Qdrant、Pgvector、Elasticsearch、Chroma、Remote 等。
+// 用于 ReMe 向量记忆和 hybrid search。
+// 详见 memory/vector/ 轻拆分试点（原审阅报告建议）。
 type VectorStore interface {
 	Insert(ctx context.Context, nodes []*MemoryNode) error
 	Search(ctx context.Context, query string, opts RetrieveOptions) ([]*MemoryNode, error)

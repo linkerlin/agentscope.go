@@ -158,3 +158,4 @@ func (c *ToolResultCompactor) PurgeExpired() error {
 	}
 	return nil
 }
+

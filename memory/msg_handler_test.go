@@ -54,3 +54,4 @@ func TestFormatMessagesPlainNilSkip(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+

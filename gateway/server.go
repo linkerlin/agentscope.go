@@ -79,6 +79,7 @@ type Server struct {
 	toolOffload         *ToolOffloadManager
 	workspaceMgr        *WorkspaceManager
 	embeddingModel      model.EmbeddingModel
+	audioModel          model.AudioModel
 	sessionAgentBuilder SessionAgentBuilder
 
 	// defaultSessionDeps holds auto-assembled defaults for per-session agents

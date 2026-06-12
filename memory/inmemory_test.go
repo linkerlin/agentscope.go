@@ -80,3 +80,4 @@ func TestInMemoryAddNil(t *testing.T) {
 		t.Fatalf("expected size 1 (nil appended), got %d", m.Size())
 	}
 }
+

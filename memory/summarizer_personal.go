@@ -515,3 +515,4 @@ func (s *PersonalSummarizer) calculateJaccardSimilarity(set1, set2 map[string]st
 
 	return float64(intersection) / float64(union)
 }
+

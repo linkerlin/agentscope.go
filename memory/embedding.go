@@ -37,3 +37,4 @@ func (b batchEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 	}
 	return out, nil
 }
+

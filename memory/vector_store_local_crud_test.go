@@ -112,3 +112,4 @@ func TestLocalVectorStoreList(t *testing.T) {
 		t.Fatalf("expected 1 limited node, got %d", len(limited))
 	}
 }
+

@@ -38,3 +38,4 @@ func NewFlowContext(query string) *FlowContext {
 		Metadata:  make(map[string]any),
 	}
 }
+

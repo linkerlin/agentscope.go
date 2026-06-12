@@ -200,3 +200,4 @@ func RunBenchmarkSuite(ctx context.Context, mem VectorMemory, benchmarks ...Benc
 	}
 	return results, nil
 }
+

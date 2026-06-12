@@ -42,3 +42,4 @@ func (c *SimpleTokenCounter) CountMessages(msgs []*message.Msg) (int, error) {
 	}
 	return total, nil
 }
+

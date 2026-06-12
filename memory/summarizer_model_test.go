@@ -29,3 +29,4 @@ func TestSummarizeToDailyFileNoModel(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+

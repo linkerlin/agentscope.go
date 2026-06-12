@@ -47,3 +47,4 @@ func TestRetrieversWithVector(t *testing.T) {
 		t.Fatal(out2, err)
 	}
 }
+

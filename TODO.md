@@ -1,76 +1,51 @@
 # AgentScope.Go 后续 TODO
 
-> 最后更新：2026-06-10
+> 最后更新：2026-06-12
 
 ---
 
 ## 进行中 / 剩余工作项
 
-### P2 — 中优先级（功能补齐）
+### P1 — 工程完善
 
-#### 1. `tool/schedule/` — 测试补齐
-- **状态**：✅ 已完成（18 个测试，全量通过）
-- **说明**：`ScheduleCreate/List/Stop/View` 四个工具 + 辅助函数全覆盖
+#### 1. Embedding 包整合
+- **状态**：✅ 已完成 — 移除 `memory/embedding/` 废弃层，统一使用顶级 `embedding/` 包
+- **说明**：`embedding.NewOpenAI/Ollama/Gemini/DashScope + WithFileCache` 为唯一入口
 
-#### 2. `workspace/docker.go` — Dockerfile 生成增强
-- **状态**：✅ 基础实现完成
-- **说明**：已支持 `RenderDockerfile` / `BuildImage` / `HealthCheck`
+#### 2. CI 流水线
+- **状态**：✅ 已完成 — `.github/workflows/ci.yml` 含 fmt → vet → build → test + lint
+- **说明**：go build / go vet / go test -race 全量通过
 
-#### 3. Gateway 端到端测试覆盖
-- **状态**：✅ 已完成（`gateway/e2e_integration_test.go`，7 个测试，26 个子案例）
-- **说明**：覆盖全认证流程（注册→登录→JWT访问）、SSE+Auth、Streamable HTTP 全生命周期（POST/DELETE/GET订阅）、AG-UI+Auth、多会话隔离、认证边界
+#### 3. memory/reme/ 子包清理
+- **状态**：✅ 已完成 — 删除编译阻断的重复代码
+- **说明**：子包与父包逻辑完全重复，通过根 `package memory` 100% 使用 ReMe 功能
 
-### P3 — 低优先级（前瞻 / 工程优化）
+### P2 — 功能补齐
 
-#### 4. Benchmark 持续完善
-- **状态**：✅ 持续维护（reply_stream / pipeline / gateway / formatter）
-- **最新结果**（i9-13900HX）：
-  - OpenAI FormatMessages(1 msg): 224 ns/op, 352 B/op, 3 allocs/op
-  - OpenAI FormatMessages(50 msg): 15.3 µs/op, 17 KB/op, 101 allocs/op
-  - Anthropic FormatMessages(10 msg): 9.8 µs/op, 7.6 KB/op
-  - Gemini FormatContents(10 msg): 4.3 µs/op, 7.6 KB/op
-  - ThinkingBlock提取（无标签）: 42 ns/op, 0 B/op
-  - ThinkingBlock提取（含标签）: 4.3 µs/op, 650 B/op
+#### 4. 向量分包子包测试
+- **状态**：✅ 已完成 — `memory/vector/vector_store_test.go`
+- **说明**：Qdrant/ES/PGVector/Chroma/RawVectorStore/Snapshot stub 覆盖
 
-#### 5. 代码拆分优化
-- **状态**：✅ 结构良好（22 个文件，最大 968 行）
-- **说明**：`react_agent.go`(968行) / `reply_stream.go`(818行) 已合理拆分
+#### 5. MultimodalRouter 示例
+- **状态**：✅ 已完成 — `examples/multimodal_router/main.go`
 
-#### 6. `memory/` 子模块化
-- **状态**：81 个 Go 文件
-- **说明**：考虑将旧的向量后端实现拆为独立子模块
+#### 6. Gateway TTS/STT 端点
+- **状态**：✅ 已完成 — `/v1/audio/speech` + `/v1/audio/transcriptions`
+- **说明**：基于 `model.OpenAITTS` 的 AudioModel，暴露标准 OpenAI Audio API 兼容端点
 
-#### 7. `tool/schedule/` 独立 Manager
-- **状态**：✅ 已完成（`manager.go` + `manager_test.go`，5 个测试）
-- **说明**：`StandardManager` 包装 `*schedule.Scheduler`，无 Gateway 依赖即可使用
+### P3 — 前瞻 / 工程优化
 
-#### 8. V2 事件流示例
-- **状态**：✅ 已完成（`examples/v2_event_stream/main.go`）
-- **说明**：演示 `ReplyStream()` 完整事件生命周期
+#### 7. Snapshot 序列化完善
+- **状态**：✅ 已完成 — WriteSnapshot/ReadSnapshot JSON 序列化，SaveTo/LoadFrom 闭环
+- **说明**：向量记忆可完整持久化到 sessions/<id>.vector.json 并跨实例恢复
 
-#### 9. Web Fetch 工具
-- **状态**：✅ 已完成（`tool/web/fetch.go` + `fetch_test.go`，10 个测试）
-- **说明**：HTTP GET 工具，支持超时、Content-Type、最大长度控制、context 取消
+#### 8. 代码去重
+- **状态**：待办
+- **说明**：`memory/cosine.go` 和 `memory/vector/types.go` 各有相同的 CosineSimilarity 实现
 
-#### 10. JSON 工具
-- **状态**：✅ 已完成（`tool/json/tool.go` + `tool_test.go`，14 个测试）
-- **说明**：`json_parse`（格式化 + 类型识别）、`json_query`（dot-separated 路径查询）
-
-#### 11. 工具注册便捷函数
-- **状态**：✅ 已完成（`tool/file/register.go` + `register_test.go`，3 个测试）
-- **说明**：`file.RegisterAll(baseDir, readOnly)` 一键注册 3~6 个文件工具
-
-#### 12. Gateway 健康检查端点
-- **状态**：✅ 已完成（`/health` + 3 个测试）
-- **说明**：返回 JSON 状态（version/storage/auth/active_sessions），支持 K8s 探针
-
-#### 13. Gateway Request ID 注入
-- **状态**：✅ 已完成（`X-Request-ID` 自动生成/透传 + 1 个测试）
-- **说明**：自动为所有请求注入 `X-Request-ID` 响应头，支持透传客户端 ID
-
-#### 14. 生产级全功能示例
-- **状态**：✅ 已完成（`examples/production/main.go`）
-- **说明**：认证 + JSON/WebFetch 工具 + 权限引擎 + Gateway + 健康检查，一键启动
+#### 9. 端到端 Benchmark
+- **状态**：持续
+- **说明**：reply_stream / pipeline / gateway / formatter 已覆盖，可增加 ReMe + Dream 场景
 
 ---
 

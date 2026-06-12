@@ -227,3 +227,4 @@ func (w *DeltaFileWatcher) findCutoffLine(prevContent string, newContent string)
 
 	return true, newContent[cutoff:]
 }
+

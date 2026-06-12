@@ -75,3 +75,4 @@ type FileStore interface {
 	ClearAll(ctx context.Context) error
 	Close() error
 }
+

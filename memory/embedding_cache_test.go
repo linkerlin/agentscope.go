@@ -81,3 +81,4 @@ func TestEmbeddingCacheEmbedBatch(t *testing.T) {
 		t.Fatalf("expected 3 calls, got %d", base.callCount)
 	}
 }
+

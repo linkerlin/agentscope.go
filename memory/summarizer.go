@@ -82,3 +82,4 @@ func (s *Summarizer) AppendToMemoryMD(title, body string) error {
 	_, err = f.WriteString(sb.String())
 	return err
 }
+

@@ -79,3 +79,4 @@ func BenchmarkReMeFileMemoryAdd(b *testing.B) {
 		_ = m.Add(msg)
 	}
 }
+

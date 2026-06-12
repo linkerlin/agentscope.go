@@ -161,3 +161,4 @@ func TestMemoryDeduplicatorCalculateTextSimilarity(t *testing.T) {
 		t.Fatalf("expected 0.0 for unrelated text, got %f", sim2)
 	}
 }
+

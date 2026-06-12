@@ -111,3 +111,4 @@ func TestToolResultCompactorDefaultBlock(t *testing.T) {
 		t.Fatalf("expected text preserved, got %s", out[0].GetTextContent())
 	}
 }
+

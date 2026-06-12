@@ -16,6 +16,8 @@ import (
 	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/observability"
 	"github.com/linkerlin/agentscope.go/service"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:embed templates/*
@@ -155,5 +157,6 @@ func main() {
 	fmt.Println("  - Auto-assembly active: Workspace + StandardTools (auto TaskStore) + Schedule restore + ToolOffload")
 	fmt.Println("  - Full API under /api/v1/ and /v2/")
 	http.HandleFunc("/studio/metrics", metricsHandler)
+	http.Handle("/metrics", promhttp.Handler())
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

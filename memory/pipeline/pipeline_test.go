@@ -117,3 +117,4 @@ func (m *mockEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float3
 	}
 	return result, nil
 }
+

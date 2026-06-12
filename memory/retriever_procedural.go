@@ -14,3 +14,4 @@ func (p *ProceduralRetriever) Retrieve(ctx context.Context, taskName, query stri
 	}
 	return p.V.RetrieveProcedural(ctx, taskName, query, topK)
 }
+

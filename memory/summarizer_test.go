@@ -148,3 +148,4 @@ func TestSummarizerAppendToMemoryMD_Nil(t *testing.T) {
 		t.Fatal("expected error when WorkingDir empty")
 	}
 }
+

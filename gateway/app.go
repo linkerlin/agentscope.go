@@ -39,6 +39,7 @@ type AppConfig struct {
 	ToolOffloadManager *ToolOffloadManager
 	ModelCardsDir      string
 	EmbeddingModel     model.EmbeddingModel
+	AudioModel         model.AudioModel
 
 	// --- Auto-assembly options (more "create_app" like experience) ---
 	WorkspaceBaseDir      string               // if set and WorkspaceManager==nil, auto-create Local WorkspaceManager
@@ -123,6 +124,9 @@ func NewApp(cfg AppConfig) *Server {
 		}
 		srv.WithEmbeddingModel(emb)
 	}
+	if cfg.AudioModel != nil {
+		srv.WithAudioModel(cfg.AudioModel)
+	}
 
 	// Auto-assemble default SessionAgentDeps for dynamic per-session agents
 	// (this wires StandardTools, permission, tool-offload etc. automatically).
@@ -185,5 +189,6 @@ func (s *Server) RegisterAppRoutes(jwtAuth *service.JWTAuthenticator) {
 	s.RegisterBackgroundTaskRoutes()
 	s.RegisterModelRoutes()
 	s.RegisterEmbeddingRoutes()
+	s.RegisterAudioRoutes()
 	s.RegisterV2Routes()
 }

@@ -50,7 +50,7 @@ ci: fmt-check vet build test ## Simulate the main CI steps locally (without gola
 precommit: fmt-check vet lint build test
 
 fuzz: ## Run fuzz tests (example for json tool; use -fuzztime=10s etc.)
-	go test -fuzz=Fuzz -fuzztime=5s ./tool/json ./permission 2>&1 | head -20 || echo "fuzz example (extend as needed)"
+	go test -fuzz=Fuzz -fuzztime=5s ./tool/json ./permission ./memory 2>&1 | head -20 || echo "fuzz example (extend as needed)"
 
 cover: ## Generate coverage report (coverage.out)
 	go test -race -count=1 -timeout=12m -coverprofile=coverage.out -covermode=atomic ./...

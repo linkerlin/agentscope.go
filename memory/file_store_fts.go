@@ -386,3 +386,4 @@ func mergeHybridResults(vecResults, keyResults []*MemorySearchResult, vectorWeig
 	}
 	return sortByScoreDesc(out)
 }
+

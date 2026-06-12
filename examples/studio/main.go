@@ -21,6 +21,16 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
+// metricsHandler pilot for real metrics panel + e2e
+func metricsHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<html><body><h1>Studio Metrics Panel (P3 pilot)</h1>
+<p>Integrate with gateway metrics (e.g. /debug/vars or custom MetricsHandler).</p>
+<p>e2e: see gateway/e2e_integration_test.go for SSE/studio flow extension.</p>
+<ul><li>Active Agents: (demo)</li><li>SSE connections: (demo)</li></ul>
+</body></html>`)
+}
+
 // Studio is a lightweight Go-native management UI (HTMX + templates).
 // It demonstrates the new typed Credential + /schemas support (Phase 1)
 // and serves as the foundation for the full pure-Go Studio (Phase 4).
@@ -144,5 +154,6 @@ func main() {
 	fmt.Println("  - Credentials (schemas-driven form): http://localhost:8081/credentials")
 	fmt.Println("  - Auto-assembly active: Workspace + StandardTools (auto TaskStore) + Schedule restore + ToolOffload")
 	fmt.Println("  - Full API under /api/v1/ and /v2/")
+	http.HandleFunc("/studio/metrics", metricsHandler)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

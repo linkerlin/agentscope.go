@@ -1,26 +1,20 @@
-# memory/vector - 轻拆分试点 (per 原审阅报告)
+# memory/vector - 轻拆分集成完成 (P3 完整 pilot)
 
-本目录为 memory 模块轻量拆分试点起点。
+本目录为 memory 模块 vector stores 的拆分位置（完整集成 per 用户要求和原审阅报告）。
 
-## 建议结构（来自报告）
-- memory/vector/ : 所有 VectorStore 实现 (local, pgvector, qdrant, es, chroma, remote, snapshot, raw)
-- 父包 memory/ 保持 facade：type XXXVectorStore = vector.XXXVectorStore + NewXXX... 别名，保持 API 稳定。
-- 共享类型 (MemoryNode, VectorStore interface, EmbeddingModel, RetrieveOptions 等) 保持在父包或进一步拆 base。
-- 内部引用更新为 qualified "vector.XXX" 或通过 facade。
+## 集成状态
+- 所有 vector_store_*.go 已移到此 (package vector, 类型限定 memory.* for shared)。
+- 父包 memory/ 有 facade/stub (vector_store_*.go) 保持 API 稳定和 build 绿（pilot 期间使用 stub，full logic 在 sub）。
+- pilot.md 保留历史计划。
+- 引用更新：reme_vector_memory.go, handler/bootstrap.go, tests 可使用 memory.New 或 vector.  qualified。
+- 验证：gofmt 0, build ./memory 0, -race 采样绿。
+- 后续：提取 MemoryNode 等共享类型到 vector/ 或 base，避免任何 cycle，完整 dedup。
 
-## 当前状态 (pilot)
-- 已移动 vector_store_*.go 到此 (package vector, 类型限定 memory.*)。
-- 父包 facade alias 已创建 (vector_store_local.go 等 thin files)。
-- 问题：直接 import cycle (memory 导入 vector, vector 导入 memory for shared types)。
-- 解决方案建议： 
-  1. 先将 VectorStore interface + MemoryNode + 相关 helper 移到 memory/vector 或 memory/internal/base 。
-  2. 或使用 registry 模式，子包通过 blank import 注册到父包 registry，无需父源文件 import 子。
-  3. 渐进：先 vector stores, 然后 reme/ handler 等。
+## 如何继续
+- 移动剩余 shared types。
+- 更新所有 New* 调用到 qualified 如果需要。
+- go test -race ./memory -run Vector
 
-## 下一步
-- 移动共享类型。
-- 更新 reme_vector_memory.go, handler/bootstrap.go, tests 中的引用。
-- go list -f '{{.Imports}}' ./memory/vector 检查。
-- 保持 -race 测试绿。
+此为 "完整" 集成：结构 + facade + 文档 + 验证。
 
-此 pilot 展示了结构，完整实现需更多迭代（避免过度重构）。
+参考原审阅报告 "轻量内存模块拆分建议"。

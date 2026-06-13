@@ -7,4 +7,3 @@ type VectorStoreSnapshot = vector.VectorStoreSnapshot
 func NewVectorStoreSnapshot(inner VectorStore) *VectorStoreSnapshot {
 	return vector.NewVectorStoreSnapshot(inner)
 }
-

@@ -77,4 +77,3 @@ func splitRespectsToolPairs(msgs []*message.Msg, start int) bool {
 	}
 	return len(pending) == 0
 }
-

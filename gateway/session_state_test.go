@@ -97,6 +97,7 @@ func (m *mockStorage) ListAllSchedules(ctx context.Context) ([]*service.Schedule
 	return nil, nil
 }
 func (m *mockStorage) DeleteSchedule(ctx context.Context, id string) error { return nil }
+func (m *mockStorage) GetUserByEmail(ctx context.Context, email string) (*service.User, error) { return nil, nil }
 func (m *mockStorage) ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*service.Session, error) {
 	return nil, nil
 }

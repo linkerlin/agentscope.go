@@ -12,4 +12,3 @@ type Memory interface {
 	Clear() error
 	Size() int
 }
-

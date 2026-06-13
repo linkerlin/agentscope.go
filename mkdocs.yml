@@ -1,0 +1,103 @@
+site_name: AgentScope.Go 文档
+site_description: AgentScope 的 Go 语言实现 —— 生产级 AI Agent 开发框架
+site_author: AgentScope.Go Team
+site_url: https://docs.agentscope-go.io
+
+repo_name: agentscope.go
+repo_url: https://github.com/linkerlin/agentscope.go
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  language: zh
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - tables
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/linkerlin/agentscope.go
+  version:
+    provider: mike
+
+nav:
+  - 首页: index.md
+  - 快速开始:
+    - 5 分钟上手: quickstart.md
+    - 教程: tutorial.md
+  - 核心概念:
+    - 事件流: concepts/event-stream.md
+    - AgentState: concepts/agent-state.md
+    - Middleware: concepts/middleware.md
+    - Memory: concepts/memory.md
+    - Workspace: concepts/workspace.md
+  - 模型后端:
+    - OpenAI: models/openai.md
+    - Anthropic: models/anthropic.md
+    - Gemini: models/gemini.md
+    - DashScope: models/dashscope.md
+    - DeepSeek: models/deepseek.md
+    - Moonshot: models/moonshot.md
+    - xAI: models/xai.md
+    - Ollama: models/ollama.md
+    - vLLM: models/vllm.md
+  - 生产部署:
+    - 部署指南: deployment.md
+    - Docker: deployment/docker.md
+    - Kubernetes: deployment/k8s.md
+  - 高级特性:
+    - ReMe 记忆: advanced/reme.md
+    - A2A 协议: advanced/a2a.md
+    - GEP 自演化: advanced/evolver.md
+    - 多 Agent 编排: advanced/orchestration.md
+  - 发布与包管理: packaging.md
+  - API 参考: api-reference.md
+  - 迁移指南: migration.md
+  - 贡献指南: contributing.md
+
+copyright: Copyright &copy; 2026 AgentScope.Go Team. Licensed under Apache 2.0.

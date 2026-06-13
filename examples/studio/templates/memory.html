@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Memory Debug - Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+            accent: { 50: '#f0fdfa', 100: '#ccfbf1', 500: '#14b8a6', 600: '#0d9488' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+  <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
+      <a href="/" class="text-primary-600 font-medium hover:underline">← Dashboard</a>
+      <h1 class="text-lg font-bold text-gray-900">ReMe Memory Debug</h1>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Add Memory -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-xl">📝</span> Add Memory
+        </h2>
+        <textarea id="mem-text" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-primary-500">AgentScope.Go uses goroutines and channels for efficient concurrency.</textarea>
+        <button onclick="addMemory()" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition">Add to Memory</button>
+        <div id="add-result" class="mt-3 text-sm"></div>
+      </div>
+
+      <!-- Search Memory -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-xl">🔍</span> Search Memory
+        </h2>
+        <div class="flex gap-2 mb-3">
+          <input id="mem-query" type="text" value="concurrency in Go" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500">
+          <button onclick="searchMemory()" class="bg-accent-600 hover:bg-accent-500 text-white px-4 py-2 rounded-lg font-medium transition">Search</button>
+        </div>
+        <div id="search-result" class="text-sm"></div>
+      </div>
+    </div>
+
+    <!-- Results Table -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Results</h2>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+            <tr><th class="px-4 py-2 text-left rounded-tl-lg">Score</th><th class="px-4 py-2 text-left">Content</th><th class="px-4 py-2 text-left rounded-tr-lg">Type</th></tr>
+          </thead>
+          <tbody id="results-body" class="divide-y divide-gray-100">
+            <tr><td colspan="3" class="px-4 py-8 text-center text-gray-400">No results yet. Add memories and search.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    async function addMemory() {
+      const text = document.getElementById('mem-text').value;
+      const res = await fetch('/api/studio/memory/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+      const div = document.getElementById('add-result');
+      div.innerHTML = '<span class="text-green-600">✓ Added successfully</span>';
+      setTimeout(() => div.innerHTML = '', 2000);
+    }
+
+    async function searchMemory() {
+      const q = document.getElementById('mem-query').value;
+      const res = await fetch('/api/studio/memory/search?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      const results = data.results || [];
+      const tbody = document.getElementById('results-body');
+      if (!results.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="px-4 py-8 text-center text-gray-400">No results found.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = results.map(n => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-2 font-mono text-primary-600">${n.score || '-'}</td>
+          <td class="px-4 py-2 text-gray-700">${escapeHtml(n.content || n.Content || '')}</td>
+          <td class="px-4 py-2"><span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">${n.memory_type || n.MemoryType || 'n/a'}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

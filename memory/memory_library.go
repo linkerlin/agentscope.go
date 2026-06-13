@@ -134,4 +134,3 @@ func GetDefaultAgentLibrary() []LibraryEntry {
 		},
 	}
 }
-

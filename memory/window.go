@@ -124,4 +124,3 @@ func (m *WindowMemory) Size() int {
 	defer m.mu.RUnlock()
 	return len(m.msgs)
 }
-

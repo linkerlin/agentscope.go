@@ -251,4 +251,3 @@ func isCJKRune(r rune) bool {
 		(r >= '\u30a0' && r <= '\u30ff') ||
 		(r >= '\uac00' && r <= '\ud7af')
 }
-

@@ -14,4 +14,3 @@ func (p *PersonalRetriever) Retrieve(ctx context.Context, userName, query string
 	}
 	return p.V.RetrievePersonal(ctx, userName, query, topK)
 }
-

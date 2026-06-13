@@ -2,73 +2,111 @@
 <html lang="zh">
 <head>
   <meta charset="utf-8">
-  <title>Chat Demo - Studio (Auto Tools)</title>
+  <title>Chat Demo - Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <style>
-    body { font-family: system-ui; margin: 1rem; }
-    #chat { border: 1px solid #ccc; padding: 1rem; height: 300px; overflow-y: auto; margin-bottom: 0.5rem; background: #fafafa; }
-    .msg { margin: 4px 0; }
-    .user { color: blue; }
-    .assistant { color: green; }
-    form { display: flex; gap: 0.5rem; }
-    input { flex: 1; }
-  </style>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+            accent: { 50: '#f0fdfa', 100: '#ccfbf1', 500: '#14b8a6', 600: '#0d9488' }
+          }
+        }
+      }
+    }
+  </script>
 </head>
-<body>
-  <a href="/">← Back to Dashboard</a>
-  <h1>Chat Demo - Agents with Auto Tools</h1>
-  <div style="background:#d4edda;padding:0.5rem;margin-bottom:0.5rem;font-size:0.9em;">
-    Because this Studio server runs with AutoStandardTools + auto TaskStore + Workspace, the agent you chat with has automatic file/workspace tools, task management, web/json utilities etc. Try asking it to "list the workspace files" or "create a task about testing auto assembly".
-  </div>
-  <p>This demo uses the v2 chat endpoint. Because the server was started with <strong>AutoStandardTools + Workspace</strong>, any agent you chat with will have automatic access to file tools, tasks (auto in-mem store), glob/grep, web_fetch, json tools, etc. in their sessions.</p>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+  <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
+      <a href="/" class="text-primary-600 font-medium hover:underline">← Dashboard</a>
+      <h1 class="text-lg font-bold text-gray-900">Chat Demo</h1>
+      <span class="text-xs bg-accent-100 text-accent-600 px-2 py-0.5 rounded-full">Auto Tools Enabled</span>
+    </div>
+  </nav>
 
-  <div>
-    <label>Agent ID: <input id="agent-id" value="demo-agent-1" style="width:200px"></label>
-    <label>Session ID: <input id="session-id" value="demo-session-1" style="width:200px"></label>
-  </div>
+  <main class="max-w-5xl mx-auto px-4 py-4 flex flex-col" style="height: calc(100vh - 3.5rem);">
+    <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-sm text-green-800">
+      <strong>Auto-Assembly Active：</strong>此 agent 拥有自动文件工具、任务管理、Web/JSON 工具等。尝试 "list workspace files" 或 "create a task about testing"。
+    </div>
 
-  <div id="chat"></div>
+    <div class="flex gap-3 mb-3 text-sm">
+      <label class="flex items-center gap-2">
+        Agent ID: <input id="agent-id" value="demo-agent-1" class="border rounded px-2 py-1 w-40">
+      </label>
+      <label class="flex items-center gap-2">
+        Session: <input id="session-id" value="demo-session-1" class="border rounded px-2 py-1 w-40">
+      </label>
+    </div>
 
-  <form id="chat-form">
-    <input id="msg" type="text" placeholder="Ask the agent to list files, create a task, fetch web, etc. (auto tools enabled)" required>
-    <button type="submit">Send (SSE Stream)</button>
-  </form>
+    <div id="chat" class="flex-1 bg-white border border-gray-200 rounded-xl overflow-y-auto p-4 space-y-3 mb-3">
+      <div class="text-center text-gray-400 text-sm py-8">Start a conversation...</div>
+    </div>
 
-  <p><small>Real SSE streaming from /v2/chat/stream. Tool calls from auto-assembled tools (file, task, web, json) will be shown in UI. First register demo user on Dashboard if auth required.</small></p>
+    <form id="chat-form" class="flex gap-2">
+      <input id="msg" type="text" placeholder="Ask the agent to list files, create a task, fetch web..." 
+        class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500" required>
+      <button type="submit" class="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2 rounded-lg font-medium transition">
+        Send (SSE)
+      </button>
+    </form>
+  </main>
 
   <script>
     const chat = document.getElementById('chat');
     const form = document.getElementById('chat-form');
     const msgInput = document.getElementById('msg');
-    const agentId = document.getElementById('agent-id') ? document.getElementById('agent-id').value : 'demo-agent-1';
-    const sessionId = document.getElementById('session-id') ? document.getElementById('session-id').value : 'demo-session-1';
 
     form.addEventListener('submit', async function(e) {
       e.preventDefault();
       const text = msgInput.value.trim();
       if (!text) return;
-      chat.innerHTML += `<div class="msg user"><strong>You:</strong> ${text}</div>`;
+
+      // Clear placeholder if first message
+      if (chat.querySelector('.text-center')) chat.innerHTML = '';
+
+      // User bubble
+      const userDiv = document.createElement('div');
+      userDiv.className = 'flex justify-end';
+      userDiv.innerHTML = `<div class="bg-primary-600 text-white rounded-2xl rounded-tr-sm px-4 py-2 max-w-[80%]">${escapeHtml(text)}</div>`;
+      chat.appendChild(userDiv);
+      chat.scrollTop = chat.scrollHeight;
       msgInput.value = '';
 
-      const body = {
-        agent_id: agentId,
-        session_id: sessionId,
-        input: { text: text }  // or full Msg, but simple text for demo
-      };
+      // Assistant bubble
+      const assistantDiv = document.createElement('div');
+      assistantDiv.className = 'flex justify-start';
+      assistantDiv.innerHTML = `
+        <div class="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2 max-w-[80%] min-w-[120px]">
+          <div class="text-xs text-gray-500 mb-1">Assistant · streaming...</div>
+          <div class="assistant-text text-gray-800"></div>
+        </div>`;
+      chat.appendChild(assistantDiv);
+      const textEl = assistantDiv.querySelector('.assistant-text');
+      const metaEl = assistantDiv.querySelector('.text-xs');
 
       try {
         const resp = await fetch('/v2/chat/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
+          body: JSON.stringify({
+            agent_id: document.getElementById('agent-id').value,
+            session_id: document.getElementById('session-id').value,
+            input: { text: text }
+          })
         });
         if (!resp.ok) {
-          chat.innerHTML += `<div class="msg assistant">[Error: ${resp.status}]</div>`;
+          textEl.innerHTML = `<span class="text-red-500">Error: ${resp.status}</span>`;
           return;
         }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let hasTool = false;
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -78,44 +116,35 @@
           for (const line of lines) {
             if (line.startsWith('data:')) {
               const dataStr = line.slice(5).trim();
-              if (dataStr) {
-                try {
-                  const evt = JSON.parse(dataStr);
-                  handleStreamEvent(evt);
-                } catch (e) {}
-              }
+              if (!dataStr) continue;
+              try {
+                const evt = JSON.parse(dataStr);
+                if (evt.type === 'TEXT_MESSAGE_CONTENT' || evt.type === 'text_block_delta') {
+                  textEl.innerHTML += escapeHtml(evt.delta || '');
+                  chat.scrollTop = chat.scrollHeight;
+                } else if (evt.type === 'TOOL_CALL_START' || evt.type === 'tool_call_start') {
+                  hasTool = true;
+                  const name = evt.toolCallName || evt.name || 'tool';
+                  textEl.innerHTML += `<div class="my-1 px-2 py-1 bg-orange-50 border border-orange-200 rounded text-xs text-orange-700">🔧 ${escapeHtml(name)}</div>`;
+                } else if (evt.type === 'TOOL_CALL_RESULT' || evt.type === 'tool_result') {
+                  const content = evt.content || evt.output || JSON.stringify(evt);
+                  textEl.innerHTML += `<div class="my-1 px-2 py-1 bg-purple-50 border border-purple-200 rounded text-xs text-purple-700">📦 ${escapeHtml(content.substring(0, 200))}</div>`;
+                } else if (evt.type === 'RUN_FINISHED' || evt.type === 'reply_end') {
+                  metaEl.textContent = 'Assistant';
+                }
+              } catch (e) {}
             }
           }
         }
       } catch (err) {
-        chat.innerHTML += `<div class="msg assistant">[Stream error: ${err}]</div>`;
+        textEl.innerHTML = `<span class="text-red-500">Stream error: ${escapeHtml(err.message)}</span>`;
       }
     });
 
-    function handleStreamEvent(evt) {
-      if (!evt || !evt.type) return;
-      if (evt.type === 'text_block_delta' || evt.type === 'TextBlockDelta') {
-        const delta = evt.delta || evt.text || '';
-        // append to last assistant msg or create
-        let last = chat.lastElementChild;
-        if (!last || !last.classList.contains('assistant')) {
-          last = document.createElement('div');
-          last.className = 'msg assistant';
-          last.innerHTML = '<strong>Assistant:</strong> ';
-          chat.appendChild(last);
-        }
-        last.innerHTML += delta;
-        chat.scrollTop = chat.scrollHeight;
-      } else if (evt.type === 'tool_call_start' || evt.type === 'ToolCallStart') {
-        const name = evt.name || evt.tool || 'tool';
-        chat.innerHTML += `<div class="msg assistant" style="color:orange;">[AUTO TOOL] ${name} started (from auto-assembled tools)</div>`;
-      } else if (evt.type === 'tool_result' || evt.type === 'ToolResult') {
-        const content = evt.content || evt.output || JSON.stringify(evt);
-        chat.innerHTML += `<div class="msg assistant" style="color:purple;">[AUTO TOOL RESULT] ${content}</div>`;
-        chat.scrollTop = chat.scrollHeight;
-      } else if (evt.type === 'reply_end' || evt.type === 'ReplyEnd') {
-        chat.innerHTML += `<div class="msg assistant" style="font-size:0.8em;color:#666;">(end of response - auto tools were available)</div>`;
-      }
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
   </script>
 </body>

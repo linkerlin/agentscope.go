@@ -63,4 +63,3 @@ func TestRuneTokenizerCountText(t *testing.T) {
 		t.Fatalf("expected 5, got %d", tok.CountText("hello"))
 	}
 }
-

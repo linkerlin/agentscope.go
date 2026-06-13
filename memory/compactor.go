@@ -123,4 +123,3 @@ func splitLines(s string) []string {
 	}
 	return out
 }
-

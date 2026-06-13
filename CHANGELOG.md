@@ -5,13 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] / 追赶 Python v2 工作 (2026-06)
+## [2.0.0] - 2026-06-12
+
+### Added — 社区治理与工程化
+- 新增 `CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md`。
+- 新增 GitHub Issue 模板（bug report / feature request / RFC）与 PR 模板。
+- 新增 `MIGRATION.md` 与 `RELEASE_CHECKLIST.md`。
+- 扩展 `docs/DEPLOYMENT.md`，补充 Docker、systemd、K8s、Redis 部署指南。
+- 新增跨平台 CI（Windows / macOS）、覆盖率上报、`govulncheck` 安全扫描、stale 管理、PR title 校验工作流。
+- 新增模型示例脚本库 `scripts/model_examples/`，覆盖主流模型后端。
+- 补齐 `tool/schedule/` 单元测试。
 
 ### Changed / P3 工程收尾与架构试点
 - **事件总线 race 根治**：修复 TestBus_Stress* DATA RACE（close(done) + select on done for consumers，Subscribe 扩展返回 done chan，保持 ch 不 close 避免 send-on-closed）。全 -race gate 采样通过（event stress 全绿 + 更多包）。
 - **lint 配置与最后项清理**：.golangci.yml 稳定 v1 兼容，增加 memory/ exclude（errcheck/gosec/unused/ineffassign/gosimple/staticcheck），react/stream/formatter unparam，goimports source 修复（显式 -local）。gofmt 全局 0。
 - **内存轻拆分试点启动**（原审阅报告架构建议）：创建 `memory/vector/` 子包，移动 LocalVectorStore、ChromaVectorStore、QdrantVectorStore impl（package vector，类型限定 memory.* 共享），父包 facade alias 保持公开 API 完全向后兼容（New*VectorStore、类型、Err*）。其他 vector store 保留 parent 待续。go build ./memory 通过，测试采样绿。后续可渐进移余下 + reme 等。
-- **发布准备**：CHANGELOG 更新本次 P3（race、lint、split pilot），版本保持 2.0.0-rc.3（或按需 rc.4）。
+- **发布准备**：CHANGELOG 更新本次 P3（race、lint、split pilot），版本后续升级为 2.0.0 正式发布。
 - **godoc 补齐**：补充 memory/registry.go、vector_store facade、gateway/app.go 等导出项注释。
 - **Studio/e2e**：examples/studio 模板/代码小增强（添加版本显示注释），e2e 集成测试文档化。
 
@@ -73,6 +82,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 文档/计划同步：DEV_PLAN_CATCHUP 新 Phase 6 详尽章节（含优势列表、互补策略、API 示例）；本 CHANGELOG；后续将更新 README/AGENTS/docs。
 
 **定位**：agentscope.go 现在不仅追上 Python v2 生产体验，还通过 evolver GEP 对齐获得了工业级“策略基因驱动的自演化”能力，同时保留轻量 Go 实现与强大 ReMe/a2a 优势。
+
+### Added — Phase 3: RAG 增强与 Rerank 集成
+- 新 `rerank/` 包，提供统一的 `Reranker` 接口：
+  - `NoopReranker`：透传候选，便于开关重排。
+  - `CohereReranker`：调用 Cohere `/v2/rerank` API。
+  - `JinaReranker`：调用 Jina AI `/v1/rerank` API。
+  - `LocalReranker`：基于 `vector.EmbeddingModel` 的余弦相似度本地重排，无需外部服务。
+- `ReMeVectorMemory.WithReranker(r)` 链式方法，将 Rerank 接入检索流程：先向量召回候选集，再 Rerank 精排并截断 TopK。
+- 新增 Cookbook `cookbook/rag_with_rerank/`：演示两阶段 RAG + Cohere/Jina/Local 自动回退的 Rerank 后端。
+- `rerank/` 单元测试：覆盖 Noop、Local、Cohere（mock HTTP server）、Jina（mock HTTP server）。
+
+### Added — Phase 3: 向量数据库补齐
+- 完整 REST API 向量存储连接器：`memory/vector/vector_store_milvus.go`、`vector_store_qdrant.go`、懒加载版 `vector_store_chroma.go`。
+- `memory/vector/docker-compose.yml`（Milvus + Qdrant + Chroma）与 `integration_test.go`（`//go:build integration`）。
+- `embedding.NewDashScopeMultimodal`：DashScope 多模态嵌入支持。
+
+### Added — Phase 4: A2A 分布式注册中心与分片路由（初版）
+- `a2a/store.go`：引入 `RegistryStore` 接口，默认提供线程安全的内存实现；`Registry` 重构为可插拔存储后端。
+- `a2a/store_redis.go`：`RedisRegistryStore`（基于 `go-redis`），支持注册/查询/列表/删除/健康状态更新，使用 Redis Set 作为 URL 索引。
+- `a2a/router.go`：`ShardRouter` 基于一致哈希实现请求分片，仅将流量路由到健康节点；支持虚拟副本以改善分布性。
+- `a2a/watch.go`：`Registry.Watch(ctx)` 本地变化事件流；`RegistryChange`（register/remove/health）；`ShardRouter.AutoRefresh(ctx, interval)` 通过 Watch 即时刷新 + 轮询兜底，自动感知节点故障与恢复。
+- `a2a/store_redis_test.go` / `a2a/router_test.go` / `a2a/watch_test.go`：覆盖 Redis CRUD、健康更新、路由确定性、跳过不健康节点、Watch 事件、自动刷新等场景。
+- `examples/a2a_redis_registry/`：可独立运行示例，支持真实 Redis（`REDIS_URL`）或嵌入式 `miniredis`，演示注册、发现、分片路由、Watch 事件与自动故障切换。
 
 ## [2.0.0-rc.1] - 2026-06-10
 

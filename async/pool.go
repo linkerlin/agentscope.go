@@ -195,14 +195,14 @@ func (p *Pool) worker() {
 			p.mu.Lock()
 			task = p.tasks[wi.id]
 			if task != nil {
-				task.Ended = time.Now()
 				if err != nil {
-					task.Status = StatusFailed
 					task.Error = err
+					task.Status = StatusFailed
 				} else {
-					task.Status = StatusCompleted
 					task.Result = res
+					task.Status = StatusCompleted
 				}
+				task.Ended = time.Now()
 			}
 			p.mu.Unlock()
 		}

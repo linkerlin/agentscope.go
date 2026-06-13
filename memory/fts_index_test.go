@@ -199,4 +199,3 @@ func TestFTSIndexSearchWithFilter(t *testing.T) {
 		t.Fatalf("unexpected filter result: %v", res)
 	}
 }
-

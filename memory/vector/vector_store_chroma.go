@@ -33,9 +33,6 @@ func NewChromaVectorStore(baseURL, collection string, dim int, embed EmbeddingMo
 		dim:        dim,
 		client:     &http.Client{Timeout: 30 * time.Second},
 	}
-	if err := s.ensureCollection(context.Background()); err != nil {
-		return nil, err
-	}
 	return s, nil
 }
 
@@ -106,6 +103,9 @@ func (s *ChromaVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) err
 	if s.embed == nil {
 		return ErrEmbeddingRequired
 	}
+	if err := s.ensureCollection(ctx); err != nil {
+		return err
+	}
 	var ids []string
 	var embeddings [][]float32
 	var metadatas []map[string]any
@@ -154,6 +154,9 @@ func (s *ChromaVectorStore) Search(ctx context.Context, query string, opts Retri
 	if s.embed == nil {
 		return nil, ErrEmbeddingRequired
 	}
+	if err := s.ensureCollection(ctx); err != nil {
+		return nil, err
+	}
 	qv, err := s.embed.Embed(ctx, query)
 	if err != nil {
 		return nil, err
@@ -188,6 +191,9 @@ func (s *ChromaVectorStore) Search(ctx context.Context, query string, opts Retri
 
 // Get 按 memoryID 读取
 func (s *ChromaVectorStore) Get(ctx context.Context, memoryID string) (*MemoryNode, error) {
+	if err := s.ensureCollection(ctx); err != nil {
+		return nil, err
+	}
 	body := map[string]any{
 		"ids":     []string{memoryID},
 		"include": []string{"metadatas", "documents", "embeddings"},
@@ -216,6 +222,9 @@ func (s *ChromaVectorStore) Update(ctx context.Context, node *MemoryNode) error 
 	if node == nil || node.MemoryID == "" {
 		return ErrInvalidMemoryNode
 	}
+	if err := s.ensureCollection(ctx); err != nil {
+		return err
+	}
 	if len(node.Vector) == 0 {
 		v, err := s.embed.Embed(ctx, node.EmbeddingContent())
 		if err != nil {
@@ -242,6 +251,9 @@ func (s *ChromaVectorStore) Update(ctx context.Context, node *MemoryNode) error 
 
 // Delete 按 memoryID 删除
 func (s *ChromaVectorStore) Delete(ctx context.Context, memoryID string) error {
+	if err := s.ensureCollection(ctx); err != nil {
+		return err
+	}
 	body := map[string]any{
 		"ids": []string{memoryID},
 	}
@@ -258,6 +270,9 @@ func (s *ChromaVectorStore) Delete(ctx context.Context, memoryID string) error {
 
 // DeleteAll 清空集合
 func (s *ChromaVectorStore) DeleteAll(ctx context.Context) error {
+	if err := s.ensureCollection(ctx); err != nil {
+		return err
+	}
 	body := map[string]any{"where": map[string]any{}}
 	resp, err := s.doJSON(ctx, http.MethodPost, s.collectionURL("delete"), body)
 	if err != nil {
@@ -420,4 +435,3 @@ func chromaMetadataToNode(id, document string, meta map[string]any, vec []float3
 }
 
 var _ VectorStore = (*ChromaVectorStore)(nil)
-

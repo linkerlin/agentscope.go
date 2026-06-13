@@ -341,4 +341,3 @@ func getFloat(args map[string]any, key string, defaultVal float64) float64 {
 	}
 	return defaultVal
 }
-

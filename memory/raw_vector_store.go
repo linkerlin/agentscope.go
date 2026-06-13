@@ -7,4 +7,3 @@ type RawVectorStore = vector.RawVectorStore
 func NewRawVectorStore(embed EmbeddingModel) *RawVectorStore {
 	return vector.NewRawVectorStore(embed)
 }
-

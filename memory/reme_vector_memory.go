@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/rerank"
 )
 
 // VectorMemory 在 ReMeMemory 之上增加向量 CRUD 与类型化检索
@@ -33,8 +34,17 @@ type ReMeVectorMemory struct {
 	*ReMeFileMemory
 	store       VectorStore
 	orch        Orchestrator
+	reranker    rerank.Reranker
 	toolResults map[string][]ToolCallResult
 	toolMu      sync.Mutex
+}
+
+// WithReranker attaches a reranker to the vector memory for second-stage ranking.
+func (v *ReMeVectorMemory) WithReranker(r rerank.Reranker) *ReMeVectorMemory {
+	if v != nil {
+		v.reranker = r
+	}
+	return v
 }
 
 // NewReMeVectorMemory 创建向量记忆；store 为空则使用 LocalVectorStore(embed)
@@ -66,12 +76,13 @@ func (v *ReMeVectorMemory) AddMemory(ctx context.Context, node *MemoryNode) erro
 	return nil
 }
 
-// RetrieveMemory 语义检索；若 VectorWeight 在 (0,1) 则做混合重排
+// RetrieveMemory 语义检索；若 VectorWeight 在 (0,1) 则做混合重排。
+// 若配置了 Reranker，则先扩大候选集，再由 Reranker 做二阶段精排。
 func (v *ReMeVectorMemory) RetrieveMemory(ctx context.Context, query string, opts RetrieveOptions) ([]*MemoryNode, error) {
 	if v == nil || v.store == nil {
 		return nil, ErrEmbeddingRequired
 	}
-	// 两阶段混合检索：向量召回候选集扩大 3 倍
+	// 两阶段混合检索：向量召回候选集扩大 3 倍，为 rerank 留足候选
 	vectorOpts := opts
 	if vectorOpts.TopK <= 0 {
 		vectorOpts.TopK = 10
@@ -85,6 +96,34 @@ func (v *ReMeVectorMemory) RetrieveMemory(ctx context.Context, query string, opt
 	if w > 0 && w < 1 && len(nodes) > 0 && v.fts != nil {
 		nodes = RankMemoryNodesHybrid(nodes, query, w, v.fts)
 	}
+
+	// Second-stage reranking using the configured reranker.
+	if v.reranker != nil && len(nodes) > 0 {
+		docs := make([]rerank.Document, 0, len(nodes))
+		for _, n := range nodes {
+			docs = append(docs, rerank.Document{
+				ID:      n.MemoryID,
+				Content: n.Content,
+				Score:   n.Score,
+			})
+		}
+		reranked, err := v.reranker.Rerank(ctx, query, docs, opts.TopK)
+		if err == nil {
+			rerankedNodes := make([]*MemoryNode, 0, len(reranked))
+			for _, r := range reranked {
+				// Find the original node to preserve metadata.
+				for _, n := range nodes {
+					if n.MemoryID == r.ID {
+						n.Score = r.RelevanceScore
+						rerankedNodes = append(rerankedNodes, n)
+						break
+					}
+				}
+			}
+			nodes = rerankedNodes
+		}
+	}
+
 	if opts.TopK > 0 && len(nodes) > opts.TopK {
 		nodes = nodes[:opts.TopK]
 	}

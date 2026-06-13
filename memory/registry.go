@@ -62,4 +62,3 @@ var (
 	VectorStores    = NewRegistry[VectorStore]()
 	EmbeddingModels = NewRegistry[EmbeddingModel]()
 )
-

@@ -68,16 +68,23 @@ func main() {
 ```go
 // DeepSeek
 import "github.com/linkerlin/agentscope.go/model/deepseek"
-model, _ := deepseek.Builder().APIKey("key").Build()
+model, _ := deepseek.Builder("key").Build()
 
 // Moonshot (Kimi)
 import "github.com/linkerlin/agentscope.go/model/moonshot"
-model, _ := moonshot.Builder().APIKey("key").Build()
+model, _ := moonshot.Builder("key").Build()
+
+// xAI (Grok)
+import "github.com/linkerlin/agentscope.go/model/xai"
+model, _ := xai.Builder("key").Build()
 
 // vLLM（私有化部署）
 import "github.com/linkerlin/agentscope.go/model/vllm"
-model, _ := vllm.Builder().APIKey("key").BaseURL("http://localhost:8000/v1").Build()
+model, _ := vllm.Builder("not-needed").BaseURL("http://localhost:8000/v1").Build()
 ```
+
+> 更完整的按模型提供商示例见 [`scripts/model_examples/`](../scripts/model_examples/)。
+
 
 ---
 
@@ -365,8 +372,31 @@ curl -X POST http://localhost:8080/v2/resume \
 
 ---
 
+## 6. 按模型提供商快速上手
+
+[`scripts/model_examples/`](../scripts/model_examples/) 为每家模型提供商提供了最小可运行脚本：
+
+```bash
+cd scripts/model_examples/openai_chat_call
+export OPENAI_API_KEY=sk-...
+go run .
+```
+
+切换到对应目录并设置环境变量即可运行。所有脚本都遵循相同的模式：创建模型 → 创建 Agent → 调用 → 打印回复。
+
+---
+
+## 7. 参与贡献
+
+- 发现 bug 或有新想法？先查看 [CONTRIBUTING.md](../CONTRIBUTING.md) 和 [TODO.md](../TODO.md)。
+- 提交 Issue 时使用我们提供的 bug/feature/RFC 模板。
+- 安全相关请按 [SECURITY.md](../SECURITY.md) 私下报告。
+
+---
+
 ## 下一步
 
 - [核心概念](concepts.md) — 深入理解事件系统、AgentState、Workspace
 - [API 参考](api-reference.md) — 完整接口速查
-- [部署指南](deployment.md) — Docker、K8s 部署
+- [部署指南](deployment.md) — Docker、K8s、systemd 部署
+- [迁移指南](../MIGRATION.md) — 从 Python 或旧版本迁移

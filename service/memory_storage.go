@@ -52,6 +52,17 @@ func (s *MemoryStorage) GetUser(ctx context.Context, id string) (*User, error) {
 	return u, nil
 }
 
+func (s *MemoryStorage) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, u := range s.users {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+	return nil, fmt.Errorf("user not found by email: %s", email)
+}
+
 func (s *MemoryStorage) ListUsers(ctx context.Context) ([]*User, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

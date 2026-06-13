@@ -23,4 +23,3 @@ func TestBatchFromEmbedder(t *testing.T) {
 		t.Fatal(batch, err)
 	}
 }
-

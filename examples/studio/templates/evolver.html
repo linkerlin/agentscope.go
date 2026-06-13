@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Evolver - Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+            accent: { 50: '#f0fdfa', 100: '#ccfbf1', 500: '#14b8a6', 600: '#0d9488' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+  <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
+      <a href="/" class="text-primary-600 font-medium hover:underline">← Dashboard</a>
+      <h1 class="text-lg font-bold text-gray-900">Evolver Gene / Capsule</h1>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <!-- Run GEP -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <span class="text-xl">🧬</span> Run GEP (Dry Run)
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+        <input id="evo-context" type="text" value="recurring timeout on large payload uploads" placeholder="Incident context" class="md:col-span-2 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500">
+        <select id="evo-strategy" class="border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500">
+          <option value="balanced">balanced</option>
+          <option value="repair-only">repair-only</option>
+          <option value="innovate">innovate</option>
+          <option value="harden">harden</option>
+        </select>
+      </div>
+      <button onclick="runGEP()" class="bg-accent-600 hover:bg-accent-500 text-white px-4 py-2 rounded-lg font-medium transition">Run & Solidify (Dry Run)</button>
+      <div id="run-result" class="mt-3"></div>
+    </div>
+
+    <!-- Genes -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-900">Genes</h2>
+        <button onclick="refreshGenes()" class="bg-primary-600 hover:bg-primary-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition">Refresh</button>
+      </div>
+      <div id="gene-list" class="space-y-3">
+        <div class="text-center py-8 text-gray-400">Click refresh to load genes</div>
+      </div>
+    </div>
+
+    <!-- Capsules -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-900">Capsules</h2>
+        <button onclick="refreshCapsules()" class="bg-primary-600 hover:bg-primary-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition">Refresh</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+            <tr><th class="px-4 py-2 text-left rounded-tl-lg">ID</th><th class="px-4 py-2 text-left">Category</th><th class="px-4 py-2 text-left">Outcome</th><th class="px-4 py-2 text-left rounded-tr-lg">Created</th></tr>
+          </thead>
+          <tbody id="capsule-list" class="divide-y divide-gray-100">
+            <tr><td colspan="4" class="px-4 py-8 text-center text-gray-400">Click refresh to load capsules</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    async function runGEP() {
+      const context = document.getElementById('evo-context').value;
+      const strategy = document.getElementById('evo-strategy').value;
+      const res = await fetch('/api/studio/evolver/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context, strategy })
+      });
+      const data = await res.json();
+      document.getElementById('run-result').innerHTML = `<pre class="bg-gray-50 rounded-lg p-3 text-xs overflow-x-auto">${JSON.stringify(data, null, 2)}</pre>`;
+      refreshGenes();
+      refreshCapsules();
+    }
+
+    async function refreshGenes() {
+      const res = await fetch('/api/studio/evolver/genes');
+      const data = await res.json();
+      const genes = data.genes || [];
+      const div = document.getElementById('gene-list');
+      if (!genes.length) {
+        div.innerHTML = '<div class="text-center py-8 text-gray-400">No genes found.</div>';
+        return;
+      }
+      div.innerHTML = genes.map(g => {
+        const signals = (g.signals_match || []).map(s => `<span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs">${s}</span>`).join('');
+        return `
+          <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <div class="flex items-center gap-2 mb-2">
+              <strong class="text-gray-900">${g.id}</strong>
+              <span class="bg-primary-100 text-primary-700 px-2 py-0.5 rounded text-xs">${g.category}</span>
+            </div>
+            <p class="text-sm text-gray-600 mb-2">${g.strategy ? g.strategy.join(' ') : ''}</p>
+            <div class="flex gap-1 flex-wrap">${signals || '<span class="text-gray-400 text-xs">no signals</span>'}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function refreshCapsules() {
+      const res = await fetch('/api/studio/evolver/capsules');
+      const data = await res.json();
+      const capsules = data.capsules || [];
+      const tbody = document.getElementById('capsule-list');
+      if (!capsules.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-gray-400">No capsules found.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = capsules.map(c => `
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-2 font-mono text-xs">${c.id || c.ID}</td>
+          <td class="px-4 py-2"><span class="bg-primary-100 text-primary-700 px-2 py-0.5 rounded text-xs">${c.category || '-'}</span></td>
+          <td class="px-4 py-2 text-gray-700">${(c.outcome || '').substring(0, 80)}${(c.outcome || '').length > 80 ? '...' : ''}</td>
+          <td class="px-4 py-2 text-gray-500 text-xs">${c.created_at ? new Date(c.created_at).toLocaleString() : '-'}</td>
+        </tr>
+      `).join('');
+    }
+
+    setTimeout(() => { refreshGenes(); refreshCapsules(); }, 300);
+  </script>
+</body>
+</html>

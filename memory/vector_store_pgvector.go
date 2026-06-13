@@ -7,4 +7,3 @@ type PgvectorVectorStore = vector.PgvectorVectorStore
 func NewPgvectorVectorStore(dsn string, table string, dim int, embed EmbeddingModel) (*PgvectorVectorStore, error) {
 	return vector.NewPgvectorVectorStore(dsn, table, dim, embed)
 }
-

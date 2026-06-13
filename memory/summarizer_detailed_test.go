@@ -413,4 +413,3 @@ func TestProceduralSummarizer_tokenize(t *testing.T) {
 		t.Fatalf("unexpected tokens: %v", words)
 	}
 }
-

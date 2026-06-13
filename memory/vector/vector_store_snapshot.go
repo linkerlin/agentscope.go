@@ -32,6 +32,3 @@ func (s *VectorStoreSnapshot) DeleteAll(ctx context.Context) error {
 }
 
 var _ VectorStore = (*VectorStoreSnapshot)(nil)
-
-
-

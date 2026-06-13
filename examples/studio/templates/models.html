@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>Models - Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+            accent: { 50: '#f0fdfa', 100: '#ccfbf1', 500: '#14b8a6', 600: '#0d9488' }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+  <nav class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
+      <a href="/" class="text-primary-600 font-medium hover:underline">← Dashboard</a>
+      <h1 class="text-lg font-bold text-gray-900">Model Cards</h1>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-sm text-gray-600">Model cards loaded from <code class="bg-gray-100 px-1 rounded">model/cards/</code></p>
+        <button onclick="refreshModels()" class="bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">Refresh</button>
+      </div>
+      <div id="model-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="col-span-full text-center py-12 text-gray-400">Click refresh to load model cards</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    async function refreshModels() {
+      const res = await fetch('/api/v1/models');
+      const data = await res.json();
+      const cards = Array.isArray(data) ? data : (data.cards || []);
+      const div = document.getElementById('model-list');
+      if (!cards.length) {
+        div.innerHTML = '<div class="col-span-full text-center py-12 text-gray-400">No model cards found. Ensure ModelCardsDir is configured.</div>';
+        return;
+      }
+      div.innerHTML = cards.map(c => {
+        const inputs = (c.input_types || []).map(t => `<span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-xs">${t}</span>`).join('');
+        const outputs = (c.output_types || []).map(t => `<span class="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-xs">${t}</span>`).join('');
+        return `
+          <div class="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold text-gray-900">${c.display_name || c.id}</h3>
+              ${c.deprecated ? '<span class="bg-red-50 text-red-600 px-2 py-0.5 rounded text-xs">Deprecated</span>' : '<span class="bg-green-50 text-green-600 px-2 py-0.5 rounded text-xs">Active</span>'}
+            </div>
+            <p class="text-xs text-gray-500 mb-3">${c.provider} · ${c.id}</p>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center gap-2">
+                <span class="text-gray-500 w-16">Context:</span>
+                <span class="font-mono text-primary-600">${c.context_size || 'n/a'}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-500 w-16">Inputs:</span>
+                <div class="flex gap-1 flex-wrap">${inputs || '<span class="text-gray-400">text</span>'}</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-gray-500 w-16">Outputs:</span>
+                <div class="flex gap-1 flex-wrap">${outputs || '<span class="text-gray-400">text</span>'}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    setTimeout(refreshModels, 300);
+  </script>
+</body>
+</html>

@@ -19,4 +19,3 @@ func TestRankMemoryNodesHybrid(t *testing.T) {
 		t.Fatal(len(out))
 	}
 }
-

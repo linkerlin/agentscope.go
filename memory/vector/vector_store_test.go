@@ -29,25 +29,10 @@ func (e fixedEmbed) EmbedBatch(ctx context.Context, texts []string) ([][]float32
 	return out, nil
 }
 
-// --- Qdrant stub ---
-
-func TestQdrantVectorStoreStub(t *testing.T) {
-	e := fixedEmbed{dim: 4}
-	s, err := NewQdrantVectorStore("localhost", 6334, "test", 4, e)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Insert(context.Background(), nil); err != nil {
-		t.Fatal(err)
-	}
-	nodes, err := s.Search(context.Background(), "", RetrieveOptions{})
-	if err != nil || nodes != nil {
-		t.Fatalf("stub search: %v %v", nodes, err)
-	}
-}
+// --- Qdrant (real REST implementation; integration tests in integration_test.go) ---
 
 func TestQdrantVectorStoreNilEmbed(t *testing.T) {
-	_, err := NewQdrantVectorStore("localhost", 6334, "test", 4, nil)
+	_, err := NewQdrantVectorStore("http://localhost:6334", "test", 4, nil)
 	if err != ErrEmbeddingRequired {
 		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
 	}

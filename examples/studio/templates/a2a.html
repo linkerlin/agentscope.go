@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>A2A Registry - Studio</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: system-ui; margin: 1rem; }
+    .section { margin: 1rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; }
+    input, textarea { width: 100%; margin-bottom: .5rem; }
+    .badge { display: inline-block; padding: .15rem .5rem; border-radius: 12px; font-size: .8rem; margin-right: .3rem; }
+    .healthy { background: #e8f5e9; color: #2e7d32; }
+    .unhealthy { background: #ffebee; color: #c62828; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+  </style>
+</head>
+<body>
+  <a href="/">← Back to Dashboard</a>
+  <h1>A2A Registry Browser</h1>
+  <p>Browse and manage discoverable Agent-to-Agent (A2A) agents. Background health checks run every 30 seconds.</p>
+
+  <div class="section">
+    <h3>Discover from URL</h3>
+    <input id="a2a-url" type="text" value="http://localhost:9001" placeholder="Agent base URL">
+    <button onclick="discoverA2A()">Discover</button>
+    <div id="discover-result"></div>
+  </div>
+
+  <div class="section">
+    <h3>Register Manually</h3>
+    <input id="a2a-name" type="text" placeholder="Agent name" value="custom-agent">
+    <input id="a2a-desc" type="text" placeholder="Description" value="My custom agent">
+    <input id="a2a-agent-url" type="text" placeholder="URL" value="http://localhost:9002">
+    <button onclick="registerA2A()">Register</button>
+    <div id="register-result"></div>
+  </div>
+
+  <div class="section">
+    <h3>Registered Agents <button onclick="refreshA2A()">Refresh</button> <button onclick="healthCheckA2A()">Health Check</button></h3>
+    <div id="a2a-list">Click refresh to load.</div>
+  </div>
+
+  <script>
+    async function discoverA2A() {
+      const url = document.getElementById('a2a-url').value;
+      const res = await fetch('/api/studio/a2a/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      document.getElementById('discover-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+      refreshA2A();
+    }
+
+    async function registerA2A() {
+      const body = {
+        name: document.getElementById('a2a-name').value,
+        description: document.getElementById('a2a-desc').value,
+        url: document.getElementById('a2a-agent-url').value,
+        version: '1.0.0',
+        capabilities: ["streaming"]
+      };
+      const res = await fetch('/api/studio/a2a/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      document.getElementById('register-result').innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+      refreshA2A();
+    }
+
+    async function refreshA2A() {
+      const res = await fetch('/api/studio/a2a/agents');
+      const data = await res.json();
+      const agents = data.agents || [];
+      const div = document.getElementById('a2a-list');
+      if (!agents.length) {
+        div.innerHTML = 'No A2A agents registered.';
+        return;
+      }
+      let html = '<table><tr><th>Name</th><th>URL</th><th>Version</th><th>Capabilities</th><th>Health</th><th>Last Seen</th><th>Actions</th></tr>';
+      agents.forEach(a => {
+        const caps = Array.isArray(a.card.capabilities) ? a.card.capabilities.join(', ') : '-';
+        const healthClass = a.healthy ? 'healthy' : 'unhealthy';
+        const healthText = a.healthy ? 'healthy' : 'unhealthy';
+        const lastSeen = a.last_seen ? new Date(a.last_seen).toLocaleString() : '-';
+        html += `<tr>
+          <td>${a.card.name}</td>
+          <td>${a.card.url}</td>
+          <td>${a.card.version}</td>
+          <td>${caps}</td>
+          <td><span class="badge ${healthClass}">${healthText}</span></td>
+          <td>${lastSeen}</td>
+          <td><button onclick="removeA2A('${a.card.url}', this)">Remove</button></td>
+        </tr>`;
+      });
+      html += '</table>';
+      div.innerHTML = html;
+    }
+
+    async function removeA2A(url, btn) {
+      if (!confirm('Remove agent?')) return;
+      await fetch('/api/studio/a2a/agents?url=' + encodeURIComponent(url), { method: 'DELETE' });
+      btn.closest('tr').remove();
+    }
+
+    async function healthCheckA2A() {
+      const res = await fetch('/api/studio/a2a/healthcheck', { method: 'POST' });
+      const data = await res.json();
+      alert('Health check: ' + JSON.stringify(data));
+      refreshA2A();
+    }
+
+    setTimeout(refreshA2A, 300);
+  </script>
+</body>
+</html>

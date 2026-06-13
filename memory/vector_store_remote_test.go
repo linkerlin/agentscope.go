@@ -34,4 +34,3 @@ func TestPGVectorStoreNilEmbed(t *testing.T) {
 		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
 	}
 }
-

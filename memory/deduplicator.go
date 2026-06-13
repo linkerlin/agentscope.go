@@ -456,4 +456,3 @@ func SimpleDeduplicate(memories []*MemoryNode, threshold float64) ([]*MemoryNode
 
 	return unique, removed
 }
-

@@ -103,4 +103,3 @@ func FormatMessagesPlain(msgs []*message.Msg) string {
 	}
 	return strings.Join(parts, "\n\n")
 }
-

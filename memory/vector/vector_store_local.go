@@ -327,6 +327,3 @@ func (s *LocalVectorStore) ReadSnapshot(path string) error {
 	}
 	return nil
 }
-
-
-

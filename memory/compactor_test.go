@@ -111,4 +111,3 @@ func TestSplitLinesEmpty(t *testing.T) {
 		t.Fatal(splitLines("a\n\nb"))
 	}
 }
-

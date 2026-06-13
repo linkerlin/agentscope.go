@@ -552,4 +552,3 @@ func (s *ProceduralSummarizer) tokenize(text string) []string {
 	}
 	return filtered
 }
-

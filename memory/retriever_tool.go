@@ -14,4 +14,3 @@ func (p *ToolRetriever) Retrieve(ctx context.Context, toolName, query string, to
 	}
 	return p.V.RetrieveTool(ctx, toolName, query, topK)
 }
-

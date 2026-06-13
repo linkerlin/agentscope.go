@@ -21,4 +21,3 @@ func TestCosineSimilarity(t *testing.T) {
 		t.Fatal("mismatch/empty should be 0")
 	}
 }
-

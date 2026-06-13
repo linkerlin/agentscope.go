@@ -95,4 +95,3 @@ func RankMemoryNodesHybrid(nodes []*MemoryNode, query string, vectorWeight float
 	}
 	return res
 }
-

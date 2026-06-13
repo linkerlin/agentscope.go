@@ -14,4 +14,3 @@ var (
 	ErrMemoryNotFound    = vector.ErrMemoryNotFound
 	ErrInvalidMemoryNode = vector.ErrInvalidMemoryNode
 )
-

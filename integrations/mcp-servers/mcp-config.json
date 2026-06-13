@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/workspace"],
+      "description": "文件系统访问工具，允许 Agent 读写指定目录"
+    },
+    "web-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-web-search"],
+      "env": {
+        "SERPAPI_KEY": "${SERPAPI_KEY}"
+      },
+      "description": "Web 搜索工具，使用 SerpAPI 进行搜索"
+    },
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-browser"],
+      "description": "浏览器自动化工具，支持页面访问、截图、点击"
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "description": "GitHub API 工具，支持 issue/PR/代码查询"
+    },
+    "sqlite": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/path/to/db.sqlite"],
+      "description": "SQLite 数据库工具，支持 SQL 查询"
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "description": "HTTP 获取工具，支持 GET/POST 请求"
+    }
+  }
+}

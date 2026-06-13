@@ -40,4 +40,3 @@ func TestLocalVectorStoreInsertSearch(t *testing.T) {
 		t.Fatalf("%v %v", res, err)
 	}
 }
-

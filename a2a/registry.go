@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -18,17 +17,24 @@ type RegistryEntry struct {
 }
 
 // Registry maintains a dynamic set of discoverable A2A agents.
+// It delegates persistence to a RegistryStore so that the registry can be
+// backed by an in-memory map, Redis, or any other shared storage.
 type Registry struct {
-	mu      sync.RWMutex
-	entries map[string]*RegistryEntry // key = card.URL
-	client  *http.Client
+	store    RegistryStore
+	client   *http.Client
+	watchers watcherSet
 }
 
-// NewRegistry creates a new A2A agent registry.
+// NewRegistry creates a new A2A agent registry with an in-memory store.
 func NewRegistry() *Registry {
+	return NewRegistryWithStore(newInMemoryRegistryStore())
+}
+
+// NewRegistryWithStore creates a registry backed by the given store.
+func NewRegistryWithStore(store RegistryStore) *Registry {
 	return &Registry{
-		entries: make(map[string]*RegistryEntry),
-		client:  &http.Client{Timeout: 10 * time.Second},
+		store:  store,
+		client: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -37,14 +43,16 @@ func (r *Registry) Register(card AgentCard) error {
 	if card.URL == "" {
 		return fmt.Errorf("a2a registry: card URL is required")
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.entries[card.URL] = &RegistryEntry{
+	now := time.Now()
+	if err := r.store.Register(context.Background(), RegistryEntry{
 		Card:         card,
-		DiscoveredAt: time.Now(),
-		LastSeen:     time.Now(),
+		DiscoveredAt: now,
+		LastSeen:     now,
 		Healthy:      true,
+	}); err != nil {
+		return err
 	}
+	r.watchers.notify(RegistryChange{URL: card.URL, Healthy: true, Op: ChangeOpRegister})
 	return nil
 }
 
@@ -72,46 +80,53 @@ func (r *Registry) Discover(ctx context.Context, agentURL string) error {
 
 // List returns all registered entries.
 func (r *Registry) List() []RegistryEntry {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]RegistryEntry, 0, len(r.entries))
-	for _, e := range r.entries {
-		out = append(out, *e)
+	entries, err := r.store.List(context.Background())
+	if err != nil {
+		return nil
 	}
-	return out
+	return entries
 }
 
 // Get looks up an entry by URL.
 func (r *Registry) Get(url string) (*RegistryEntry, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	e, ok := r.entries[url]
-	return e, ok
+	entry, err := r.store.Get(context.Background(), url)
+	if err != nil || entry == nil {
+		return nil, false
+	}
+	return entry, true
 }
 
 // HealthCheck probes all registered agents and updates their health status.
+// It emits ChangeOpHealth events when an agent's health status changes.
 func (r *Registry) HealthCheck(ctx context.Context) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for url, e := range r.entries {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/.well-known/agent.json", nil)
+	entries, err := r.store.List(ctx)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		previous := e.Healthy
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, e.Card.URL+"/.well-known/agent.json", nil)
 		resp, err := r.client.Do(req)
 		if err != nil || resp.StatusCode != http.StatusOK {
-			e.Healthy = false
+			_ = r.store.UpdateHealth(ctx, e.Card.URL, false, e.LastSeen)
+			if previous {
+				r.watchers.notify(RegistryChange{URL: e.Card.URL, Healthy: false, Op: ChangeOpHealth})
+			}
 		} else {
-			e.Healthy = true
-			e.LastSeen = time.Now()
+			_ = r.store.UpdateHealth(ctx, e.Card.URL, true, time.Now())
 			resp.Body.Close()
+			if !previous {
+				r.watchers.notify(RegistryChange{URL: e.Card.URL, Healthy: true, Op: ChangeOpHealth})
+			}
 		}
-		r.entries[url] = e
 	}
 }
 
 // Remove unregisters an agent.
 func (r *Registry) Remove(url string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.entries, url)
+	if err := r.store.Remove(context.Background(), url); err == nil {
+		r.watchers.notify(RegistryChange{URL: url, Op: ChangeOpRemove})
+	}
 }
 
 // StartBackgroundHealthCheck starts a goroutine that runs HealthCheck at the

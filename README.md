@@ -63,6 +63,28 @@ func main() {
 
 任何兼容 OpenAI API 格式的服务都可以通过 `BaseURL` 配置使用。
 
+### 按模型提供商快速上手
+
+[`scripts/model_examples/`](scripts/model_examples/) 提供每家模型提供商的最小可运行脚本，以及多 Agent、事件流、多模态等场景示例：
+
+```bash
+cd scripts/model_examples/openai_chat_call
+export OPENAI_API_KEY=sk-...
+go run .
+```
+
+目前已覆盖：OpenAI Chat / OpenAI Response / Anthropic / Gemini / DashScope / DeepSeek / Moonshot / xAI / Ollama / vLLM，以及 multiagent / stream / multimodal。
+
+### Cookbook
+
+[`cookbook/`](cookbook/) 提供可复用的解决方案 recipes：
+
+- 长文档摘要（MapReduce）
+- 多 Agent 审稿（Reflection + Pipeline）
+- RAG 问答（Loader + Embedding + ReMe）
+- 定时报告 Agent（Schedule）
+- 自愈 Agent（GEP / Evolver）
+
 ## 核心包
 
 | 包名 | 说明 |
@@ -556,6 +578,24 @@ hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Categ
 - evolver 官方：基因优于 skill 的论文 arXiv:2604.15097
 
 未来将持续增强：真实 MCP 客户端包装、Studio 演化资产 UI、a2a ATP 任务扩展、ReMe 深度 memoryGraph 实现。
+
+## 部署与迁移
+
+- 生产部署指南：[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- 从 Python AgentScope 或旧版本迁移：[MIGRATION.md](MIGRATION.md)
+- 版本发布流程：[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+
+## 贡献与社区
+
+我们欢迎所有形式的贡献！
+
+- 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- 安全漏洞报告：[SECURITY.md](SECURITY.md)
+- 当前任务与路线图：[TODO.md](TODO.md)
+- 详细演进方案：[演进方案.md](演进方案.md)
+
+如果你在使用过程中遇到问题，请先查看 [docs/](docs/) 和 [examples/](examples/)，然后提交 Issue。
 
 ## 许可证
 

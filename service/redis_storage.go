@@ -92,6 +92,19 @@ func (s *RedisStorage) ListUsers(ctx context.Context) ([]*User, error) {
 	return users, nil
 }
 
+func (s *RedisStorage) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range users {
+		if u.Email == email {
+			return u, nil
+		}
+	}
+	return nil, fmt.Errorf("user not found by email: %s", email)
+}
+
 func (s *RedisStorage) DeleteUser(ctx context.Context, id string) error {
 	return s.client.Del(ctx, keyUser(id)).Err()
 }

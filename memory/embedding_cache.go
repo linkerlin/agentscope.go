@@ -209,4 +209,3 @@ func dupVec(v []float32) []float32 {
 }
 
 var _ EmbeddingModel = (*EmbeddingCache)(nil)
-

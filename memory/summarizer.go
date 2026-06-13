@@ -53,6 +53,21 @@ func (s *Summarizer) SummarizeToDailyFile(ctx context.Context, msgs []*message.M
 	return err
 }
 
+// Summarize 对文本内容生成摘要（用于异步任务队列）
+func (s *Summarizer) Summarize(ctx context.Context, content string) (string, error) {
+	if s == nil || s.Model == nil {
+		return "", ErrCompactorNoModel
+	}
+	prompt := "Summarize the following for long-term memory as concise bullet points:\n\n" + content
+	out, err := s.Model.Chat(ctx, []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent(prompt).Build(),
+	})
+	if err != nil {
+		return "", err
+	}
+	return out.GetTextContent(), nil
+}
+
 // AppendToMemoryMD 将一段 Markdown 追加到 workingDir/memory/MEMORY.md（演进方案中的长期记忆汇总文件）
 func (s *Summarizer) AppendToMemoryMD(title, body string) error {
 	if s == nil || s.WorkingDir == "" {

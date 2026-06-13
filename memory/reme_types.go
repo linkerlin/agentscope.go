@@ -84,6 +84,8 @@ type ContextCheckResult struct {
 	IsValid           bool
 	TotalTokens       int
 	Threshold         int
+	// 完整性检查报告
+	Completeness *ContextCompletenessReport
 }
 
 // TokenStats Token 统计

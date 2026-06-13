@@ -43,7 +43,7 @@ func TestEmbeddingCacheHitMiss(t *testing.T) {
 		t.Fatalf("expected 1 embed call after hit, got %d", base.callCount)
 	}
 
-	hits, misses := cache.Stats()
+	hits, misses, _ := cache.Stats()
 	if hits != 1 || misses != 1 {
 		t.Fatalf("unexpected stats: hits=%d misses=%d", hits, misses)
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 // EmbeddingCache 带 LRU 缓存的 EmbeddingModel 包装器，支持磁盘持久化
@@ -195,11 +196,105 @@ func (c *EmbeddingCache) hash(text string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
-// Stats 返回缓存命中/未命中统计
-func (c *EmbeddingCache) Stats() (hits, misses uint64) {
+// Stats 返回缓存命中/未命中统计 + 命中率
+func (c *EmbeddingCache) Stats() (hits, misses uint64, hitRate float64) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.hits, c.misses
+	total := c.hits + c.misses
+	if total > 0 {
+		hitRate = float64(c.hits) / float64(total)
+	}
+	return c.hits, c.misses, hitRate
+}
+
+// HitRate 返回缓存命中率
+func (c *EmbeddingCache) HitRate() float64 {
+	_, _, rate := c.Stats()
+	return rate
+}
+
+// Size 返回当前缓存大小
+func (c *EmbeddingCache) Size() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lru.Len()
+}
+
+// Limit 返回缓存容量限制
+func (c *EmbeddingCache) Limit() int {
+	return c.limit
+}
+
+// Preload 预加载指定文本的嵌入（异步预热）
+func (c *EmbeddingCache) Preload(ctx context.Context, texts []string) {
+	go func() {
+		_, _ = c.EmbedBatch(ctx, texts)
+	}()
+}
+
+// Invalidate 使指定文本的缓存失效
+func (c *EmbeddingCache) Invalidate(text string) {
+	key := c.hash(text)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.cache[key]; ok {
+		c.lru.Remove(elem)
+		delete(c.cache, key)
+		c.dirty = true
+	}
+}
+
+// InvalidateAll 清空所有缓存
+func (c *EmbeddingCache) InvalidateAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache = make(map[string]*list.Element, c.limit)
+	c.lru = list.New()
+	c.dirty = true
+}
+
+// Flush 强制刷盘
+func (c *EmbeddingCache) Flush() error {
+	return c.SaveToDisk()
+}
+
+// AutoSave 启动自动保存定时器
+func (c *EmbeddingCache) AutoSave(interval int) {
+	if c.diskPath == "" || interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(time.Duration(interval) * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			c.mu.RLock()
+			isDirty := c.dirty
+			c.mu.RUnlock()
+			if isDirty {
+				_ = c.SaveToDisk()
+				c.mu.Lock()
+				c.dirty = false
+				c.mu.Unlock()
+			}
+		}
+	}()
+}
+
+// Report 生成缓存统计报告
+func (c *EmbeddingCache) Report() string {
+	hits, misses, rate := c.Stats()
+	size := c.Size()
+	return fmt.Sprintf(
+		"EmbeddingCache Report:\n"+
+		"  Size: %d/%d (%.1f%%)\n"+
+		"  Hits: %d, Misses: %d\n"+
+		"  Hit Rate: %.2f%%\n"+
+		"  Disk Path: %s\n",
+		size, c.limit, float64(size)/float64(c.limit)*100,
+		hits, misses,
+		rate*100,
+		c.diskPath,
+	)
 }
 
 func dupVec(v []float32) []float32 {

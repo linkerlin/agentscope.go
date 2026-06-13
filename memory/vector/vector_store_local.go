@@ -9,20 +9,31 @@ import (
 	"sync"
 )
 
-// LocalVectorStore 内存向量库（余弦相似度 + 简单过滤）
+// LocalVectorStore 内存向量库（余弦相似度 + HNSW 索引 + 简单过滤）
 type LocalVectorStore struct {
 	mu    sync.RWMutex
 	dim   int
 	embed EmbeddingModel
 	nodes map[string]*MemoryNode
+
+	// HNSW 索引（可选，节点数 > 1000 时自动启用）
+	hnsw      *HNSWIndex
+	hnswThreshold int // 启用 HNSW 的节点数阈值
 }
 
 // NewLocalVectorStore 创建本地存储；dimension 在首次 Insert 时由向量长度确定
 func NewLocalVectorStore(embed EmbeddingModel) *LocalVectorStore {
 	return &LocalVectorStore{
-		embed: embed,
-		nodes: make(map[string]*MemoryNode),
+		embed:         embed,
+		nodes:         make(map[string]*MemoryNode),
+		hnswThreshold: 1000,
 	}
+}
+
+// WithHNSWThreshold 设置启用 HNSW 的节点数阈值（默认 1000）
+func (s *LocalVectorStore) WithHNSWThreshold(threshold int) *LocalVectorStore {
+	s.hnswThreshold = threshold
+	return s
 }
 
 // Insert 写入节点；若 Vector 为空则调用嵌入模型
@@ -58,8 +69,29 @@ func (s *LocalVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) erro
 			continue
 		}
 		s.nodes[node.MemoryID] = node
+		// 如果启用了 HNSW，插入到索引
+		if s.hnsw != nil {
+			_ = s.hnsw.Insert(ctx, node.MemoryID, node.Vector)
+		}
+	}
+	// 如果节点数超过阈值，自动启用 HNSW
+	if s.hnsw == nil && len(s.nodes) >= s.hnswThreshold {
+		s.buildHNSW(ctx)
 	}
 	return nil
+}
+
+// buildHNSW 构建 HNSW 索引
+func (s *LocalVectorStore) buildHNSW(ctx context.Context) {
+	if s.hnsw != nil || s.dim == 0 {
+		return
+	}
+	s.hnsw = NewHNSWIndex(s.dim, s.embed)
+	for _, node := range s.nodes {
+		if len(node.Vector) == s.dim {
+			_ = s.hnsw.Insert(ctx, node.MemoryID, node.Vector)
+		}
+	}
 }
 
 // Search 按查询文本嵌入后做相似度检索
@@ -73,6 +105,13 @@ func (s *LocalVectorStore) Search(ctx context.Context, query string, opts Retrie
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	// 如果启用了 HNSW 且节点数足够，使用 HNSW 搜索
+	if s.hnsw != nil && len(s.nodes) >= s.hnswThreshold {
+		return s.searchHNSW(ctx, qv, opts)
+	}
+
+	// 回退到暴力搜索
 	type scored struct {
 		n *MemoryNode
 		f float64
@@ -106,6 +145,38 @@ func (s *LocalVectorStore) Search(ctx context.Context, query string, opts Retrie
 		res[i] = out[i].n
 	}
 	return res, nil
+}
+
+// searchHNSW 使用 HNSW 索引搜索
+func (s *LocalVectorStore) searchHNSW(ctx context.Context, qv []float32, opts RetrieveOptions) ([]*MemoryNode, error) {
+	results, err := s.hnsw.Search(ctx, qv, opts.TopK*3) // 扩大候选集用于过滤
+	if err != nil {
+		return nil, err
+	}
+
+	var out []*MemoryNode
+	for _, r := range results {
+		n, ok := s.nodes[r.id]
+		if !ok {
+			continue
+		}
+		if !matchesRetrieveFilter(n, opts) {
+			continue
+		}
+		// HNSW 使用欧氏距离，转换为余弦相似度
+		sim := 1.0 - r.dist // 近似转换
+		if sim < opts.MinScore {
+			continue
+		}
+		nn := *n
+		nn.Score = sim
+		out = append(out, &nn)
+	}
+
+	if len(out) > opts.TopK {
+		out = out[:opts.TopK]
+	}
+	return out, nil
 }
 
 func matchesRetrieveFilter(n *MemoryNode, opts RetrieveOptions) bool {

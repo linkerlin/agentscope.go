@@ -112,6 +112,10 @@ func (h *HNSWIndex) Insert(ctx context.Context, id string, vector []float32) err
 			if n == nil {
 				continue
 			}
+			// 确保邻居的 neighbors 切片足够长
+			for len(n.neighbors) <= lc {
+				n.neighbors = append(n.neighbors, nil)
+			}
 			if lc == 0 {
 				n.neighbors[lc] = h.addNeighbor(n.neighbors[lc], id, h.Mmax0)
 			} else {

@@ -4,6 +4,7 @@ package rag
 import (
 	"context"
 	"math"
+	"sort"
 
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
@@ -76,11 +77,7 @@ func (s *InMemoryVectorStore) Search(ctx context.Context, queryVec []float32, to
 }
 
 func sortScores(s []scored) {
-	for i := 0; i < len(s); i++ {
-		for j := i + 1; j < len(s); j++ {
-			if s[j].score > s[i].score {
-				s[i], s[j] = s[j], s[i]
-			}
-		}
-	}
+	sort.Slice(s, func(i, j int) bool {
+		return s[i].score > s[j].score
+	})
 }

@@ -36,6 +36,9 @@ func Builder() *DashScopeChatModelBuilder {
 	}
 }
 
+// NewBuilder is an alias for Builder, following the Go New-prefix convention.
+func NewBuilder() *DashScopeChatModelBuilder { return Builder() }
+
 func (b *DashScopeChatModelBuilder) APIKey(key string) *DashScopeChatModelBuilder {
 	b.apiKey = key
 	return b

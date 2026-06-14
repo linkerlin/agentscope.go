@@ -16,9 +16,13 @@ const (
 	MemoryTypeProcedural MemoryType = "procedural"
 	MemoryTypeTool       MemoryType = "tool"
 	MemoryTypeProfile    MemoryType = "profile"
+	MemoryTypeSummary    MemoryType = "summary"
 	MemoryTypeHistory    MemoryType = "history"
-	MemoryTypeCapsule    MemoryType = "capsule"
-	MemoryTypeEvoEvent   MemoryType = "evolution_event"
+	MemoryTypeIdentity   MemoryType = "identity"
+	// Evolution asset types (aligned with evolver narrativeMemory / gene/capsule/event memory)
+	MemoryTypeGene     MemoryType = "gene"
+	MemoryTypeCapsule  MemoryType = "capsule"
+	MemoryTypeEvoEvent MemoryType = "evolution_event"
 )
 
 // MemoryNode 向量记忆节点

@@ -46,12 +46,12 @@ func TestElasticsearchVectorStoreStub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Insert(context.Background(), nil); err != nil {
-		t.Fatal(err)
+	if err := s.Insert(context.Background(), nil); err != ErrNotImplemented {
+		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}
 	nodes, err := s.Search(context.Background(), "", RetrieveOptions{})
-	if err != nil || nodes != nil {
-		t.Fatalf("stub search: %v %v", nodes, err)
+	if err != ErrNotImplemented || nodes != nil {
+		t.Fatalf("expected ErrNotImplemented and nil nodes, got %v %v", nodes, err)
 	}
 }
 

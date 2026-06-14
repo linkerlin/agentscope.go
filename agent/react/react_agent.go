@@ -413,20 +413,15 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 	}
 	a.Mu.RUnlock()
 
-	// Reset interrupt flag at the beginning of each call (align with Java acquireExecution)
 	a.ResetInterrupt()
 
 	// Fire PreCall classic hook
-	preCallMsgs, hr, err := a.fireHooks(ctx, hook.HookPreCall, []*message.Msg{msg}, nil, "", nil)
+	inputMsg, override, err := a.preCallPhase(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
-	if hr != nil && (hr.Interrupt || hr.Override != nil) {
-		return hr.Override, nil
-	}
-	inputMsg := msg
-	if len(preCallMsgs) > 0 {
-		inputMsg = preCallMsgs[0]
+	if override != nil {
+		return override, nil
 	}
 
 	// Build initial message history
@@ -472,6 +467,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 	}()
 
 	calledTools := make(map[string]bool)
+	var action loopAction
 	for i := 0; i < a.maxIterations; i++ {
 		select {
 		case <-ctx.Done():
@@ -479,29 +475,20 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 		default:
 		}
 
-		if err := a.CheckInterrupted(); err != nil {
-			return a.handleInterrupt(ctx, msg, history, nil)
+		if resp, err := a.loopGuard(ctx, msg, nil); err != nil || resp != nil {
+			return resp, err
 		}
 
-		a.Mu.RLock()
-		if a.Closed {
-			a.Mu.RUnlock()
-			return nil, ErrAgentClosed
-		}
-		a.Mu.RUnlock()
-
-		// Fire before-model hooks（支持 InjectMessages 替换 history）
-		var hr *hook.HookResult
-		history, hr, err = a.fireHooks(ctx, hook.HookBeforeModel, history, nil, "", nil)
+		// Before-model hooks
+		history, action, override, err = a.beforeModelPhase(ctx, history)
 		if err != nil {
 			return nil, err
 		}
-		if hr != nil && hr.Interrupt {
-			finalResponse = hr.Override
-			return finalResponse, nil
+		if action == loopReturn {
+			return override, nil
 		}
-		if hr != nil && hr.Override != nil {
-			finalResponse = hr.Override
+		if action == loopBreak {
+			finalResponse = override
 			break
 		}
 
@@ -513,7 +500,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			return nil, err
 		}
 
-		// Call the model（有工具时 requestTools=true 走 Chat；无工具且注册了 StreamHook 时走 ChatStream）
+		// Call the model
 		var response *message.Msg
 		response, err = a.runModel(ctx, history, chatOpts, i, len(toolSpecs) > 0)
 		if err != nil {
@@ -528,50 +515,40 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			return a.handleInterrupt(ctx, msg, history, response.GetToolUseCalls())
 		}
 
-		// Fire after-model hooks
-		_, hr, err = a.fireHooks(ctx, hook.HookAfterModel, history, response, "", nil)
+		// After-model hooks
+		history, response, action, override, err = a.afterModelPhase(ctx, history, response)
 		if err != nil {
 			return nil, err
 		}
-		if hr != nil && hr.StopAgent {
-			finalResponse = hr.Override
-			if finalResponse == nil {
-				finalResponse = response
-			}
+		if action == loopReturn {
+			finalResponse = override
 			return finalResponse, nil
 		}
-		if hr != nil && hr.GotoReasoning {
-			history = append(history, response)
-			history = append(history, hr.GotoReasoningMsgs...)
+		if action == loopContinue {
 			continue
 		}
-		if hr != nil && hr.Interrupt {
-			finalResponse = hr.Override
-			return finalResponse, nil
-		}
-		if hr != nil && hr.Override != nil {
-			response = hr.Override
+		if action == loopBreak {
+			finalResponse = override
+			break
 		}
 
 		history = append(history, response)
 
-		toolCalls := response.GetToolUseCalls()
-		if len(toolCalls) == 0 {
-			// No tool calls - this is the final answer
-			_, hr, err = a.fireHooks(ctx, hook.HookBeforeFinish, history, response, "", nil)
-			if err != nil {
-				return nil, err
-			}
-			if hr != nil && hr.Override != nil {
-				response = hr.Override
-			}
+		// Check for final answer (no tool calls)
+		response, isFinal, err := a.checkFinalAnswer(ctx, history, response)
+		if err != nil {
+			return nil, err
+		}
+		if isFinal {
 			finalResponse = response
 			break
 		}
 
+		toolCalls := response.GetToolUseCalls()
+
 		// Execute tool calls concurrently
-		if err := a.CheckInterrupted(); err != nil {
-			return a.handleInterrupt(ctx, msg, history, toolCalls)
+		if resp, err := a.loopGuard(ctx, msg, toolCalls); err != nil || resp != nil {
+			return resp, err
 		}
 
 		replyID := ""
@@ -1097,5 +1074,6 @@ func (a *ReActAgent) LoadState(st *agent.AgentState) error {
 	return nil
 }
 
-// Ensure ReActAgent satisfies agent.Agent (compile-time check)
+// Ensure ReActAgent satisfies agent.Agent and agent.V2Agent (compile-time check)
 var _ agent.Agent = (*ReActAgent)(nil)
+var _ agent.V2Agent = (*ReActAgent)(nil)

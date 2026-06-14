@@ -11,14 +11,59 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// WebSocketUpgrader WebSocket 升级器
+// WebSocketUpgrader WebSocket 升级器（默认允许所有来源，生产环境请调用 SetWebSocketAllowedOrigins 限制）
 var WebSocketUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// 允许所有来源（生产环境应限制）
+	CheckOrigin:     defaultCheckOrigin,
+}
+
+// defaultAllowedOrigins 为 nil 时允许所有来源（开发模式）。
+var defaultAllowedOrigins []string
+
+// defaultCheckOrigin 默认来源检查。
+// 若设置了 AllowedOrigins，只允许列表中的来源；否则允许所有来源（向后兼容）。
+func defaultCheckOrigin(r *http.Request) bool {
+	if len(defaultAllowedOrigins) == 0 {
 		return true
-	},
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // 非浏览器客户端无 Origin 头
+	}
+	for _, allowed := range defaultAllowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// SetWebSocketAllowedOrigins 设置全局 WebSocket 允许的来源列表。
+// 设置后，WebSocketUpgrader 将只接受来自这些来源的连接。
+// 传空切片恢复默认行为（允许所有来源）。
+func SetWebSocketAllowedOrigins(origins []string) {
+	defaultAllowedOrigins = origins
+}
+
+// NewWebSocketUpgrader 创建带来源限制的 WebSocket 升级器。
+func NewWebSocketUpgrader(allowedOrigins []string) websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true
+			}
+			for _, allowed := range allowedOrigins {
+				if origin == allowed {
+					return true
+				}
+			}
+			return false
+		},
+	}
 }
 
 // WebSocketClient WebSocket 客户端连接
@@ -33,11 +78,11 @@ type WebSocketClient struct {
 
 // WebSocketMessage WebSocket 消息格式
 type WebSocketMessage struct {
-	Type      string         `json:"type"`
-	TaskID    string         `json:"task_id,omitempty"`
-	Data      any            `json:"data,omitempty"`
-	Timestamp time.Time      `json:"timestamp"`
-	Error     string         `json:"error,omitempty"`
+	Type      string    `json:"type"`
+	TaskID    string    `json:"task_id,omitempty"`
+	Data      any       `json:"data,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // WebSocketServer WebSocket 服务器

@@ -25,7 +25,7 @@ type OIDCConfig struct {
 
 // OIDCAuthenticator implements SSO via OpenID Connect.
 type OIDCAuthenticator struct {
-	cfg    OIDCConfig
+	cfg     OIDCConfig
 	jwtAuth *JWTAuthenticator
 	storage Storage
 

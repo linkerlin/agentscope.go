@@ -18,10 +18,10 @@ type CrossModalSearchResult struct {
 
 // CrossModalSearcher 跨模态检索器
 type CrossModalSearcher struct {
-	store            VectorStore
-	imageEmbedder    ImageEmbeddingModel
-	audioEmbedder    AudioEmbeddingModel
-	textEmbedder     EmbeddingModel
+	store         VectorStore
+	imageEmbedder ImageEmbeddingModel
+	audioEmbedder AudioEmbeddingModel
+	textEmbedder  EmbeddingModel
 }
 
 // NewCrossModalSearcher 创建跨模态检索器

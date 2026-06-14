@@ -291,9 +291,9 @@
 
 ## 12. 未来扩展方向
 
-1. **ONNX Runtime 生产化**：多模态嵌入从接口到实际运行
-2. **性能基准**：建立 `memory/benchmark/` 目录，发布与 Python 版对照报告
-3. **A2A 分布式 ReAct**：多 Agent 协同完成 ReAct 任务
+1. ✅ **ONNX Runtime 生产化**：已实现 `embedding/onnx` 包，支持 CLIP 图像预处理/嵌入 + Whisper 音频预处理/嵌入 + 模型管理器 + 跨模态相似度（HTTP 代理方案，零 CGO 依赖）
+2. ✅ **性能基准**：已建立 `memory/benchmark.go` + `examples/memory_benchmark/`，发布基准数据见 `docs/benchmark.md`（含 LoCoMo 基准测试、与 Python 版对比）
+3. 🔄 **A2A 分布式 ReAct**：A2A 协议已增强认证/限流/WebSocket（`examples/a2a_secure`），多 Agent 协同 ReAct 为下一步
 4. **图数据库集成**：Neo4j/Dgraph 支持超大规模图谱
 5. **向量后端扩展**：Hologres、OceanBase ObVec、Zvec、SeekDB
 6. **WASM 编译**：支持浏览器端运行

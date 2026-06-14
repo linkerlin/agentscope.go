@@ -15,13 +15,27 @@ func TestNewAnthropicFormatter(t *testing.T) {
 	}
 }
 
+// mustFormatAnthropic is a test helper that calls FormatMessages and extracts the typed result.
+func mustFormatAnthropic(t *testing.T, f *AnthropicFormatter, msgs []*message.Msg) ([]anthropicMessage, string) {
+	t.Helper()
+	raw, err := f.FormatMessages(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, ok := raw.(AnthropicFormatResult)
+	if !ok {
+		t.Fatalf("expected AnthropicFormatResult, got %T", raw)
+	}
+	return result.Messages, result.SystemPrompt
+}
+
 func TestAnthropicFormatter_FormatMessages_SystemPrompt(t *testing.T) {
 	f := NewAnthropicFormatter()
 	msgs := []*message.Msg{
 		message.NewMsg().Role(message.RoleSystem).TextContent("sys").Build(),
 		message.NewMsg().Role(message.RoleUser).TextContent("hi").Build(),
 	}
-	out, sys := f.FormatMessages(msgs)
+	out, sys := mustFormatAnthropic(t, f, msgs)
 	if sys != "sys" {
 		t.Fatalf("expected system prompt 'sys', got %q", sys)
 	}
@@ -47,7 +61,7 @@ func TestAnthropicFormatter_FormatMessages_Roles(t *testing.T) {
 		message.NewMsg().Role(message.RoleAssistant).TextContent("a").Build(),
 		message.NewMsg().Role(message.RoleTool).TextContent("t").Build(),
 	}
-	out, _ := f.FormatMessages(msgs)
+	out, _ := mustFormatAnthropic(t, f, msgs)
 	if len(out) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(out))
 	}
@@ -65,7 +79,7 @@ func TestAnthropicFormatter_FormatMessages_SkipsEmptyContent(t *testing.T) {
 		message.NewMsg().Role(message.RoleUser).Build(),
 		message.NewMsg().Role(message.RoleUser).TextContent("x").Build(),
 	}
-	out, _ := f.FormatMessages(msgs)
+	out, _ := mustFormatAnthropic(t, f, msgs)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(out))
 	}
@@ -76,7 +90,7 @@ func TestAnthropicFormatter_FormatMessages_ImageBlockURL(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).Content(
 		message.NewImageBlock("http://img", "", ""),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -92,7 +106,7 @@ func TestAnthropicFormatter_FormatMessages_ImageBlockBase64(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).Content(
 		message.NewImageBlock("", "abc123", "image/jpeg"),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -112,7 +126,7 @@ func TestAnthropicFormatter_FormatMessages_DataBlockImage(t *testing.T) {
 			Data:      "data",
 		}),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -128,7 +142,7 @@ func TestAnthropicFormatter_FormatMessages_DataBlockNilSourceSkipped(t *testing.
 		message.NewDataBlock(message.TypeImage, nil),
 		message.NewTextBlock("hello"),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -143,7 +157,7 @@ func TestAnthropicFormatter_FormatMessages_AudioBlockFallback(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).Content(
 		message.NewAudioBlock("http://audio", "", ""),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -158,7 +172,7 @@ func TestAnthropicFormatter_FormatMessages_VideoBlockFallback(t *testing.T) {
 	msg := message.NewMsg().Role(message.RoleUser).Content(
 		message.NewVideoBlock("http://video"),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -175,7 +189,7 @@ func TestAnthropicFormatter_FormatMessages_ToolResultBlock(t *testing.T) {
 			message.NewTextBlock("res"),
 		}, false),
 	).Build()
-	out, _ := f.FormatMessages([]*message.Msg{msg})
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
 	var blocks []map[string]any
 	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
 		t.Fatal(err)
@@ -194,12 +208,16 @@ func TestAnthropicFormatter_FormatTools(t *testing.T) {
 			Parameters:  map[string]any{"type": "object"},
 		},
 	}
-	out := f.FormatTools(specs)
-	if len(out) != 1 {
-		t.Fatalf("expected 1 tool, got %d", len(out))
+	out, err := f.FormatTools(specs)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if out[0]["name"] != "calc" || out[0]["description"] != "calculator" || out[0]["input_schema"].(map[string]any)["type"] != "object" {
-		t.Fatalf("unexpected tool: %+v", out[0])
+	tools := out.([]map[string]any)
+	if len(tools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(tools))
+	}
+	if tools[0]["name"] != "calc" || tools[0]["description"] != "calculator" || tools[0]["input_schema"].(map[string]any)["type"] != "object" {
+		t.Fatalf("unexpected tool: %+v", tools[0])
 	}
 }
 
@@ -222,12 +240,16 @@ func TestAnthropicFormatter_FormatToolChoice(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out := f.FormatToolChoice(tt.tc)
-			if out["type"] != tt.expected["type"] {
-				t.Fatalf("expected type %v, got %v", tt.expected["type"], out["type"])
+			out, err := f.FormatToolChoice(tt.tc)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if name, ok := tt.expected["name"]; ok && out["name"] != name {
-				t.Fatalf("expected name %v, got %v", name, out["name"])
+			result := out.(map[string]any)
+			if result["type"] != tt.expected["type"] {
+				t.Fatalf("expected type %v, got %v", tt.expected["type"], result["type"])
+			}
+			if name, ok := tt.expected["name"]; ok && result["name"] != name {
+				t.Fatalf("expected name %v, got %v", name, result["name"])
 			}
 		})
 	}

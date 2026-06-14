@@ -17,7 +17,7 @@ type LocalVectorStore struct {
 	nodes map[string]*MemoryNode
 
 	// HNSW 索引（可选，节点数 > 1000 时自动启用）
-	hnsw      *HNSWIndex
+	hnsw          *HNSWIndex
 	hnswThreshold int // 启用 HNSW 的节点数阈值
 }
 

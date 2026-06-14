@@ -100,11 +100,11 @@ func (s *Server) handleOIDCCallback(oidcAuth *service.OIDCAuthenticator, jwtAuth
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"token":     token,
-			"user_id":   user.ID,
-			"name":      user.Name,
-			"email":     user.Email,
-			"id_token":  tr.IDToken,
+			"token":    token,
+			"user_id":  user.ID,
+			"name":     user.Name,
+			"email":    user.Email,
+			"id_token": tr.IDToken,
 		})
 	}
 }

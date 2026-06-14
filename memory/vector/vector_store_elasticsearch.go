@@ -1,14 +1,18 @@
 package vector
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
-// ElasticsearchVectorStore is a stub for pilot; full impl would use elasticsearch client.
-// For complete dedup split, this is the location for the impl.
-type ElasticsearchVectorStore struct {
-	// TODO: fields, client etc.
-}
+// ErrNotImplemented indicates a vector store backend is not yet implemented.
+var ErrNotImplemented = errors.New("vector store backend not implemented (placeholder)")
 
-// NewElasticsearchVectorStore for pilot.
+// ElasticsearchVectorStore is a placeholder; full implementation would use the Elasticsearch client.
+// All operations return ErrNotImplemented.
+type ElasticsearchVectorStore struct{}
+
+// NewElasticsearchVectorStore creates a placeholder Elasticsearch vector store.
 func NewElasticsearchVectorStore(addresses []string, index string, dim int, embed EmbeddingModel) (*ElasticsearchVectorStore, error) {
 	if embed == nil {
 		return nil, ErrEmbeddingRequired
@@ -16,16 +20,21 @@ func NewElasticsearchVectorStore(addresses []string, index string, dim int, embe
 	return &ElasticsearchVectorStore{}, nil
 }
 
-// Implement VectorStore
-func (s *ElasticsearchVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) error { return nil }
+func (s *ElasticsearchVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) error {
+	return ErrNotImplemented
+}
 func (s *ElasticsearchVectorStore) Search(ctx context.Context, query string, opts RetrieveOptions) ([]*MemoryNode, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 func (s *ElasticsearchVectorStore) Get(ctx context.Context, memoryID string) (*MemoryNode, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
-func (s *ElasticsearchVectorStore) Update(ctx context.Context, node *MemoryNode) error { return nil }
-func (s *ElasticsearchVectorStore) Delete(ctx context.Context, memoryID string) error  { return nil }
-func (s *ElasticsearchVectorStore) DeleteAll(ctx context.Context) error                { return nil }
+func (s *ElasticsearchVectorStore) Update(ctx context.Context, node *MemoryNode) error {
+	return ErrNotImplemented
+}
+func (s *ElasticsearchVectorStore) Delete(ctx context.Context, memoryID string) error {
+	return ErrNotImplemented
+}
+func (s *ElasticsearchVectorStore) DeleteAll(ctx context.Context) error { return ErrNotImplemented }
 
 var _ VectorStore = (*ElasticsearchVectorStore)(nil)

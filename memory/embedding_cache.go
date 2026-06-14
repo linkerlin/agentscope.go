@@ -286,10 +286,10 @@ func (c *EmbeddingCache) Report() string {
 	size := c.Size()
 	return fmt.Sprintf(
 		"EmbeddingCache Report:\n"+
-		"  Size: %d/%d (%.1f%%)\n"+
-		"  Hits: %d, Misses: %d\n"+
-		"  Hit Rate: %.2f%%\n"+
-		"  Disk Path: %s\n",
+			"  Size: %d/%d (%.1f%%)\n"+
+			"  Hits: %d, Misses: %d\n"+
+			"  Hit Rate: %.2f%%\n"+
+			"  Disk Path: %s\n",
 		size, c.limit, float64(size)/float64(c.limit)*100,
 		hits, misses,
 		rate*100,

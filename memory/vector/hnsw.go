@@ -15,20 +15,20 @@ type HNSWIndex struct {
 	mu sync.RWMutex
 
 	// 配置参数
-	M        int     // 每层最大邻居数
-	Mmax     int     // 第0层最大邻居数（通常 M*2）
-	Mmax0    int     // 第0层最大邻居数
-	efConstruction int // 构建时的搜索深度
-	efSearch int     // 搜索时的搜索深度
-	ml       float64 // 层级因子（越小层级越多）
+	M              int     // 每层最大邻居数
+	Mmax           int     // 第0层最大邻居数（通常 M*2）
+	Mmax0          int     // 第0层最大邻居数
+	efConstruction int     // 构建时的搜索深度
+	efSearch       int     // 搜索时的搜索深度
+	ml             float64 // 层级因子（越小层级越多）
 
 	// 数据
-	dim      int
-	embed    EmbeddingModel
-	nodes    map[string]*hnswNode // memoryID -> node
-	entryPoint string             // 入口点
-	maxLevel int                  // 当前最大层级
-	rng      *rand.Rand
+	dim        int
+	embed      EmbeddingModel
+	nodes      map[string]*hnswNode // memoryID -> node
+	entryPoint string               // 入口点
+	maxLevel   int                  // 当前最大层级
+	rng        *rand.Rand
 }
 
 // hnswNode HNSW 节点

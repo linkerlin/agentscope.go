@@ -21,14 +21,14 @@ const (
 
 // ReactStep 单步 ReAct 记录
 type ReactStep struct {
-	ID          string                 `json:"id"`
-	Iteration   int                    `json:"iteration"`
-	Type        ReactStepType          `json:"type"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Messages    []*message.Msg         `json:"messages"`
-	MemoryNodes []*MemoryNode          `json:"memory_nodes,omitempty"`
+	ID          string                  `json:"id"`
+	Iteration   int                     `json:"iteration"`
+	Type        ReactStepType           `json:"type"`
+	Timestamp   time.Time               `json:"timestamp"`
+	Messages    []*message.Msg          `json:"messages"`
+	MemoryNodes []*MemoryNode           `json:"memory_nodes,omitempty"`
 	ToolCalls   []*message.ToolUseBlock `json:"tool_calls,omitempty"`
-	Metadata    map[string]any         `json:"metadata,omitempty"`
+	Metadata    map[string]any          `json:"metadata,omitempty"`
 }
 
 // NewReactStep 创建 ReAct 步骤记录

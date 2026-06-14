@@ -22,20 +22,20 @@ type ReactTaskHandler func(ctx context.Context, task *ReactTask) (*ReactTaskResu
 
 // ReactTask 分派任务
 type ReactTask struct {
-	ID          string      `json:"id"`
-	Type        MemoryType  `json:"type"`
-	Target      string      `json:"target"`
-	Content     string      `json:"content"`
-	Messages    []*message.Msg  `json:"messages,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	ID       string         `json:"id"`
+	Type     MemoryType     `json:"type"`
+	Target   string         `json:"target"`
+	Content  string         `json:"content"`
+	Messages []*message.Msg `json:"messages,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // ReactTaskResult 任务结果
 type ReactTaskResult struct {
-	TaskID      string        `json:"task_id"`
-	Success     bool          `json:"success"`
-	Error       string        `json:"error,omitempty"`
-	MemoryNodes []*MemoryNode `json:"memory_nodes,omitempty"`
+	TaskID      string         `json:"task_id"`
+	Success     bool           `json:"success"`
+	Error       string         `json:"error,omitempty"`
+	MemoryNodes []*MemoryNode  `json:"memory_nodes,omitempty"`
 	Profile     map[string]any `json:"profile,omitempty"`
 }
 

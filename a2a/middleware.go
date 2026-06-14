@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // AuthMiddleware 认证中间件
@@ -17,7 +19,7 @@ type AuthMiddleware struct {
 	apiKeys map[string]string // key -> name
 	mu      sync.RWMutex
 
-	// JWT 认证（简化版，使用预共享密钥验证）
+	// JWT 认证（使用 golang-jwt/jwt/v5 进行完整验证）
 	jwtSecret string
 
 	// 可选：OAuth2 / Bearer Token 验证回调
@@ -98,9 +100,9 @@ func (a *AuthMiddleware) Middleware(next http.Handler) http.Handler {
 					return
 				}
 			}
-			// 简化 JWT 验证（仅检查密钥匹配）
-			if a.validateJWT(token) {
-				r = r.WithContext(context.WithValue(r.Context(), "auth_user", "jwt_user"))
+			// JWT 验证（使用 golang-jwt/jwt/v5）
+			if user, ok := a.validateJWT(token); ok {
+				r = r.WithContext(context.WithValue(r.Context(), "auth_user", user))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -125,18 +127,42 @@ func (a *AuthMiddleware) validateAPIKey(key string) (string, bool) {
 	return "", false
 }
 
-// validateJWT 简化 JWT 验证（仅演示结构）
-func (a *AuthMiddleware) validateJWT(token string) bool {
+// validateJWT 使用 golang-jwt/jwt/v5 验证 JWT token。
+// 验证签名（HS256/HS384/HS512）、过期时间，并从 claims 中提取用户名。
+// 返回 (username, true) 验证成功，("", false) 验证失败。
+func (a *AuthMiddleware) validateJWT(tokenString string) (string, bool) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	secret := a.jwtSecret
+	a.mu.RUnlock()
 
-	if a.jwtSecret == "" {
-		return false
+	if secret == "" {
+		return "", false
 	}
-	// 简化：检查 token 是否包含 secret 的哈希（实际应使用 jwt 库）
-	// 这里仅做演示，生产环境应使用 github.com/golang-jwt/jwt
-	expected := fmt.Sprintf("%x", a.jwtSecret)
-	return strings.Contains(token, expected[:8])
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(secret), nil
+	}, jwt.WithValidMethods([]string{"HS256", "HS384", "HS512"}))
+
+	if err != nil || !token.Valid {
+		return "", false
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", false
+	}
+
+	// 从 sub 或 username claim 获取用户名
+	if sub, ok := claims["sub"].(string); ok && sub != "" {
+		return sub, true
+	}
+	if user, ok := claims["username"].(string); ok && user != "" {
+		return user, true
+	}
+	return "jwt_user", true
 }
 
 // GetAuthUser 从请求上下文获取认证用户
@@ -158,9 +184,9 @@ type RateLimiter struct {
 
 // tokenBucket 令牌桶
 type tokenBucket struct {
-	tokens    float64
+	tokens     float64
 	lastUpdate time.Time
-	mu        sync.Mutex
+	mu         sync.Mutex
 }
 
 // NewRateLimiter 创建限流器
@@ -270,9 +296,9 @@ func AuthRateLimitKey(r *http.Request) string {
 // SecureServer 增强版 A2A 服务器（带认证和限流）
 type SecureServer struct {
 	*Server
-	auth     *AuthMiddleware
-	limiter  *RateLimiter
-	mux      *http.ServeMux
+	auth    *AuthMiddleware
+	limiter *RateLimiter
+	mux     *http.ServeMux
 }
 
 // NewSecureServer 创建安全服务器
@@ -341,19 +367,19 @@ func CorsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		
+
 		// 使用自定义 ResponseWriter 捕获状态码
 		lw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-		
+
 		next.ServeHTTP(lw, r)
-		
+
 		duration := time.Since(start)
 		user := GetAuthUser(r)
 		if user == "" {
 			user = "anonymous"
 		}
-		
-		fmt.Printf("[A2A] %s %s %s %d %s\n", 
+
+		fmt.Printf("[A2A] %s %s %s %d %s\n",
 			user, r.Method, r.URL.Path, lw.statusCode, duration)
 	})
 }
@@ -380,5 +406,5 @@ func ChainMiddleware(handler http.Handler, middlewares ...func(http.Handler) htt
 // Errors
 var (
 	ErrUnauthorized = errors.New("a2a: unauthorized")
-	ErrRateLimited = errors.New("a2a: rate limited")
+	ErrRateLimited  = errors.New("a2a: rate limited")
 )

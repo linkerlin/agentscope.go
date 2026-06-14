@@ -9,9 +9,9 @@ import (
 
 // MetricsCollector holds runtime and application metrics for Prometheus exposition.
 type MetricsCollector struct {
-	startTime     time.Time
-	requestCount  int64
-	requestErrors int64
+	startTime      time.Time
+	requestCount   int64
+	requestErrors  int64
 	activeSessions int64
 }
 

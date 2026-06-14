@@ -39,6 +39,9 @@ func Builder(apiKey string) *XAIChatModelBuilder {
 	}
 }
 
+// NewBuilder is an alias for Builder, following the Go New-prefix convention.
+func NewBuilder(apiKey string) *XAIChatModelBuilder { return Builder(apiKey) }
+
 // APIKey sets the xAI API key.
 func (b *XAIChatModelBuilder) APIKey(key string) *XAIChatModelBuilder {
 	b.inner.APIKey(key)

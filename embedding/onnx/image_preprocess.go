@@ -15,24 +15,24 @@ import (
 
 // ImagePreprocessConfig 图像预处理配置
 type ImagePreprocessConfig struct {
-	Width       int     // 目标宽度（默认 224 for CLIP）
-	Height      int     // 目标高度（默认 224 for CLIP）
+	Width       int        // 目标宽度（默认 224 for CLIP）
+	Height      int        // 目标高度（默认 224 for CLIP）
 	Mean        [3]float32 // RGB 均值（ImageNet: [0.48145466, 0.4578275, 0.40821073]）
 	Std         [3]float32 // RGB 标准差（ImageNet: [0.26862954, 0.26130258, 0.27577711]）
-	Normalize   bool    // 是否归一化
-	ToTensor    bool    // 是否转换为 tensor 格式（NCHW）
-	Interpolate string  // 插值方法：bilinear/nearest（默认 bilinear）
+	Normalize   bool       // 是否归一化
+	ToTensor    bool       // 是否转换为 tensor 格式（NCHW）
+	Interpolate string     // 插值方法：bilinear/nearest（默认 bilinear）
 }
 
 // DefaultCLIPPreprocessConfig 返回 CLIP 默认预处理配置
 func DefaultCLIPPreprocessConfig() ImagePreprocessConfig {
 	return ImagePreprocessConfig{
-		Width:     224,
-		Height:    224,
-		Mean:      [3]float32{0.48145466, 0.4578275, 0.40821073},
-		Std:       [3]float32{0.26862954, 0.26130258, 0.27577711},
-		Normalize: true,
-		ToTensor:  true,
+		Width:       224,
+		Height:      224,
+		Mean:        [3]float32{0.48145466, 0.4578275, 0.40821073},
+		Std:         [3]float32{0.26862954, 0.26130258, 0.27577711},
+		Normalize:   true,
+		ToTensor:    true,
 		Interpolate: "bilinear",
 	}
 }
@@ -227,7 +227,7 @@ func (p *ImagePreprocessor) toNCHW(pixels []float32, width, height int) []float3
 	for h := 0; h < height; h++ {
 		for w := 0; w < width; w++ {
 			for c := 0; c < 3; c++ {
-				hwcIdx := (h*width + w) * 3 + c
+				hwcIdx := (h*width+w)*3 + c
 				nchwIdx := c*height*width + h*width + w
 				nchw[nchwIdx] = pixels[hwcIdx]
 			}

@@ -37,8 +37,8 @@ func TestReActAgentStateRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAgentState_StateType(t *testing.T) {
-	st := AgentState{}
+func TestConfigSnapshot_StateType(t *testing.T) {
+	st := ConfigSnapshot{}
 	if st.StateType() != "agent_state" {
 		t.Fatal("unexpected state type")
 	}
@@ -101,7 +101,7 @@ func TestReActAgent_metadata_Empty(t *testing.T) {
 
 func TestReActAgent_applyAgentState_ZeroValues(t *testing.T) {
 	a := &ReActAgent{Base: agent.NewBase("", "", "", "", nil, nil, nil), maxIterations: 5, memory: memory.NewInMemoryMemory()}
-	a.applyAgentState(AgentState{AgentID: "id", Name: "n", SystemPrompt: "sys"})
+	a.applyAgentState(ConfigSnapshot{AgentID: "id", Name: "n", SystemPrompt: "sys"})
 	if a.maxIterations != 5 {
 		t.Fatalf("expected maxIterations unchanged when zero, got %d", a.maxIterations)
 	}

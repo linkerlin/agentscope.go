@@ -109,16 +109,12 @@ func (a *ReActAgent) replyStreamInternal(
 	a.ResetInterrupt()
 
 	// PreCall classic hook
-	preCallMsgs, hr, err := a.fireHooks(ctx, hook.HookPreCall, []*message.Msg{msg}, nil, "", nil)
+	inputMsg, override, err := a.preCallPhase(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
-	if hr != nil && (hr.Interrupt || hr.Override != nil) {
-		return hr.Override, nil
-	}
-	inputMsg := msg
-	if len(preCallMsgs) > 0 {
-		inputMsg = preCallMsgs[0]
+	if override != nil {
+		return override, nil
 	}
 
 	// Build history
@@ -137,6 +133,7 @@ func (a *ReActAgent) replyStreamInternal(
 	// PreCall stream event (no-op for now; pre-reasoning events are emitted inside runModelStream)
 
 	var finalResponse *message.Msg
+	var action loopAction
 	for i := 0; i < a.maxIterations; i++ {
 		select {
 		case <-ctx.Done():
@@ -144,16 +141,9 @@ func (a *ReActAgent) replyStreamInternal(
 		default:
 		}
 
-		if err := a.CheckInterrupted(); err != nil {
-			return a.handleInterrupt(ctx, msg, history, nil)
+		if resp, err := a.loopGuard(ctx, msg, nil); err != nil || resp != nil {
+			return resp, err
 		}
-
-		a.Mu.RLock()
-		if a.Closed {
-			a.Mu.RUnlock()
-			return nil, ErrAgentClosed
-		}
-		a.Mu.RUnlock()
 
 		// Update runtime state
 		a.runtimeMu.Lock()
@@ -165,15 +155,15 @@ func (a *ReActAgent) replyStreamInternal(
 		a.runtimeMu.Unlock()
 
 		// Before-model hooks
-		history, hr, err = a.fireHooks(ctx, hook.HookBeforeModel, history, nil, "", nil)
+		history, action, override, err = a.beforeModelPhase(ctx, history)
 		if err != nil {
 			return nil, err
 		}
-		if hr != nil && hr.Interrupt {
-			return hr.Override, nil
+		if action == loopReturn {
+			return override, nil
 		}
-		if hr != nil && hr.Override != nil {
-			finalResponse = hr.Override
+		if action == loopBreak {
+			finalResponse = override
 			break
 		}
 
@@ -203,34 +193,25 @@ func (a *ReActAgent) replyStreamInternal(
 		}
 
 		// After-model hooks
-		_, hr, err = a.fireHooks(ctx, hook.HookAfterModel, history, response, "", nil)
+		history, response, action, override, err = a.afterModelPhase(ctx, history, response)
 		if err != nil {
 			return nil, err
 		}
-		if hr != nil && hr.StopAgent {
-			finalResponse = hr.Override
-			if finalResponse == nil {
-				finalResponse = response
-			}
+		if action == loopReturn {
+			finalResponse = override
 			return finalResponse, nil
 		}
-		if hr != nil && hr.GotoReasoning {
-			history = append(history, response)
-			history = append(history, hr.GotoReasoningMsgs...)
+		if action == loopContinue {
 			continue
 		}
-		if hr != nil && hr.Interrupt {
-			finalResponse = hr.Override
-			return finalResponse, nil
-		}
-		if hr != nil && hr.Override != nil {
-			response = hr.Override
+		if action == loopBreak {
+			finalResponse = override
+			break
 		}
 
 		history = append(history, response)
 
-		// Update runtime state after model response so that SaveState captures
-		// the assistant message (including any tool calls) for reconnect resume.
+		// Update runtime state after model response
 		a.runtimeMu.Lock()
 		if a.runtimeState != nil {
 			a.runtimeState.Messages = append([]*message.Msg(nil), history...)
@@ -238,22 +219,21 @@ func (a *ReActAgent) replyStreamInternal(
 		}
 		a.runtimeMu.Unlock()
 
-		toolCalls := response.GetToolUseCalls()
-		if len(toolCalls) == 0 {
-			_, hr, err = a.fireHooks(ctx, hook.HookBeforeFinish, history, response, "", nil)
-			if err != nil {
-				return nil, err
-			}
-			if hr != nil && hr.Override != nil {
-				response = hr.Override
-			}
+		// Check for final answer
+		response, isFinal, err := a.checkFinalAnswer(ctx, history, response)
+		if err != nil {
+			return nil, err
+		}
+		if isFinal {
 			finalResponse = response
 			break
 		}
 
+		toolCalls := response.GetToolUseCalls()
+
 		// Execute tools concurrently, emitting events
-		if err := a.CheckInterrupted(); err != nil {
-			return a.handleInterrupt(ctx, msg, history, toolCalls)
+		if resp, err := a.loopGuard(ctx, msg, toolCalls); err != nil || resp != nil {
+			return resp, err
 		}
 
 		toolResultMsg, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, i)

@@ -10,9 +10,10 @@ AgentScope.Go 是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 
 
 - **ReAct 范式**：推理 + 行动 + 工具调用
 - **事件驱动 V2**：channel 驱动的真事件流，20+ 细粒度事件类型
-- **ReMe 长期记忆**：文件型 + 向量型 + Hybrid Search + 5+ 向量后端
-- **A2A 协议**：完整实现 + Redis 分布式注册中心 + 一致哈希分片
+- **ReMe 长期记忆**：文件型 + 向量型 + Hybrid Search + 5+ 向量后端 + Dream 演化引擎
+- **A2A 协议**：完整实现 + Redis 分布式注册中心 + 认证/限流/WebSocket 安全中间件
 - **GEP 自演化**：Gene/Capsule/Skill2GEP 对齐前沿自演化引擎
+- **ONNX 本地推理**：CLIP/Whisper 多模态嵌入，HTTP 代理方案，零 CGO 依赖
 - **生产级服务**：`gateway.NewApp` 一键装配，多租户认证，Session 持久化
 
 ## 快速导航
@@ -21,11 +22,17 @@ AgentScope.Go 是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 
 |------|------|
 | [5 分钟上手](quickstart.md) | 安装、第一个 Agent、运行 |
 | [教程](tutorial.md) | 从 Hello 到生产部署的 5 步教程 |
-| [事件流](concepts/event-stream.md) | 理解 V2 事件驱动架构 |
-| [ReMe 记忆](advanced/reme.md) | 长期记忆系统深度教程 |
-| [A2A 协议](advanced/a2a.md) | Agent 间通信协议指南 |
-| [GEP 自演化](advanced/evolver.md) | Gene Evolution Protocol 教程 |
+| [核心概念](concepts.md) | 理解 V2 事件驱动架构 |
+| [A2A 协议](A2A.md) | Agent 间通信协议指南（含认证/限流/WebSocket） |
+| [ReMe 记忆](tutorial.md#reme-长期记忆) | 长期记忆系统深度教程 |
+| [GEP 自演化](EVOLVER.md) | Gene Evolution Protocol 教程 |
+| [ONNX 生产化](ONNX.md) | 本地多模态推理完整指南 |
+| [性能基准](benchmark.md) | 各组件性能数据与优化建议 |
+| [示例索引](examples-index.md) | 全部示例程序分类索引 |
 | [部署指南](deployment.md) | Docker、K8s、systemd 部署 |
+| [Studio](STUDIO.md) | 纯 Go 轻量管理面板 |
+| [迁移指南](MIGRATION.md) | 从 Python AgentScope 迁移 |
+| [API 参考](api-reference.md) | Go API 文档 |
 
 ## 版本信息
 

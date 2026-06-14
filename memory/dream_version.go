@@ -13,19 +13,19 @@ type DreamLearningHistory struct {
 
 // DreamHistoryEntry 单条学习历史记录
 type DreamHistoryEntry struct {
-	Timestamp    time.Time    `json:"timestamp"`
-	Action       DreamAction  `json:"action"`
-	Candidate    string       `json:"candidate"`
-	ExistingID   string       `json:"existing_id,omitempty"`
-	Reason       string       `json:"reason"`
-	ScoreChange  float64      `json:"score_change,omitempty"`
-	ContentDiff  string       `json:"content_diff,omitempty"`
+	Timestamp   time.Time   `json:"timestamp"`
+	Action      DreamAction `json:"action"`
+	Candidate   string      `json:"candidate"`
+	ExistingID  string      `json:"existing_id,omitempty"`
+	Reason      string      `json:"reason"`
+	ScoreChange float64     `json:"score_change,omitempty"`
+	ContentDiff string      `json:"content_diff,omitempty"`
 }
 
 // DreamVersionManager Dream 版本管理器
 type DreamVersionManager struct {
-	store     VectorStore
-	history   *DreamLearningHistory
+	store       VectorStore
+	history     *DreamLearningHistory
 	maxVersions int // 保留的最大版本数
 }
 
@@ -46,27 +46,27 @@ func (dvm *DreamVersionManager) RecordDecision(decision *DreamDecision) {
 	if dvm == nil || decision == nil {
 		return
 	}
-	
+
 	entry := DreamHistoryEntry{
-		Timestamp:  time.Now(),
-		Action:     decision.Action,
-		Candidate:  decision.Candidate.Content,
-		Reason:     decision.Reason,
+		Timestamp: time.Now(),
+		Action:    decision.Action,
+		Candidate: decision.Candidate.Content,
+		Reason:    decision.Reason,
 	}
-	
+
 	if decision.Existing != nil {
 		entry.ExistingID = decision.Existing.MemoryID
 		if decision.Action == DreamCorroborate {
 			entry.ScoreChange = decision.Candidate.Score * 0.1
 		}
 	}
-	
+
 	if decision.Updated != nil {
 		entry.ContentDiff = diffContent(decision.Existing.Content, decision.Updated.Content)
 	}
-	
+
 	dvm.history.Entries = append(dvm.history.Entries, entry)
-	
+
 	// 限制历史条目数
 	if len(dvm.history.Entries) > dvm.maxVersions {
 		dvm.history.Entries = dvm.history.Entries[len(dvm.history.Entries)-dvm.maxVersions:]
@@ -86,7 +86,7 @@ func (dvm *DreamVersionManager) GetHistoryForNode(nodeID string) []DreamHistoryE
 	if dvm == nil || nodeID == "" {
 		return nil
 	}
-	
+
 	var result []DreamHistoryEntry
 	for _, entry := range dvm.history.Entries {
 		if entry.ExistingID == nodeID {
@@ -101,12 +101,12 @@ func (dvm *DreamVersionManager) GenerateLearningReport() string {
 	if dvm == nil || len(dvm.history.Entries) == 0 {
 		return "No learning history yet."
 	}
-	
+
 	stats := make(map[DreamAction]int)
 	for _, entry := range dvm.history.Entries {
 		stats[entry.Action]++
 	}
-	
+
 	report := "Dream Learning Report:\n"
 	report += fmt.Sprintf("  Total Decisions: %d\n", len(dvm.history.Entries))
 	report += fmt.Sprintf("  CREATE: %d\n", stats[DreamCreate])
@@ -114,7 +114,7 @@ func (dvm *DreamVersionManager) GenerateLearningReport() string {
 	report += fmt.Sprintf("  REFINE: %d\n", stats[DreamRefine])
 	report += fmt.Sprintf("  CORRECT: %d\n", stats[DreamCorrect])
 	report += fmt.Sprintf("  SKIP: %d\n", stats[DreamSkip])
-	
+
 	// 最近 5 条记录
 	report += "\nRecent Decisions:\n"
 	start := len(dvm.history.Entries) - 5
@@ -123,12 +123,12 @@ func (dvm *DreamVersionManager) GenerateLearningReport() string {
 	}
 	for i := start; i < len(dvm.history.Entries); i++ {
 		entry := dvm.history.Entries[i]
-		report += fmt.Sprintf("  [%s] %s: %s\n", 
+		report += fmt.Sprintf("  [%s] %s: %s\n",
 			entry.Timestamp.Format("2006-01-02 15:04"),
 			entry.Action,
 			entry.Reason)
 	}
-	
+
 	return report
 }
 
@@ -148,11 +148,11 @@ func diffContent(old, new string) string {
 
 // DreamScheduler Dream 调度器
 type DreamScheduler struct {
-	step      *DreamStep
-	vm        *DreamVersionManager
-	interval  time.Duration
-	lastRun   time.Time
-	enabled   bool
+	step     *DreamStep
+	vm       *DreamVersionManager
+	interval time.Duration
+	lastRun  time.Time
+	enabled  bool
 }
 
 // NewDreamScheduler 创建 Dream 调度器
@@ -170,11 +170,11 @@ func (ds *DreamScheduler) Start(ctx context.Context) {
 	if !ds.enabled {
 		return
 	}
-	
+
 	go func() {
 		ticker := time.NewTicker(ds.interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -191,12 +191,12 @@ func (ds *DreamScheduler) Run(ctx context.Context) (*DreamResult, error) {
 	if ds.step == nil {
 		return nil, fmt.Errorf("dream step not configured")
 	}
-	
+
 	result, err := ds.step.Execute(ctx)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 记录所有决策历史
 	if ds.vm != nil {
 		for _, node := range result.Created {
@@ -207,7 +207,7 @@ func (ds *DreamScheduler) Run(ctx context.Context) (*DreamResult, error) {
 			})
 		}
 	}
-	
+
 	ds.lastRun = time.Now()
 	return result, nil
 }

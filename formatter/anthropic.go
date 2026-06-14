@@ -22,9 +22,16 @@ type anthropicMessage struct {
 	Content json.RawMessage `json:"content"`
 }
 
-// FormatMessages converts agent Msgs to Anthropic messages and extracts the system prompt.
+// AnthropicFormatResult holds the result of formatting messages for the Anthropic API.
 // Anthropic requires the system prompt to be passed separately from the message list.
-func (f *AnthropicFormatter) FormatMessages(msgs []*message.Msg) ([]anthropicMessage, string) {
+type AnthropicFormatResult struct {
+	Messages     []anthropicMessage `json:"messages"`
+	SystemPrompt string             `json:"system_prompt,omitempty"`
+}
+
+// FormatMessages converts agent Msgs to Anthropic messages and extracts the system prompt.
+// Implements Formatter interface. Use type assertion on the result to access typed fields.
+func (f *AnthropicFormatter) FormatMessages(msgs []*message.Msg) (any, error) {
 	var out []anthropicMessage
 	var systemPrompt string
 	for _, m := range msgs {
@@ -38,12 +45,12 @@ func (f *AnthropicFormatter) FormatMessages(msgs []*message.Msg) ([]anthropicMes
 		}
 		role := string(m.Role)
 		if role == "tool" {
-			role = "user" // Anthropic tool results go under user role
+			role = "user"
 		}
 		data, _ := json.Marshal(content)
 		out = append(out, anthropicMessage{Role: role, Content: data})
 	}
-	return out, systemPrompt
+	return AnthropicFormatResult{Messages: out, SystemPrompt: systemPrompt}, nil
 }
 
 func (f *AnthropicFormatter) formatContentBlocks(blocks []message.ContentBlock) []map[string]any {
@@ -107,7 +114,8 @@ func (f *AnthropicFormatter) imageSource(url, base64, mimeType string) map[strin
 }
 
 // FormatTools converts tool specs to Anthropic tool definitions.
-func (f *AnthropicFormatter) FormatTools(specs []model.ToolSpec) []map[string]any {
+// Implements Formatter interface.
+func (f *AnthropicFormatter) FormatTools(specs []model.ToolSpec) (any, error) {
 	out := make([]map[string]any, 0, len(specs))
 	for _, s := range specs {
 		out = append(out, map[string]any{
@@ -116,29 +124,35 @@ func (f *AnthropicFormatter) FormatTools(specs []model.ToolSpec) []map[string]an
 			"input_schema": s.Parameters,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // FormatToolChoice converts a model ToolChoice to Anthropic representation.
-func (f *AnthropicFormatter) FormatToolChoice(tc *model.ToolChoice) map[string]any {
+// Implements Formatter interface.
+func (f *AnthropicFormatter) FormatToolChoice(tc *model.ToolChoice) (any, error) {
 	if tc == nil {
-		return map[string]any{"type": "auto"}
+		return map[string]any{"type": "auto"}, nil
 	}
 	if tc.Function != "" {
-		return map[string]any{"type": "tool", "name": tc.Function}
+		return map[string]any{"type": "tool", "name": tc.Function}, nil
 	}
 	switch tc.Mode {
 	case "none":
-		return map[string]any{"type": "none"}
+		return map[string]any{"type": "none"}, nil
 	case "required", "any":
-		return map[string]any{"type": "any"}
+		return map[string]any{"type": "any"}, nil
 	default:
-		return map[string]any{"type": "auto"}
+		return map[string]any{"type": "auto"}, nil
 	}
 }
 
 // ParseResponse converts an Anthropic API response into a standard *message.Msg.
-func (f *AnthropicFormatter) ParseResponse(body map[string]any) (*message.Msg, error) {
+// Implements Formatter interface. The resp parameter should be map[string]any.
+func (f *AnthropicFormatter) ParseResponse(resp any) (*message.Msg, error) {
+	body, ok := resp.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("anthropic formatter: ParseResponse expects map[string]any, got %T", resp)
+	}
 	contentRaw, ok := body["content"].([]any)
 	if !ok {
 		return nil, fmt.Errorf("anthropic formatter: invalid content field")
@@ -195,3 +209,6 @@ func intAny(v any) int {
 func (f *AnthropicFormatter) WrapThinkingBlock(content string) string {
 	return "<thinking>\n" + content + "\n</thinking>"
 }
+
+var _ Formatter = (*AnthropicFormatter)(nil)
+var _ ThinkingFormatter = (*AnthropicFormatter)(nil)

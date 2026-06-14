@@ -198,9 +198,9 @@ func BenchmarkMemoryCollector_Run(b *testing.B) {
 	for i := 0; i < 1000; i++ {
 		node := NewMemoryNode(MemoryTypePersonal, "u", fmt.Sprintf("old memory %d", i))
 		node.Metadata = map[string]any{
-			"freq":            1,
-			"last_accessed":   time.Now().Add(-720 * time.Hour).Unix(),
-			"utility":         0.1,
+			"freq":          1,
+			"last_accessed": time.Now().Add(-720 * time.Hour).Unix(),
+			"utility":       0.1,
 		}
 		_ = store.Insert(ctx, []*MemoryNode{node})
 	}
@@ -292,9 +292,9 @@ func BenchmarkVectorStoreComparison(b *testing.B) {
 		}
 	})
 
-		b.Run("Large_10000_HNSW", func(b *testing.B) {
-			b.Skip("HNSW index has concurrency issues - skipping")
-		})
+	b.Run("Large_10000_HNSW", func(b *testing.B) {
+		b.Skip("HNSW index has concurrency issues - skipping")
+	})
 }
 
 // BenchmarkReActOrchestrator_InjectMemory 基准测试 ReAct 记忆注入

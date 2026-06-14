@@ -79,8 +79,16 @@ func (a *ReActAgent) CompressContext(ctx context.Context, inputMsg *message.Msg,
 	if err != nil {
 		return err
 	}
+
+	if prev := a.getCompressedSummary(); prev != "" {
+		summaryText = mergeCompressionSummaries(prev, summaryText)
+	}
+
+	summaryText = a.maybeMetaCompressSummary(ctx, cfg, summaryText, toolSpecs, ctxSize)
+
 	summaryText = a.maybeOffloadCompressedContext(ctx, cc.MessagesToCompact, summaryText)
 	a.setCompressedSummary(summaryText)
+	a.addCompressionWatermark(len(cc.MessagesToCompact))
 	if err := replaceMemory(a.memory, cc.MessagesToKeep); err != nil {
 		return err
 	}
@@ -128,6 +136,7 @@ func (a *ReActAgent) generateCompressionSummary(
 	toolSpecs []model.ToolSpec,
 	ctxSize int,
 ) (string, error) {
+	toCompress = preTruncateToolResults(a.chatModel, toCompress, cfg.ToolResultLimit)
 	prompt := cfg.CompressionPrompt
 	if prompt == "" {
 		prompt = agent.DefaultContextConfig().CompressionPrompt
@@ -251,4 +260,182 @@ func replaceMemory(m memory.Memory, msgs []*message.Msg) error {
 		}
 	}
 	return nil
+}
+
+// --- Incremental Compression Enhancement ---
+
+func (a *ReActAgent) getCompressionWatermark() int {
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+	if a.runtimeState != nil {
+		return a.runtimeState.CompressionWatermark
+	}
+	return 0
+}
+
+func (a *ReActAgent) addCompressionWatermark(delta int) {
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
+	if a.runtimeState == nil {
+		a.runtimeState = &agent.AgentState{}
+	}
+	a.runtimeState.CompressionWatermark += delta
+}
+
+// preTruncateToolResults shrinks oversized tool results in messages before compression.
+// This reduces the token cost of the summarization LLM call.
+func preTruncateToolResults(m model.ChatModel, msgs []*message.Msg, limit int) []*message.Msg {
+	if m == nil || limit <= 0 {
+		return msgs
+	}
+	out := make([]*message.Msg, len(msgs))
+	for i, msg := range msgs {
+		if msg == nil {
+			out[i] = msg
+			continue
+		}
+		var changed bool
+		var blocks []message.ContentBlock
+		for _, b := range msg.Content {
+			if tr, ok := b.(*message.ToolResultBlock); ok && tr != nil {
+				reserved, offload, err := SplitToolResultForCompression(m, tr, limit)
+				if err == nil && offload != nil && reserved != nil {
+					blocks = append(blocks, reserved)
+					changed = true
+					continue
+				}
+			}
+			blocks = append(blocks, b)
+		}
+		if changed {
+			cloned := *msg
+			cloned.Content = blocks
+			out[i] = &cloned
+		} else {
+			out[i] = msg
+		}
+	}
+	return out
+}
+
+// mergeCompressionSummaries merges a previous summary text with a new delta summary text.
+// Both are rendered from the SummaryTemplate, so we use heuristic field-level merge.
+func mergeCompressionSummaries(prevText, deltaText string) string {
+	prev := parseSummaryFields(prevText)
+	delta := parseSummaryFields(deltaText)
+
+	merged := agent.CompressionSummary{
+		TaskOverview:         preferNonEmpty(delta.TaskOverview, prev.TaskOverview),
+		CurrentState:         preferNonEmpty(delta.CurrentState, prev.CurrentState),
+		ImportantDiscoveries: mergeTexts(prev.ImportantDiscoveries, delta.ImportantDiscoveries),
+		NextSteps:            preferNonEmpty(delta.NextSteps, prev.NextSteps),
+		ContextToPreserve:    mergeTexts(prev.ContextToPreserve, delta.ContextToPreserve),
+	}
+	cfg := agent.DefaultContextConfig()
+	return cfg.FormatCompressionSummary(merged)
+}
+
+func (a *ReActAgent) maybeMetaCompressSummary(
+	ctx context.Context,
+	cfg agent.ContextConfig,
+	summaryText string,
+	toolSpecs []model.ToolSpec,
+	ctxSize int,
+) string {
+	ratio := cfg.SummaryTokenRatio
+	if ratio <= 0 {
+		ratio = 0.15
+	}
+	cap := int(float64(ctxSize) * ratio)
+	if cap <= 0 || len(summaryText) <= cap {
+		return summaryText
+	}
+	if a.chatModel == nil {
+		return truncateSummaryText(summaryText, cap)
+	}
+	msgs := []*message.Msg{
+		message.NewMsg().Role(message.RoleSystem).TextContent(
+			"You are a context compressor. Given a verbose summary, produce a concise version " +
+				"that retains all critical information. Keep the same structured format.").Build(),
+		message.NewMsg().Role(message.RoleUser).TextContent(summaryText +
+			"\n\nCompress this summary to be as short as possible while keeping all key facts.").Build(),
+	}
+	est, err := model.CountTokens(a.chatModel, msgs, nil)
+	if err != nil || est > ctxSize {
+		return truncateSummaryText(summaryText, cap)
+	}
+	resp, err := a.chatModel.Chat(ctx, msgs, nil)
+	if err != nil || resp == nil {
+		return truncateSummaryText(summaryText, cap)
+	}
+	text := resp.GetTextContent()
+	if text == "" {
+		return summaryText
+	}
+	return text
+}
+
+func truncateSummaryText(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return s
+	}
+	if len(s) <= maxLen {
+		return s
+	}
+	marker := "\n<<<TRUNCATED>>>"
+	cut := maxLen - len(marker)
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > len(s) {
+		cut = len(s)
+	}
+	return s[:cut] + marker
+}
+
+// parseSummaryFields extracts CompressionSummary fields from rendered template text.
+// Uses section headers from DefaultContextConfig().SummaryTemplate.
+func parseSummaryFields(text string) agent.CompressionSummary {
+	var s agent.CompressionSummary
+	s.TaskOverview = extractSection(text, "# Task Overview")
+	s.CurrentState = extractSection(text, "# Current State")
+	s.ImportantDiscoveries = extractSection(text, "# Important Discoveries")
+	s.NextSteps = extractSection(text, "# Next Steps")
+	s.ContextToPreserve = extractSection(text, "# Context to Preserve")
+	return s
+}
+
+func extractSection(text, header string) string {
+	idx := strings.Index(text, header)
+	if idx < 0 {
+		return ""
+	}
+	rest := text[idx+len(header):]
+	nextSection := len(rest)
+	for _, h := range []string{"# Task Overview", "# Current State", "# Important Discoveries", "# Next Steps", "# Context to Preserve", "</system-info>"} {
+		if i := strings.Index(rest, h); i >= 0 && i < nextSection {
+			nextSection = i
+		}
+	}
+	return strings.TrimSpace(rest[:nextSection])
+}
+
+func preferNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+func mergeTexts(a, b string) string {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	if strings.Contains(a, b) {
+		return a
+	}
+	return a + "\n" + b
 }

@@ -36,6 +36,18 @@ func (f *GeminiFormatter) FormatContents(msgs []*message.Msg) ([]map[string]any,
 	return out, system
 }
 
+// GeminiFormatResult holds the result of formatting messages for the Gemini API.
+type GeminiFormatResult struct {
+	Contents          []map[string]any `json:"contents"`
+	SystemInstruction string           `json:"system_instruction,omitempty"`
+}
+
+// FormatMessages implements Formatter interface.
+func (f *GeminiFormatter) FormatMessages(msgs []*message.Msg) (any, error) {
+	contents, system := f.FormatContents(msgs)
+	return GeminiFormatResult{Contents: contents, SystemInstruction: system}, nil
+}
+
 func (f *GeminiFormatter) formatParts(blocks []message.ContentBlock) []map[string]any {
 	var out []map[string]any
 	for _, b := range blocks {
@@ -90,7 +102,8 @@ func (f *GeminiFormatter) imagePart(url, base64, mimeType string) map[string]any
 }
 
 // FormatTools converts tool specs to Gemini function declarations.
-func (f *GeminiFormatter) FormatTools(specs []model.ToolSpec) []map[string]any {
+// Implements Formatter interface.
+func (f *GeminiFormatter) FormatTools(specs []model.ToolSpec) (any, error) {
 	decls := make([]map[string]any, 0, len(specs))
 	for _, s := range specs {
 		decls = append(decls, map[string]any{
@@ -99,7 +112,26 @@ func (f *GeminiFormatter) FormatTools(specs []model.ToolSpec) []map[string]any {
 			"parameters":  s.Parameters,
 		})
 	}
-	return decls
+	return decls, nil
+}
+
+// FormatToolChoice converts a model ToolChoice to Gemini representation.
+// Implements Formatter interface. Gemini uses mode strings.
+func (f *GeminiFormatter) FormatToolChoice(tc *model.ToolChoice) (any, error) {
+	if tc == nil {
+		return "AUTO", nil
+	}
+	if tc.Function != "" {
+		return "ANY", nil
+	}
+	switch tc.Mode {
+	case "none":
+		return "NONE", nil
+	case "required", "any":
+		return "ANY", nil
+	default:
+		return "AUTO", nil
+	}
 }
 
 // WrapThinkingBlock implements ThinkingFormatter for Gemini models.
@@ -110,7 +142,12 @@ func (f *GeminiFormatter) WrapThinkingBlock(content string) string {
 }
 
 // ParseResponse converts a Gemini API response into a standard *message.Msg.
-func (f *GeminiFormatter) ParseResponse(body map[string]any) (*message.Msg, error) {
+// Implements Formatter interface. The resp parameter should be map[string]any.
+func (f *GeminiFormatter) ParseResponse(resp any) (*message.Msg, error) {
+	body, ok := resp.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("gemini formatter: ParseResponse expects map[string]any, got %T", resp)
+	}
 	candidates, ok := body["candidates"].([]any)
 	if !ok || len(candidates) == 0 {
 		return nil, fmt.Errorf("gemini formatter: no candidates")
@@ -154,3 +191,6 @@ func (f *GeminiFormatter) ParseResponse(body map[string]any) (*message.Msg, erro
 	}
 	return msg, nil
 }
+
+var _ Formatter = (*GeminiFormatter)(nil)
+var _ ThinkingFormatter = (*GeminiFormatter)(nil)

@@ -9,55 +9,55 @@ import (
 
 // Node 知识图谱节点
 type Node struct {
-	ID        string            `json:"id"`
-	Title     string            `json:"title"`
-	Content   string            `json:"content"`
-	Type      NodeType          `json:"type"`
-	Aliases   []string          `json:"aliases"`
-	Outlinks  []string          `json:"outlinks"`  // 指向的节点 ID
-	Inlinks   []string          `json:"inlinks"`   // 被指向的节点 ID
-	Metadata  map[string]any    `json:"metadata"`
+	ID       string         `json:"id"`
+	Title    string         `json:"title"`
+	Content  string         `json:"content"`
+	Type     NodeType       `json:"type"`
+	Aliases  []string       `json:"aliases"`
+	Outlinks []string       `json:"outlinks"` // 指向的节点 ID
+	Inlinks  []string       `json:"inlinks"`  // 被指向的节点 ID
+	Metadata map[string]any `json:"metadata"`
 }
 
 // NodeType 节点类型
 type NodeType string
 
 const (
-	NodeTypeConcept   NodeType = "concept"   // 概念节点
-	NodeTypeMemory    NodeType = "memory"    // 记忆节点
-	NodeTypePerson    NodeType = "person"    // 人物节点
-	NodeTypeEvent     NodeType = "event"     // 事件节点
-	NodeTypeSource    NodeType = "source"    // 来源节点
+	NodeTypeConcept NodeType = "concept" // 概念节点
+	NodeTypeMemory  NodeType = "memory"  // 记忆节点
+	NodeTypePerson  NodeType = "person"  // 人物节点
+	NodeTypeEvent   NodeType = "event"   // 事件节点
+	NodeTypeSource  NodeType = "source"  // 来源节点
 )
 
 // Edge 知识图谱边
 type Edge struct {
-	Source     string    `json:"source"`      // 源节点 ID
-	Target     string    `json:"target"`      // 目标节点 ID
-	Relation   Relation  `json:"relation"`    // 关系类型
-	Weight     float64   `json:"weight"`      // 权重 0-1
-	Bidirectional bool   `json:"bidirectional"` // 是否双向
+	Source        string   `json:"source"`        // 源节点 ID
+	Target        string   `json:"target"`        // 目标节点 ID
+	Relation      Relation `json:"relation"`      // 关系类型
+	Weight        float64  `json:"weight"`        // 权重 0-1
+	Bidirectional bool     `json:"bidirectional"` // 是否双向
 }
 
 // Relation 关系类型
 type Relation string
 
 const (
-	RelRelatedTo    Relation = "relates_to"    // 相关
-	RelDerivedFrom  Relation = "derived_from"  // 派生自
-	RelPartOf       Relation = "part_of"       // 属于
-	RelCauses       Relation = "causes"        // 导致
-	RelContradicts  Relation = "contradicts"   // 矛盾
-	RelSupports     Relation = "supports"      // 支持
-	RelMentions     Relation = "mentions"      // 提及
+	RelRelatedTo   Relation = "relates_to"   // 相关
+	RelDerivedFrom Relation = "derived_from" // 派生自
+	RelPartOf      Relation = "part_of"      // 属于
+	RelCauses      Relation = "causes"       // 导致
+	RelContradicts Relation = "contradicts"  // 矛盾
+	RelSupports    Relation = "supports"     // 支持
+	RelMentions    Relation = "mentions"     // 提及
 )
 
 // Graph 知识图谱
 type Graph struct {
 	mu      sync.RWMutex
 	nodes   map[string]*Node
-	edges   map[string][]*Edge  // source -> edges
-	aliases map[string]string   // alias -> nodeID
+	edges   map[string][]*Edge // source -> edges
+	aliases map[string]string  // alias -> nodeID
 }
 
 // NewGraph 创建知识图谱
@@ -265,15 +265,14 @@ func (g *Graph) DeleteNode(id string) {
 
 	// 删除相关边
 	delete(g.edges, id)
-	for _, edges := range g.edges {
-		var filtered []*Edge
+	for k, edges := range g.edges {
+		filtered := edges[:0]
 		for _, e := range edges {
 			if e.Target != id && e.Source != id {
 				filtered = append(filtered, e)
 			}
 		}
-		// 注意：这里不能修改 map 的值，需要重新赋值
-		_ = filtered
+		g.edges[k] = filtered
 	}
 
 	// 删除别名

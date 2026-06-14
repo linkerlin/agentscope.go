@@ -31,10 +31,10 @@ type ModelCacheEntry struct {
 
 // ModelManager 模型管理器（下载/缓存/版本）
 type ModelManager struct {
-	CacheDir    string
-	Models      map[string]*ModelCacheEntry
-	mu          sync.RWMutex
-	HTTPClient  *http.Client
+	CacheDir     string
+	Models       map[string]*ModelCacheEntry
+	mu           sync.RWMutex
+	HTTPClient   *http.Client
 	MaxCacheSize int64 // 最大缓存大小（字节）
 }
 

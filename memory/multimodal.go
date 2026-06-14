@@ -157,7 +157,7 @@ func (c *CLIPImageEmbedding) EmbedImage(ctx context.Context, imageURL string, ba
 	// 实际生产环境应加载 CLIP 模型并通过 ONNX Runtime 推理
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	vec := make([]float32, c.dim)
 	for i := range vec {
 		vec[i] = float32(i) / float32(c.dim) // 占位值
@@ -200,7 +200,7 @@ func (w *WhisperAudioEmbedding) EmbedAudio(ctx context.Context, audioURL string,
 	// 实际生产环境应调用 Whisper API 获取嵌入
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	
+
 	vec := make([]float32, w.dim)
 	for i := range vec {
 		vec[i] = float32(i) / float32(w.dim) // 占位值
@@ -241,7 +241,7 @@ func NewMultimodalMemoryNode(memType MemoryType, target string, contents []Multi
 			textParts = append(textParts, c.Text)
 		}
 	}
-	
+
 	node := NewMemoryNode(memType, target, strings.Join(textParts, " "))
 	return &MultimodalMemoryNode{
 		MemoryNode: *node,

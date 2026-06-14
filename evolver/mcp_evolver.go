@@ -6,6 +6,26 @@ import (
 	"fmt"
 )
 
+// MCP tool name constants for the evolver namespace.
+const (
+	toolListGenes     = "evolver__list_genes"
+	toolUpsertGene    = "evolver__upsert_gene"
+	toolDeleteGene    = "evolver__delete_gene"
+	toolListCapsules  = "evolver__list_capsules"
+	toolRun           = "evolver__run"
+	toolReflect       = "evolver__reflect"
+	toolSolidify      = "evolver__solidify"
+	toolRemember      = "evolver__remember"
+	toolRecall        = "evolver__recall"
+	toolMeetingStart  = "evolver__meeting_start"
+	toolMeetingStatus = "evolver__meeting_status"
+	toolFetchTasks    = "evolver__fetch_tasks"
+	toolClaimTask     = "evolver__claim_task"
+	toolCompleteTask  = "evolver__complete_task"
+	toolStats         = "evolver__stats"
+	toolSafetyStatus  = "evolver__safety_status"
+)
+
 // MCPEvolver 通过 MCP 协议连接真实的 Evolver 后端。
 // 它将 Evolver 接口映射为 MCP 工具调用，实现 GEP 自演化的生产级集成。
 type MCPEvolver struct {
@@ -26,7 +46,7 @@ func (m *MCPEvolver) ListGenes(ctx context.Context, category string) ([]Gene, er
 	if category != "" {
 		args["category"] = category
 	}
-	resp, err := m.mcpCaller(ctx, "evolver__list_genes", args)
+	resp, err := m.mcpCaller(ctx, toolListGenes, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp list_genes: %w", err)
 	}
@@ -44,7 +64,7 @@ func (m *MCPEvolver) ListGenes(ctx context.Context, category string) ([]Gene, er
 // UpsertGene 通过 MCP 工具 evolver__upsert_gene 创建或更新基因。
 func (m *MCPEvolver) UpsertGene(ctx context.Context, gene Gene) error {
 	args := map[string]any{"gene": gene}
-	_, err := m.mcpCaller(ctx, "evolver__upsert_gene", args)
+	_, err := m.mcpCaller(ctx, toolUpsertGene, args)
 	if err != nil {
 		return fmt.Errorf("mcp upsert_gene: %w", err)
 	}
@@ -54,7 +74,7 @@ func (m *MCPEvolver) UpsertGene(ctx context.Context, gene Gene) error {
 // DeleteGene 通过 MCP 工具 evolver__delete_gene 删除基因。
 func (m *MCPEvolver) DeleteGene(ctx context.Context, geneID string) error {
 	args := map[string]any{"gene_id": geneID}
-	_, err := m.mcpCaller(ctx, "evolver__delete_gene", args)
+	_, err := m.mcpCaller(ctx, toolDeleteGene, args)
 	if err != nil {
 		return fmt.Errorf("mcp delete_gene: %w", err)
 	}
@@ -64,7 +84,7 @@ func (m *MCPEvolver) DeleteGene(ctx context.Context, geneID string) error {
 // ListCapsules 通过 MCP 工具 evolver__list_capsules 获取胶囊列表。
 func (m *MCPEvolver) ListCapsules(ctx context.Context, limit int) ([]Capsule, error) {
 	args := map[string]any{"limit": limit}
-	resp, err := m.mcpCaller(ctx, "evolver__list_capsules", args)
+	resp, err := m.mcpCaller(ctx, toolListCapsules, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp list_capsules: %w", err)
 	}
@@ -90,7 +110,7 @@ func (m *MCPEvolver) Run(ctx context.Context, cfg RunConfig) (*RunResult, error)
 		"selector_mode":          cfg.SelectorMode,
 		"use_hierarchical_bayes": cfg.UseHierarchicalBayes,
 	}
-	resp, err := m.mcpCaller(ctx, "evolver__run", args)
+	resp, err := m.mcpCaller(ctx, toolRun, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp run: %w", err)
 	}
@@ -115,7 +135,7 @@ func (m *MCPEvolver) Reflect(ctx context.Context, req ReflectRequest) (*ReflectR
 		"proposed_changes": req.ProposedChanges,
 		"modified_files":   req.ModifiedFiles,
 	}
-	resp, err := m.mcpCaller(ctx, "evolver__reflect", args)
+	resp, err := m.mcpCaller(ctx, toolReflect, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp reflect: %w", err)
 	}
@@ -133,23 +153,26 @@ func (m *MCPEvolver) Reflect(ctx context.Context, req ReflectRequest) (*ReflectR
 // Solidify 通过 MCP 工具 evolver__solidify 固化演化结果。
 func (m *MCPEvolver) Solidify(ctx context.Context, req SolidifyRequest) (*SolidifyResult, error) {
 	args := map[string]any{
-		"intent":               req.Intent,
-		"summary":              req.Summary,
-		"signals":              req.Signals,
-		"gene":                 req.Gene,
-		"capsule":              req.Capsule,
-		"blast_radius":         req.BlastRadius,
-		"modified_files":       req.ModifiedFiles,
-		"gep_output":           req.GEPOutput,
-		"dry_run":              req.DryRun,
-		"decision_source":      req.DecisionSource,
-		"primary_cause":        req.PrimaryCause,
-		"contributing_factors": req.ContributingFactors,
-		"human_intervention":   req.HumanIntervention,
-		"selector_mode":        req.SelectorMode,
-		"run_id":               req.RunID,
+		"intent":                    req.Intent,
+		"summary":                   req.Summary,
+		"signals":                   req.Signals,
+		"gene":                      req.Gene,
+		"capsule":                   req.Capsule,
+		"blast_radius":              req.BlastRadius,
+		"modified_files":            req.ModifiedFiles,
+		"gep_output":                req.GEPOutput,
+		"dry_run":                   req.DryRun,
+		"decision_source":           req.DecisionSource,
+		"primary_cause":             req.PrimaryCause,
+		"contributing_factors":      req.ContributingFactors,
+		"human_intervention":        req.HumanIntervention,
+		"manual_intervention_count": req.ManualInterventionCount,
+		"selector_mode":             req.SelectorMode,
+		"run_id":                    req.RunID,
+		"reused_asset_id":           req.ReusedAssetID,
+		"source_type":               req.SourceType,
 	}
-	resp, err := m.mcpCaller(ctx, "evolver__solidify", args)
+	resp, err := m.mcpCaller(ctx, toolSolidify, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp solidify: %w", err)
 	}
@@ -169,10 +192,13 @@ func (m *MCPEvolver) Remember(ctx context.Context, req RememberRequest) error {
 	args := map[string]any{
 		"text":       req.Text,
 		"type":       req.Type,
-		"category":   req.Category,
+		"id":         req.ID,
 		"importance": req.Importance,
+		"category":   req.Category,
+		"scope":      req.Scope,
+		"metadata":   req.Metadata,
 	}
-	_, err := m.mcpCaller(ctx, "evolver__remember", args)
+	_, err := m.mcpCaller(ctx, toolRemember, args)
 	if err != nil {
 		return fmt.Errorf("mcp remember: %w", err)
 	}
@@ -182,11 +208,13 @@ func (m *MCPEvolver) Remember(ctx context.Context, req RememberRequest) error {
 // Recall 通过 MCP 工具 evolver__recall 召回演化记忆。
 func (m *MCPEvolver) Recall(ctx context.Context, req RecallRequest) ([]MemoryHit, error) {
 	args := map[string]any{
-		"query":    req.Query,
-		"category": req.Category,
-		"limit":    req.Limit,
+		"query":     req.Query,
+		"limit":     req.Limit,
+		"scope":     req.Scope,
+		"category":  req.Category,
+		"min_score": req.MinScore,
 	}
-	resp, err := m.mcpCaller(ctx, "evolver__recall", args)
+	resp, err := m.mcpCaller(ctx, toolRecall, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp recall: %w", err)
 	}
@@ -210,7 +238,7 @@ func (m *MCPEvolver) MeetingStart(ctx context.Context, req MeetingStartRequest) 
 		"signals": req.Signals,
 		"options": req.Options,
 	}
-	resp, err := m.mcpCaller(ctx, "evolver__meeting_start", args)
+	resp, err := m.mcpCaller(ctx, toolMeetingStart, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp meeting_start: %w", err)
 	}
@@ -228,7 +256,7 @@ func (m *MCPEvolver) MeetingStart(ctx context.Context, req MeetingStartRequest) 
 // MeetingStatus 通过 MCP 工具 evolver__meeting_status 获取会议状态。
 func (m *MCPEvolver) MeetingStatus(ctx context.Context, meetingID string) (*MeetingStatus, error) {
 	args := map[string]any{"meeting_id": meetingID}
-	resp, err := m.mcpCaller(ctx, "evolver__meeting_status", args)
+	resp, err := m.mcpCaller(ctx, toolMeetingStatus, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp meeting_status: %w", err)
 	}
@@ -246,7 +274,7 @@ func (m *MCPEvolver) MeetingStatus(ctx context.Context, meetingID string) (*Meet
 // FetchTasks 通过 MCP 工具 evolver__fetch_tasks 获取 ATP 任务。
 func (m *MCPEvolver) FetchTasks(ctx context.Context, questions []any) ([]Task, error) {
 	args := map[string]any{"questions": questions}
-	resp, err := m.mcpCaller(ctx, "evolver__fetch_tasks", args)
+	resp, err := m.mcpCaller(ctx, toolFetchTasks, args)
 	if err != nil {
 		return nil, fmt.Errorf("mcp fetch_tasks: %w", err)
 	}
@@ -264,7 +292,7 @@ func (m *MCPEvolver) FetchTasks(ctx context.Context, questions []any) ([]Task, e
 // ClaimTask 通过 MCP 工具 evolver__claim_task 认领任务。
 func (m *MCPEvolver) ClaimTask(ctx context.Context, taskID string) error {
 	args := map[string]any{"task_id": taskID}
-	_, err := m.mcpCaller(ctx, "evolver__claim_task", args)
+	_, err := m.mcpCaller(ctx, toolClaimTask, args)
 	if err != nil {
 		return fmt.Errorf("mcp claim_task: %w", err)
 	}
@@ -277,7 +305,7 @@ func (m *MCPEvolver) CompleteTask(ctx context.Context, taskID, assetID string) e
 		"task_id":  taskID,
 		"asset_id": assetID,
 	}
-	_, err := m.mcpCaller(ctx, "evolver__complete_task", args)
+	_, err := m.mcpCaller(ctx, toolCompleteTask, args)
 	if err != nil {
 		return fmt.Errorf("mcp complete_task: %w", err)
 	}
@@ -286,7 +314,7 @@ func (m *MCPEvolver) CompleteTask(ctx context.Context, taskID, assetID string) e
 
 // Stats 通过 MCP 工具 evolver__stats 获取统计信息。
 func (m *MCPEvolver) Stats(ctx context.Context) (map[string]any, error) {
-	resp, err := m.mcpCaller(ctx, "evolver__stats", map[string]any{})
+	resp, err := m.mcpCaller(ctx, toolStats, map[string]any{})
 	if err != nil {
 		return nil, fmt.Errorf("mcp stats: %w", err)
 	}
@@ -295,7 +323,7 @@ func (m *MCPEvolver) Stats(ctx context.Context) (map[string]any, error) {
 
 // SafetyStatus 通过 MCP 工具 evolver__safety_status 获取安全状态。
 func (m *MCPEvolver) SafetyStatus(ctx context.Context) (map[string]any, error) {
-	resp, err := m.mcpCaller(ctx, "evolver__safety_status", map[string]any{})
+	resp, err := m.mcpCaller(ctx, toolSafetyStatus, map[string]any{})
 	if err != nil {
 		return nil, fmt.Errorf("mcp safety_status: %w", err)
 	}

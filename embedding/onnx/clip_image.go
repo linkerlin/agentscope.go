@@ -11,7 +11,7 @@ import (
 
 // CLIPImageEmbedder CLIP 图像嵌入器（HTTP 代理方案）
 type CLIPImageEmbedder struct {
-	BaseURL    string        // ONNX 服务地址（如 http://localhost:8000）
+	BaseURL    string // ONNX 服务地址（如 http://localhost:8000）
 	HTTPClient *http.Client
 	Timeout    time.Duration
 }

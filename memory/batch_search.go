@@ -9,20 +9,20 @@ import (
 
 // BatchSearchOptions 批量检索选项
 type BatchSearchOptions struct {
-	Queries        []string       // 多个查询
-	TopK           int            // 每个查询返回数量
-	MinScore       float64        // 最低分数阈值
-	MemoryTypes    []MemoryType   // 记忆类型过滤
-	MemoryTargets  []string       // 记忆目标过滤
-	VectorWeight   float64        // 向量权重
+	Queries         []string     // 多个查询
+	TopK            int          // 每个查询返回数量
+	MinScore        float64      // 最低分数阈值
+	MemoryTypes     []MemoryType // 记忆类型过滤
+	MemoryTargets   []string     // 记忆目标过滤
+	VectorWeight    float64      // 向量权重
 	HybridThreshold float64      // 混合阈值（平均相似度过滤）
 }
 
 // BatchSearchResult 批量检索结果
 type BatchSearchResult struct {
-	Query   string
-	Nodes   []*MemoryNode
-	Score   float64 // 该查询的平均相似度
+	Query string
+	Nodes []*MemoryNode
+	Score float64 // 该查询的平均相似度
 }
 
 // BatchSearcher 批量检索器，支持多查询并行检索和混合阈值过滤
@@ -112,9 +112,9 @@ func (bs *BatchSearcher) searchSingle(ctx context.Context, query string, opts Ba
 func (bs *BatchSearcher) mergeAndFilter(results []*BatchSearchResult, opts BatchSearchOptions) ([]*MemoryNode, error) {
 	// 收集所有节点，计算每个节点在所有查询中的平均相似度
 	nodeScores := make(map[string]struct {
-		node      *MemoryNode
-		scores    []float64
-		avgScore  float64
+		node     *MemoryNode
+		scores   []float64
+		avgScore float64
 	})
 
 	for _, res := range results {
@@ -172,9 +172,9 @@ func (bs *BatchSearcher) mergeAndFilter(results []*BatchSearchResult, opts Batch
 
 // BatchSearchWithEmbedding 使用嵌入模型进行批量检索（先嵌入所有查询，再并行搜索）
 type BatchSearchWithEmbedding struct {
-	embed  EmbeddingModel
-	store  VectorStore
-	fts    *FTSIndex
+	embed EmbeddingModel
+	store VectorStore
+	fts   *FTSIndex
 }
 
 // NewBatchSearchWithEmbedding 创建批量嵌入检索器

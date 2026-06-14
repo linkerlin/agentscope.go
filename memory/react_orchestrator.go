@@ -12,22 +12,22 @@ import (
 // ReactOrchestrator ReAct 记忆编排器
 // 在现有 ReActAgent 基础上，增强记忆模块的编排能力
 type ReactOrchestrator struct {
-	Orchestrator    any              // 已有编排器（通过接口解耦，避免循环依赖）
-	StepRecorder    *ReactStepRecorder   // 步级记录器
-	MemoryStore     VectorStore          // 向量存储（用于检索注入）
-	Config          ReactOrchestratorConfig  // 配置
-	mu              sync.RWMutex
+	Orchestrator any                     // 已有编排器（通过接口解耦，避免循环依赖）
+	StepRecorder *ReactStepRecorder      // 步级记录器
+	MemoryStore  VectorStore             // 向量存储（用于检索注入）
+	Config       ReactOrchestratorConfig // 配置
+	mu           sync.RWMutex
 }
 
 // ReactOrchestratorConfig ReAct 编排器配置
 type ReactOrchestratorConfig struct {
-	EnableMemoryInjection bool          // 启用记忆注入
-	MaxInjectedMemories   int           // 每步最大注入记忆数
-	MinMemoryScore        float64       // 注入记忆最低分数
+	EnableMemoryInjection bool              // 启用记忆注入
+	MaxInjectedMemories   int               // 每步最大注入记忆数
+	MinMemoryScore        float64           // 注入记忆最低分数
 	InjectionStrategy     InjectionStrategy // 注入策略
-	TokenBudget           int           // 注入记忆 Token 预算
-	EnableStepRecording   bool          // 启用步级记录
-	EnableReplay          bool          // 启用复盘
+	TokenBudget           int               // 注入记忆 Token 预算
+	EnableStepRecording   bool              // 启用步级记录
+	EnableReplay          bool              // 启用复盘
 }
 
 // InjectionStrategy 记忆注入策略
@@ -172,9 +172,9 @@ func (ro *ReactOrchestrator) searchPersonal(ctx context.Context, query, userName
 	}
 
 	return ro.MemoryStore.Search(ctx, query, RetrieveOptions{
-		TopK:        topK,
-		MinScore:    0.3,
-		MemoryTypes: []MemoryType{MemoryTypePersonal},
+		TopK:          topK,
+		MinScore:      0.3,
+		MemoryTypes:   []MemoryType{MemoryTypePersonal},
 		MemoryTargets: []string{userName},
 	})
 }

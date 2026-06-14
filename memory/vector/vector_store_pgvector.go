@@ -2,10 +2,11 @@ package vector
 
 import "context"
 
-// PgvectorVectorStore stub for pilot dedup split.
+// PgvectorVectorStore is a placeholder; full implementation would use pgx/pgvector.
+// All operations return ErrNotImplemented.
 type PgvectorVectorStore struct{}
 
-// NewPgvectorVectorStore for pilot.
+// NewPgvectorVectorStore creates a placeholder Pgvector vector store.
 func NewPgvectorVectorStore(dsn string, table string, dim int, embed EmbeddingModel) (*PgvectorVectorStore, error) {
 	if embed == nil {
 		return nil, ErrEmbeddingRequired
@@ -13,15 +14,21 @@ func NewPgvectorVectorStore(dsn string, table string, dim int, embed EmbeddingMo
 	return &PgvectorVectorStore{}, nil
 }
 
-func (s *PgvectorVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) error { return nil }
+func (s *PgvectorVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) error {
+	return ErrNotImplemented
+}
 func (s *PgvectorVectorStore) Search(ctx context.Context, query string, opts RetrieveOptions) ([]*MemoryNode, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 func (s *PgvectorVectorStore) Get(ctx context.Context, memoryID string) (*MemoryNode, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
-func (s *PgvectorVectorStore) Update(ctx context.Context, node *MemoryNode) error { return nil }
-func (s *PgvectorVectorStore) Delete(ctx context.Context, memoryID string) error  { return nil }
-func (s *PgvectorVectorStore) DeleteAll(ctx context.Context) error                { return nil }
+func (s *PgvectorVectorStore) Update(ctx context.Context, node *MemoryNode) error {
+	return ErrNotImplemented
+}
+func (s *PgvectorVectorStore) Delete(ctx context.Context, memoryID string) error {
+	return ErrNotImplemented
+}
+func (s *PgvectorVectorStore) DeleteAll(ctx context.Context) error { return ErrNotImplemented }
 
 var _ VectorStore = (*PgvectorVectorStore)(nil)

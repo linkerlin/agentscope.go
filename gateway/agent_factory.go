@@ -116,9 +116,7 @@ func (f *AgentFactory) BuildFromTyped(cfg *service.AgentConfig, cred credential.
 			apiKey = k
 		}
 	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("agent_factory: could not extract api_key from typed credential")
-	}
+	// Note: apiKey may be empty for providers that don't require one (e.g. Ollama).
 
 	provider := cred.Provider()
 	modelName := ""

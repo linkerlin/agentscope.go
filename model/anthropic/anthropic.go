@@ -253,7 +253,7 @@ func (m *ChatModel) buildRequestBody(messages []*message.Msg, stream bool, optio
 	for _, o := range options {
 		o(opts)
 	}
-	amsgs, system := m.fmt.FormatMessages(messages)
+	amsgs, system := m.extractMessages(messages)
 
 	req := map[string]any{
 		"model":      m.modelName,
@@ -268,12 +268,27 @@ func (m *ChatModel) buildRequestBody(messages []*message.Msg, stream bool, optio
 		req["temperature"] = opts.Temperature
 	}
 	if len(opts.Tools) > 0 {
-		req["tools"] = m.fmt.FormatTools(opts.Tools)
+		tools, _ := m.fmt.FormatTools(opts.Tools)
+		req["tools"] = tools
 	}
 	if opts.ToolChoice != nil {
-		req["tool_choice"] = m.fmt.FormatToolChoice(opts.ToolChoice)
+		tc, _ := m.fmt.FormatToolChoice(opts.ToolChoice)
+		req["tool_choice"] = tc
 	}
 	return json.Marshal(req)
+}
+
+// extractMessages calls FormatMessages via the Formatter interface and extracts the typed result.
+func (m *ChatModel) extractMessages(messages []*message.Msg) (any, string) {
+	raw, err := m.fmt.FormatMessages(messages)
+	if err != nil {
+		return nil, ""
+	}
+	result, ok := raw.(formatter.AnthropicFormatResult)
+	if !ok {
+		return nil, ""
+	}
+	return result.Messages, result.SystemPrompt
 }
 
 func intAny(v any) int {

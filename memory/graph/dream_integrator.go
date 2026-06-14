@@ -34,12 +34,12 @@ func (dgi *DreamGraphIntegrator) IntegrateDreamDecision(decision *memory.DreamDe
 		Content: cand.Content,
 		Type:    NodeTypeMemory,
 		Metadata: map[string]any{
-			"source_memory":  sourceMemoryID,
-			"action":         string(decision.Action),
-			"score":          cand.Score,
-			"when_to_use":    cand.WhenToUse,
-			"source_file":    cand.SourceFile,
-			"created_at":     time.Now().Format(time.RFC3339),
+			"source_memory": sourceMemoryID,
+			"action":        string(decision.Action),
+			"score":         cand.Score,
+			"when_to_use":   cand.WhenToUse,
+			"source_file":   cand.SourceFile,
+			"created_at":    time.Now().Format(time.RFC3339),
 		},
 	}
 	if err := dgi.graph.AddNode(evoNode); err != nil {
@@ -134,7 +134,7 @@ func (dgi *DreamGraphIntegrator) IntegrateDreamResult(result *memory.DreamResult
 				WhenToUse: node.WhenToUse,
 				Score:     node.Score,
 			},
-			Action: memory.DreamRefine,
+			Action:  memory.DreamRefine,
 			Updated: node,
 		}
 		_ = dgi.IntegrateDreamDecision(decision, sourceMemoryID)
@@ -149,7 +149,7 @@ func (dgi *DreamGraphIntegrator) IntegrateDreamResult(result *memory.DreamResult
 				WhenToUse: node.WhenToUse,
 				Score:     node.Score,
 			},
-			Action: memory.DreamCorrect,
+			Action:  memory.DreamCorrect,
 			Updated: node,
 		}
 		_ = dgi.IntegrateDreamDecision(decision, sourceMemoryID)

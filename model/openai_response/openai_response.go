@@ -57,6 +57,9 @@ func Builder() *OpenAIResponseModelBuilder {
 	}
 }
 
+// NewBuilder is an alias for Builder, following the Go New-prefix convention.
+func NewBuilder() *OpenAIResponseModelBuilder { return Builder() }
+
 func (b *OpenAIResponseModelBuilder) APIKey(key string) *OpenAIResponseModelBuilder {
 	b.apiKey = key
 	return b

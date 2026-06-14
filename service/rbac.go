@@ -126,7 +126,7 @@ const ContextKeyRole ContextKey = "role"
 type UserRole struct {
 	UserID    string    `json:"user_id"`
 	Role      Role      `json:"role"`
-	OrgID     string    `json:"org_id,omitempty"`     // 组织/工作空间隔离
+	OrgID     string    `json:"org_id,omitempty"` // 组织/工作空间隔离
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -135,8 +135,8 @@ type UserRole struct {
 type AuditLog struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`
-	Action    string    `json:"action"`    // e.g. "agent:create", "tool:execute"
-	Resource  string    `json:"resource"`  // e.g. "agent:agent-123"
+	Action    string    `json:"action"`   // e.g. "agent:create", "tool:execute"
+	Resource  string    `json:"resource"` // e.g. "agent:agent-123"
 	Details   string    `json:"details"`
 	IP        string    `json:"ip"`
 	Success   bool      `json:"success"`

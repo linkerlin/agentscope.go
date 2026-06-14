@@ -232,7 +232,8 @@ func TestAudioPreprocessor_createMelFilters(t *testing.T) {
 // 即 frame0: [1,2,3], frame1: [4,5,6]
 // 输出: [1, n_mels, n_frames] = [1, 3, 2]
 // 布局: mel[0][0], mel[1][0], mel[0][1], mel[1][1], mel[0][2], mel[1][2]
-//       = 1, 4, 2, 5, 3, 6
+//
+//	= 1, 4, 2, 5, 3, 6
 func TestAudioPreprocessor_toNCHW(t *testing.T) {
 	preprocessor := NewAudioPreprocessor(DefaultWhisperPreprocessConfig())
 

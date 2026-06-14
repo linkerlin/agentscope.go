@@ -30,6 +30,9 @@ func Builder(apiKey string) *VLLMChatModelBuilder {
 	}
 }
 
+// NewBuilder is an alias for Builder, following the Go New-prefix convention.
+func NewBuilder(apiKey string) *VLLMChatModelBuilder { return Builder(apiKey) }
+
 // APIKey sets the API key (vLLM usually accepts "not-needed" or empty).
 func (b *VLLMChatModelBuilder) APIKey(key string) *VLLMChatModelBuilder {
 	b.inner.APIKey(key)

@@ -18,8 +18,9 @@ type AgentState struct {
 	AgentID   string `json:"agent_id"`
 
 	// Context
-	Messages          []*message.Msg `json:"messages"`
-	CompressedSummary string         `json:"compressed_summary,omitempty"`
+	Messages             []*message.Msg `json:"messages"`
+	CompressedSummary    string         `json:"compressed_summary,omitempty"`
+	CompressionWatermark int            `json:"compression_watermark,omitempty"`
 
 	// Tool context
 	ToolContext ToolContext `json:"tool_context,omitempty"`

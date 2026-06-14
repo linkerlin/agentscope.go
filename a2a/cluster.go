@@ -24,7 +24,7 @@ type ClusterManager struct {
 	failoverTimeout time.Duration
 	maxRetries      int
 
-	mu       sync.RWMutex
+	mu         sync.RWMutex
 	nodeHealth map[string]*NodeHealth
 
 	// 事件监听

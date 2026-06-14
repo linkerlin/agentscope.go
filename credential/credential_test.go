@@ -106,3 +106,68 @@ func TestAnthropic(t *testing.T) {
 		t.Error("roundtrip provider")
 	}
 }
+
+func TestAllProvidersRoundtrip(t *testing.T) {
+	f := NewFactory()
+
+	tests := []struct {
+		name    string
+		typ     string
+		data    map[string]any
+		wantErr bool
+	}{
+		{"dashscope", "dashscope", map[string]any{"type": "dashscope", "name": "ds", "api_key": "sk-ds"}, false},
+		{"deepseek", "deepseek", map[string]any{"type": "deepseek", "name": "ds", "api_key": "sk-ds"}, false},
+		{"moonshot", "moonshot", map[string]any{"type": "moonshot", "name": "ms", "api_key": "sk-ms"}, false},
+		{"xai", "xai", map[string]any{"type": "xai", "name": "xai", "api_key": "sk-xai"}, false},
+		{"ollama", "ollama", map[string]any{"type": "ollama", "name": "ol", "base_url": "http://localhost:11434"}, false},
+		{"ollama_default", "ollama", map[string]any{"type": "ollama", "name": "ol"}, false},
+		{"openai_response", "openai_response", map[string]any{"type": "openai_response", "name": "or", "api_key": "sk-or"}, false},
+		{"vllm", "vllm", map[string]any{"type": "vllm", "name": "v", "base_url": "http://gpu:8000"}, false},
+		{"dashscope_missing_key", "dashscope", map[string]any{"type": "dashscope", "name": "ds"}, true},
+		{"unknown_type", "unknown", map[string]any{"type": "unknown"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, err := f.FromMap(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if string(c.Type()) != tt.typ {
+				t.Errorf("type mismatch: got %s, want %s", c.Type(), tt.typ)
+			}
+		})
+	}
+}
+
+func TestAllSchemasRegistered(t *testing.T) {
+	f := NewFactory()
+	schemas := f.ListSchemas()
+	if len(schemas) != 10 {
+		t.Fatalf("expected 10 schemas, got %d", len(schemas))
+	}
+}
+
+func TestOllamaDefaults(t *testing.T) {
+	c := NewOllama("local")
+	if c.BaseURL != "http://localhost:11434" {
+		t.Errorf("expected default URL, got %s", c.BaseURL)
+	}
+}
+
+func TestVLLMConstructor(t *testing.T) {
+	c := NewVLLM("gpu-node", "http://10.0.0.1:8000")
+	if c.BaseURL != "http://10.0.0.1:8000" {
+		t.Errorf("base URL mismatch")
+	}
+	if c.Provider() != "vllm" {
+		t.Errorf("provider mismatch")
+	}
+}

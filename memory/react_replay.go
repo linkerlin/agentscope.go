@@ -18,13 +18,13 @@ type ReactReplayExtractor struct {
 
 // ReactReplayConfig 复盘配置
 type ReactReplayConfig struct {
-	EnableSuccessPath    bool          // 提取成功路径
-	EnableFailureLesson  bool          // 提取失败教训
-	EnableNewKnowledge   bool          // 提取新知识
-	MinConfidence        float64       // 最低置信度
-	MaxExtractedMemories int           // 最大提取记忆数
-	AutoSummarize        bool          // 自动调用 Summarize
-	AsyncMode            bool          // 异步模式（提交到任务队列）
+	EnableSuccessPath    bool    // 提取成功路径
+	EnableFailureLesson  bool    // 提取失败教训
+	EnableNewKnowledge   bool    // 提取新知识
+	MinConfidence        float64 // 最低置信度
+	MaxExtractedMemories int     // 最大提取记忆数
+	AutoSummarize        bool    // 自动调用 Summarize
+	AsyncMode            bool    // 异步模式（提交到任务队列）
 }
 
 // DefaultReactReplayConfig 返回默认复盘配置
@@ -42,23 +42,23 @@ func DefaultReactReplayConfig() ReactReplayConfig {
 
 // ReactReplayResult 复盘结果
 type ReactReplayResult struct {
-	SessionID       string            `json:"session_id"`
-	SuccessPath     []*ReplayStep     `json:"success_path,omitempty"`
-	FailureLessons  []*ReplayLesson   `json:"failure_lessons,omitempty"`
-	NewKnowledge    []*MemoryNode     `json:"new_knowledge,omitempty"`
-	ExtractedAt     time.Time         `json:"extracted_at"`
-	Confidence      float64           `json:"confidence"`
+	SessionID      string          `json:"session_id"`
+	SuccessPath    []*ReplayStep   `json:"success_path,omitempty"`
+	FailureLessons []*ReplayLesson `json:"failure_lessons,omitempty"`
+	NewKnowledge   []*MemoryNode   `json:"new_knowledge,omitempty"`
+	ExtractedAt    time.Time       `json:"extracted_at"`
+	Confidence     float64         `json:"confidence"`
 }
 
 // ReplayStep 成功路径步骤
 type ReplayStep struct {
-	Iteration   int                    `json:"iteration"`
-	Type        ReactStepType          `json:"type"`
-	ToolName    string                 `json:"tool_name,omitempty"`
-	ToolInput   map[string]any         `json:"tool_input,omitempty"`
-	Result      string                 `json:"result,omitempty"`
-	MemoryNodes []*MemoryNode          `json:"memory_nodes,omitempty"`
-	Confidence  float64                `json:"confidence"`
+	Iteration   int            `json:"iteration"`
+	Type        ReactStepType  `json:"type"`
+	ToolName    string         `json:"tool_name,omitempty"`
+	ToolInput   map[string]any `json:"tool_input,omitempty"`
+	Result      string         `json:"result,omitempty"`
+	MemoryNodes []*MemoryNode  `json:"memory_nodes,omitempty"`
+	Confidence  float64        `json:"confidence"`
 }
 
 // ReplayLesson 失败教训
@@ -84,7 +84,7 @@ func (r *ReactReplayExtractor) Replay(ctx context.Context, steps []*ReactStep) (
 	}
 
 	result := &ReactReplayResult{
-		SessionID:  steps[0].ID[:8], // 取前8位作为 session ID
+		SessionID:   steps[0].ID[:8], // 取前8位作为 session ID
 		ExtractedAt: time.Now(),
 	}
 
@@ -349,12 +349,12 @@ func (r *ReactReplayExtractor) ReplayAsync(ctx context.Context, queue *AsyncTask
 
 // ReactReplayStats 复盘统计
 type ReactReplayStats struct {
-	TotalSessions    int     `json:"total_sessions"`
-	SuccessPaths     int     `json:"success_paths"`
-	FailureLessons   int     `json:"failure_lessons"`
-	NewKnowledge     int     `json:"new_knowledge"`
-	AvgConfidence    float64 `json:"avg_confidence"`
-	LastReplayTime   time.Time `json:"last_replay_time"`
+	TotalSessions  int       `json:"total_sessions"`
+	SuccessPaths   int       `json:"success_paths"`
+	FailureLessons int       `json:"failure_lessons"`
+	NewKnowledge   int       `json:"new_knowledge"`
+	AvgConfidence  float64   `json:"avg_confidence"`
+	LastReplayTime time.Time `json:"last_replay_time"`
 }
 
 // Stats 返回复盘统计

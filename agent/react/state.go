@@ -10,8 +10,8 @@ var errNilStore = errors.New("react agent: nil state store")
 
 var _ state.StateModule = (*ReActAgent)(nil)
 
-// AgentState 可序列化的 Agent 配置快照（不含 ChatModel、Tool 实例，需调用方在 Load 后重新注入）
-type AgentState struct {
+// ConfigSnapshot 可序列化的 Agent 配置快照（不含 ChatModel、Tool 实例，需调用方在 Load 后重新注入）
+type ConfigSnapshot struct {
 	AgentID       string         `json:"agent_id"`
 	Name          string         `json:"name"`
 	Description   string         `json:"description,omitempty"`
@@ -21,7 +21,7 @@ type AgentState struct {
 }
 
 // StateType 实现 state.State
-func (s AgentState) StateType() string { return "agent_state" }
+func (s ConfigSnapshot) StateType() string { return "agent_state" }
 
 // SaveTo 将当前 Agent 配置写入 Store
 func (a *ReActAgent) SaveTo(store state.Store, key string) error {
@@ -32,7 +32,7 @@ func (a *ReActAgent) SaveTo(store state.Store, key string) error {
 	if id == "" {
 		id = a.Base.Name
 	}
-	st := AgentState{
+	st := ConfigSnapshot{
 		AgentID:       id,
 		Name:          a.Base.Name,
 		Description:   a.Base.Description,
@@ -48,7 +48,7 @@ func (a *ReActAgent) LoadFrom(store state.Store, key string) error {
 	if store == nil {
 		return errNilStore
 	}
-	var st AgentState
+	var st ConfigSnapshot
 	if err := store.Get(key, &st); err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func (a *ReActAgent) LoadIfExists(store state.Store, key string) (bool, error) {
 	return true, nil
 }
 
-func (a *ReActAgent) applyAgentState(st AgentState) {
+func (a *ReActAgent) applyAgentState(st ConfigSnapshot) {
 	a.Base.ID = st.AgentID
 	a.Base.Name = st.Name
 	a.Base.Description = st.Description

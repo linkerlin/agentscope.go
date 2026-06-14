@@ -97,7 +97,9 @@ func (f *MultiAgentAnthropicFormatter) formatMultiAgent(msgs []*message.Msg) ([]
 		switch g.Type {
 		case "tool_sequence":
 			typed, _ := f.AnthropicFormatter.FormatMessages(g.Msgs)
-			out = append(out, typed...)
+			if result, ok := typed.(AnthropicFormatResult); ok {
+				out = append(out, result.Messages...)
+			}
 		case "agent_message":
 			openai := formatOpenAIAgentMessageGroup(g.Msgs, firstAgent)
 			for _, m := range openai {

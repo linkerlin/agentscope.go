@@ -17,20 +17,20 @@ type MemoryCollector struct {
 	UtilityThreshold float64       // utility/freq 低于此值则删除
 	MaxAge           time.Duration // 最大保留时间，超时自动删除
 	mu               sync.Mutex
-	
+
 	// 增强策略
-	Strategy       GCMixedStrategy // 混合回收策略
-	AdaptiveMode   bool            // 自适应阈值模式
-	BatchSize      int             // 批量清理大小
-	PreserveTypes  []MemoryType    // 保护的记忆类型
-	MinKeepCount   int             // 最少保留数量
+	Strategy      GCMixedStrategy // 混合回收策略
+	AdaptiveMode  bool            // 自适应阈值模式
+	BatchSize     int             // 批量清理大小
+	PreserveTypes []MemoryType    // 保护的记忆类型
+	MinKeepCount  int             // 最少保留数量
 }
 
 // GCMixedStrategy 混合回收策略
 type GCMixedStrategy struct {
-	LRUWeight  float64 `json:"lru_weight"`  // 最近使用权重 (0-1)
-	LFUWeight  float64 `json:"lfu_weight"`  // 频率使用权重 (0-1)
-	TTLWeight  float64 `json:"ttl_weight"`  // 时间衰减权重 (0-1)
+	LRUWeight   float64 `json:"lru_weight"`   // 最近使用权重 (0-1)
+	LFUWeight   float64 `json:"lfu_weight"`   // 频率使用权重 (0-1)
+	TTLWeight   float64 `json:"ttl_weight"`   // 时间衰减权重 (0-1)
 	ScoreWeight float64 `json:"score_weight"` // 质量分数权重 (0-1)
 }
 
@@ -69,7 +69,7 @@ func (c *MemoryCollector) RecordAccess(ctx context.Context, nodes []*MemoryNode)
 		freq := intVal(n.Metadata, "freq") + 1
 		n.Metadata["freq"] = freq
 		n.Metadata["last_accessed"] = time.Now().Unix()
-	
+
 		// 简单效用计算（基于 Score）
 		if n.Score > 0 {
 			prevUtil := floatVal(n.Metadata, "utility")
@@ -87,7 +87,7 @@ func (c *MemoryCollector) RecordAccess(ctx context.Context, nodes []*MemoryNode)
 			_ = prevUtil
 			_ = newUtil
 		}
-	
+
 		_ = c.Store.Update(ctx, n)
 	}
 }
@@ -126,7 +126,7 @@ func (c *MemoryCollector) Collect(ctx context.Context) ([]string, error) {
 		node  *MemoryNode
 		score float64 // 综合价值分数（越高越保留）
 	}
-	
+
 	scored := make([]scoredNode, 0, len(nodes))
 	now := time.Now()
 
@@ -154,7 +154,7 @@ func (c *MemoryCollector) Collect(ctx context.Context) ([]string, error) {
 	if len(scored) > targetCount {
 		targetCount = len(scored) * 8 / 10 // 保留 80%
 	}
-	
+
 	if targetCount < c.MinKeepCount {
 		targetCount = c.MinKeepCount
 	}
@@ -164,9 +164,9 @@ func (c *MemoryCollector) Collect(ctx context.Context) ([]string, error) {
 		if i >= len(scored)-targetCount {
 			break // 保留目标数量
 		}
-		
+
 		n := scored[i].node
-		
+
 		// 额外检查：即使分数低，如果未过期且效用足够，保留
 		freq := intVal(n.Metadata, "freq")
 		utility := floatVal(n.Metadata, "utility")
@@ -180,7 +180,7 @@ func (c *MemoryCollector) Collect(ctx context.Context) ([]string, error) {
 				}
 			}
 		}
-		
+
 		// 频率过高但效用过低：说明经常被检索但帮不上忙
 		if freq >= c.FreqThreshold && utility < c.UtilityThreshold {
 			toDelete = append(toDelete, n.MemoryID)
@@ -315,7 +315,7 @@ func (c *MemoryCollector) computeMixedScore(n *MemoryNode, now time.Time) float6
 	scoreScore := n.Score
 
 	// 加权综合
-	mixed := (s.LRUWeight*lruScore + s.LFUWeight*lfuScore + 
+	mixed := (s.LRUWeight*lruScore + s.LFUWeight*lfuScore +
 		s.TTLWeight*ttlScore + s.ScoreWeight*scoreScore) / totalWeight
 
 	return mixed
@@ -392,11 +392,11 @@ func EstimateUtility(node *MemoryNode) float64 {
 
 // GCStats 垃圾回收统计
 type GCStats struct {
-	TotalNodes     int       `json:"total_nodes"`
-	DeletedNodes   int       `json:"deleted_nodes"`
-	ProtectedNodes int       `json:"protected_nodes"`
-	AvgUtility     float64   `json:"avg_utility"`
-	AvgFrequency   float64   `json:"avg_frequency"`
+	TotalNodes     int     `json:"total_nodes"`
+	DeletedNodes   int     `json:"deleted_nodes"`
+	ProtectedNodes int     `json:"protected_nodes"`
+	AvgUtility     float64 `json:"avg_utility"`
+	AvgFrequency   float64 `json:"avg_frequency"`
 	Thresholds     struct {
 		Utility float64 `json:"utility"`
 		Freq    int     `json:"freq"`

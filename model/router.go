@@ -9,12 +9,13 @@ import (
 	"github.com/linkerlin/agentscope.go/message"
 )
 
-// Router wraps one or more ChatModels with retry, fallback, and circuit-breaker logic.
+// Router wraps one or more ChatModels with retry and fallback logic.
 type Router struct {
 	primary    ChatModel
 	fallback   ChatModel
 	maxRetries int
 	backoff    time.Duration
+	cb         *circuitBreaker
 }
 
 // RouterOption configures a Router.
@@ -51,7 +52,14 @@ func NewRouter(primary ChatModel, opts ...RouterOption) *Router {
 func (r *Router) ModelName() string { return r.primary.ModelName() }
 
 // Chat calls the primary model with retries, falling back to the fallback model if configured.
+// When circuit breaker is enabled and open, returns ErrCircuitOpen immediately.
 func (r *Router) Chat(ctx context.Context, messages []*message.Msg, options ...ChatOption) (*message.Msg, error) {
+	if r.cb != nil {
+		if err := r.cb.allowRequest(); err != nil {
+			return nil, err
+		}
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= r.maxRetries; attempt++ {
 		if attempt > 0 && r.backoff > 0 {
@@ -63,10 +71,18 @@ func (r *Router) Chat(ctx context.Context, messages []*message.Msg, options ...C
 		}
 		resp, err := r.primary.Chat(ctx, messages, options...)
 		if err == nil {
+			if r.cb != nil {
+				r.cb.onSuccess()
+			}
 			return resp, nil
 		}
 		lastErr = err
 	}
+
+	if r.cb != nil {
+		r.cb.onFailure()
+	}
+
 	if r.fallback != nil {
 		resp, err := r.fallback.Chat(ctx, messages, options...)
 		if err != nil {
@@ -78,7 +94,14 @@ func (r *Router) Chat(ctx context.Context, messages []*message.Msg, options ...C
 }
 
 // ChatStream calls the primary model with retries, falling back if needed.
+// When circuit breaker is enabled and open, returns ErrCircuitOpen immediately.
 func (r *Router) ChatStream(ctx context.Context, messages []*message.Msg, options ...ChatOption) (<-chan *StreamChunk, error) {
+	if r.cb != nil {
+		if err := r.cb.allowRequest(); err != nil {
+			return nil, err
+		}
+	}
+
 	var lastErr error
 	for attempt := 0; attempt <= r.maxRetries; attempt++ {
 		if attempt > 0 && r.backoff > 0 {
@@ -90,10 +113,18 @@ func (r *Router) ChatStream(ctx context.Context, messages []*message.Msg, option
 		}
 		ch, err := r.primary.ChatStream(ctx, messages, options...)
 		if err == nil {
+			if r.cb != nil {
+				r.cb.onSuccess()
+			}
 			return ch, nil
 		}
 		lastErr = err
 	}
+
+	if r.cb != nil {
+		r.cb.onFailure()
+	}
+
 	if r.fallback != nil {
 		ch, err := r.fallback.ChatStream(ctx, messages, options...)
 		if err != nil {

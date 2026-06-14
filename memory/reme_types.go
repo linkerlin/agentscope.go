@@ -45,17 +45,18 @@ type (
 	VectorStore     = vector.VectorStore
 )
 
+// Re-export all MemoryType constants from vector subpackage for convenience.
 const (
-	MemoryTypePersonal   MemoryType = "personal"
-	MemoryTypeProcedural MemoryType = "procedural"
-	MemoryTypeTool       MemoryType = "tool"
-	MemoryTypeSummary    MemoryType = "summary"
-	MemoryTypeHistory    MemoryType = "history"
-	MemoryTypeIdentity   MemoryType = "identity"
-	// Evolution asset types (aligned with evolver narrativeMemory / gene/capsule/event memory)
-	MemoryTypeGene     MemoryType = "gene"
-	MemoryTypeCapsule  MemoryType = "capsule"
-	MemoryTypeEvoEvent MemoryType = "evolution_event"
+	MemoryTypePersonal   = vector.MemoryTypePersonal
+	MemoryTypeProcedural = vector.MemoryTypeProcedural
+	MemoryTypeTool       = vector.MemoryTypeTool
+	MemoryTypeProfile    = vector.MemoryTypeProfile
+	MemoryTypeSummary    = vector.MemoryTypeSummary
+	MemoryTypeHistory    = vector.MemoryTypeHistory
+	MemoryTypeIdentity   = vector.MemoryTypeIdentity
+	MemoryTypeGene       = vector.MemoryTypeGene
+	MemoryTypeCapsule    = vector.MemoryTypeCapsule
+	MemoryTypeEvoEvent   = vector.MemoryTypeEvoEvent
 )
 
 // (MemoryNode now alias to vector.MemoryNode from types.go)

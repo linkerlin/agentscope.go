@@ -54,7 +54,68 @@ func (f *Factory) registerBuiltins() {
 		return c, nil
 	}, geminiSchema())
 
-	// Add more providers here as they are implemented (DashScope, DeepSeek, etc.)
+	// DashScope
+	f.Register(TypeDashScope, func(data map[string]any) (Credential, error) {
+		c := &DashScopeCredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, apiKeySchema("DashScope API", "dashscope"))
+
+	// DeepSeek
+	f.Register(TypeDeepSeek, func(data map[string]any) (Credential, error) {
+		c := &DeepSeekCredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, apiKeySchema("DeepSeek API", "deepseek"))
+
+	// Moonshot
+	f.Register(TypeMoonshot, func(data map[string]any) (Credential, error) {
+		c := &MoonshotCredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, apiKeySchema("Moonshot API", "moonshot"))
+
+	// xAI
+	f.Register(TypeXAI, func(data map[string]any) (Credential, error) {
+		c := &XAICredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, apiKeySchema("xAI (Grok) API", "xai"))
+
+	// Ollama
+	f.Register(TypeOllama, func(data map[string]any) (Credential, error) {
+		c := &OllamaCredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, ollamaSchema())
+
+	// OpenAI Response
+	f.Register(TypeOpenAIResp, func(data map[string]any) (Credential, error) {
+		c := &OpenAIResponseCredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, apiKeySchema("OpenAI Responses API", "openai_response"))
+
+	// vLLM
+	f.Register(TypeVLLM, func(data map[string]any) (Credential, error) {
+		c := &VLLMCredential{}
+		if err := c.fromMap(data); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}, vllmSchema())
 }
 
 // Register adds or overrides a credential type constructor and its schema.
@@ -194,5 +255,46 @@ func geminiSchema() map[string]any {
 			},
 		},
 		"required": []string{"api_key"},
+	}
+}
+
+func apiKeySchema(title, typ string) map[string]any {
+	return map[string]any{
+		"title": title,
+		"type":  "object",
+		"properties": map[string]any{
+			"id":      map[string]any{"type": "string"},
+			"name":    map[string]any{"type": "string"},
+			"type":    map[string]any{"type": "string", "const": typ},
+			"api_key": map[string]any{"type": "string", "format": "password", "writeOnly": true},
+		},
+		"required": []string{"api_key"},
+	}
+}
+
+func ollamaSchema() map[string]any {
+	return map[string]any{
+		"title": "Ollama (Local)",
+		"type":  "object",
+		"properties": map[string]any{
+			"id":       map[string]any{"type": "string"},
+			"name":     map[string]any{"type": "string"},
+			"type":     map[string]any{"type": "string", "const": "ollama"},
+			"base_url": map[string]any{"type": "string", "description": "Ollama server URL", "default": "http://localhost:11434"},
+		},
+	}
+}
+
+func vllmSchema() map[string]any {
+	return map[string]any{
+		"title": "vLLM",
+		"type":  "object",
+		"properties": map[string]any{
+			"id":       map[string]any{"type": "string"},
+			"name":     map[string]any{"type": "string"},
+			"type":     map[string]any{"type": "string", "const": "vllm"},
+			"api_key":  map[string]any{"type": "string", "format": "password", "writeOnly": true},
+			"base_url": map[string]any{"type": "string", "description": "vLLM server URL", "default": "http://localhost:8000"},
+		},
 	}
 }

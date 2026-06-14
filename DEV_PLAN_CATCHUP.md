@@ -152,7 +152,7 @@ Phase 3/4 按请求大幅推进并进一步完善：
 
 ---
 
-## Phase 6: Evolver GEP 自演化优势对齐 (当前阶段)
+## Phase 6: Evolver GEP 自演化优势对齐 ✅ 已完成
 
 **目标**：将 ./evolver/ (及 evolver.py) 的核心优势引入 agentscope.go ，同时保持 Go 轻量、事件驱动、MCP 友好、不引入重依赖。重点不是全量 port，而是**类型+协议+高层流程对齐 + 桥接现有能力**（ReMe 记忆 + a2a + gateway MCP + skill + tracing）。
 
@@ -212,3 +212,29 @@ gene := evolver.CreateGene(...) ; flow.Client.UpsertGene(ctx, gene)
 **验证标准**：pkg 测试全绿、example 可独立运行并打印有意义 GEP 资产、文档更新、与现有 ReMe/a2a/gateway 无冲突。
 
 此阶段标志“追赶 Python 参考 + 超越 ad-hoc”进入“对齐工业级自演化引擎”新阶段。
+
+---
+
+## Phase 7: ONNX 本地推理 + A2A 安全增强 + 文档全面更新 (已完成)
+
+**目标**：补充 ONNX 多模态本地推理能力、A2A 协议生产级安全特性，并全面更新项目文档。
+
+### 7.1 ONNX 本地多模态推理
+- `embedding/onnx/` 包：CLIP 图像预处理/嵌入 + Whisper 音频预处理/嵌入 + 模型管理器 + 跨模态相似度（HTTP 代理，零 CGO）
+- 示例：`examples/onnx/main.go`; 文档：`docs/ONNX.md`（379 行）
+
+### 7.2 A2A 安全增强
+- `a2a/middleware/`：认证 + 限流 + CORS + 日志 + Recovery; `a2a/secure_server.go`：SecureServer; `a2a/websocket.go`：WS 推送
+- 示例：`examples/a2a_secure/main.go`; 文档：`docs/A2A.md`（274 行）
+
+### 7.3 新增 10 个 Demo
+- embedding / schedule / rag / observability / state / a2a_secure / memory_benchmark / onnx / react_orchestrator / cross_modal
+
+### 7.4 文档更新
+- README.md（新增 4 章节）/ docs/index.md（修复断链）/ docs/quickstart.md（修复 API）/ docs/benchmark.md / docs/examples-index.md / AGENTS.md（移除过期备注）/ 演进方案.md / ReMe记忆演进方案.md
+
+**验证标准**：
+- [x] `go build ./examples/...` 全通过
+- [x] `go test ./...` 全通过
+- [x] 10 个 Demo 可独立运行
+- [x] 文档链接全部有效

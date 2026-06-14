@@ -37,6 +37,9 @@ func Builder(apiKey string) *DeepSeekChatModelBuilder {
 	}
 }
 
+// NewBuilder is an alias for Builder, following the Go New-prefix convention.
+func NewBuilder(apiKey string) *DeepSeekChatModelBuilder { return Builder(apiKey) }
+
 // APIKey sets the DeepSeek API key.
 func (b *DeepSeekChatModelBuilder) APIKey(key string) *DeepSeekChatModelBuilder {
 	b.inner.APIKey(key)

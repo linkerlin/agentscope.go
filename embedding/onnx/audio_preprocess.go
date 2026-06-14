@@ -7,14 +7,14 @@ import (
 
 // AudioPreprocessConfig 音频预处理配置
 type AudioPreprocessConfig struct {
-	SampleRate     int     // 目标采样率（默认 16000 for Whisper）
-	NumSamples     int     // 目标样本数（默认 480000 for 30s）
-	NFFT           int     // FFT 窗口大小（默认 400）
-	HopLength      int     // 帧移（默认 160）
-	NMels          int     // Mel 滤波器数量（默认 80）
-	NFrames        int     // 目标帧数（默认 3000）
-	Normalize      bool    // 是否归一化
-	PadToMaxLength bool    // 是否填充到最大长度
+	SampleRate     int  // 目标采样率（默认 16000 for Whisper）
+	NumSamples     int  // 目标样本数（默认 480000 for 30s）
+	NFFT           int  // FFT 窗口大小（默认 400）
+	HopLength      int  // 帧移（默认 160）
+	NMels          int  // Mel 滤波器数量（默认 80）
+	NFrames        int  // 目标帧数（默认 3000）
+	Normalize      bool // 是否归一化
+	PadToMaxLength bool // 是否填充到最大长度
 }
 
 // DefaultWhisperPreprocessConfig 返回 Whisper 默认预处理配置
@@ -129,7 +129,7 @@ func (p *AudioPreprocessor) padOrTruncate(samples []float32, targetLength int) [
 
 // stft 短时傅里叶变换（简化版）
 func (p *AudioPreprocessor) stft(samples []float32, nFFT, hopLength int) [][]complex64 {
-	numFrames := (len(samples) - nFFT) / hopLength + 1
+	numFrames := (len(samples)-nFFT)/hopLength + 1
 	result := make([][]complex64, numFrames)
 
 	// Hanning 窗口
@@ -313,8 +313,8 @@ func (p *AudioPreprocessor) toNCHW(mel [][]float32, nMels, nFrames int) []float3
 // GetAudioInfo 获取音频信息
 func GetAudioInfo(samples []float32, sampleRate int) map[string]any {
 	return map[string]any{
-		"sample_rate":   sampleRate,
-		"num_samples":   len(samples),
-		"duration_sec":  float64(len(samples)) / float64(sampleRate),
+		"sample_rate":  sampleRate,
+		"num_samples":  len(samples),
+		"duration_sec": float64(len(samples)) / float64(sampleRate),
 	}
 }

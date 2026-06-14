@@ -38,6 +38,61 @@ func TestLoadFromFileMissing(t *testing.T) {
 	}
 }
 
+func TestLoadFromYAMLFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yaml")
+	raw := `
+name: test-yaml
+system_prompt: sys
+max_iterations: 5
+model:
+  provider: openai
+  model_name: gpt-4o-mini
+memory:
+  type: window
+  max_messages: 50
+reme:
+  enabled: true
+  working_dir: /tmp/reme
+  max_input_length: 32000
+toolkit:
+  parallel: true
+  max_parallel: 2
+`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Name != "test-yaml" || c.MaxIterations != 5 {
+		t.Fatalf("unexpected config: %+v", c)
+	}
+	if c.ReMe == nil || !c.ReMe.Enabled || c.ReMe.MaxInputLength != 32000 {
+		t.Fatalf("unexpected reme: %+v", c.ReMe)
+	}
+	if c.Memory.MaxMessages != 50 {
+		t.Fatalf("unexpected memory: %+v", c.Memory)
+	}
+}
+
+func TestLoadFromYMLExtension(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yml")
+	raw := `name: yml-test`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Name != "yml-test" {
+		t.Fatalf("expected yml-test, got %s", c.Name)
+	}
+}
+
 func TestAgentConfigJSONRoundTrip(t *testing.T) {
 	c := &AgentConfig{
 		Name: "a",

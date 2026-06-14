@@ -23,23 +23,23 @@ type RealtimeVoiceAgent struct {
 	agent      agent.Agent
 
 	// 音频管道
-	micIn     chan []byte   // 麦克风原始音频输入
-	vadOut    chan []byte   // VAD 检测到的语音片段
-	sttOut    chan string   // STT 转录文本
-	llmOut    chan string   // LLM 回复文本
-	ttsOut    chan []byte   // TTS 合成音频
+	micIn  chan []byte // 麦克风原始音频输入
+	vadOut chan []byte // VAD 检测到的语音片段
+	sttOut chan string // STT 转录文本
+	llmOut chan string // LLM 回复文本
+	ttsOut chan []byte // TTS 合成音频
 
 	// 控制信号
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 
 	// 打断检测
-	isSpeaking bool         // 用户是否在说话
+	isSpeaking bool // 用户是否在说话
 	mu         sync.RWMutex
 
 	// 配置
-	sampleRate int
+	sampleRate   int
 	vadThreshold float64
 }
 

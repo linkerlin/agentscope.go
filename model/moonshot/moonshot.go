@@ -38,6 +38,9 @@ func Builder(apiKey string) *MoonshotChatModelBuilder {
 	}
 }
 
+// NewBuilder is an alias for Builder, following the Go New-prefix convention.
+func NewBuilder(apiKey string) *MoonshotChatModelBuilder { return Builder(apiKey) }
+
 // APIKey sets the Moonshot API key.
 func (b *MoonshotChatModelBuilder) APIKey(key string) *MoonshotChatModelBuilder {
 	b.inner.APIKey(key)

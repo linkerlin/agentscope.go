@@ -13,6 +13,9 @@ type ContextConfig struct {
 	CompressionPrompt string
 	SummaryTemplate   string
 	ToolResultLimit   int
+	// SummaryTokenRatio caps the summary length as a fraction of context size (default 0.15).
+	// When the accumulated summary exceeds this ratio, meta-compression shortens it.
+	SummaryTokenRatio float64
 }
 
 // CompressionSummary is the structured summary payload for context compression.
@@ -48,7 +51,8 @@ func DefaultContextConfig() ContextConfig {
 			"# Context to Preserve\n" +
 			"{context_to_preserve}" +
 			"</system-info>",
-		ToolResultLimit: 3000,
+		ToolResultLimit:   3000,
+		SummaryTokenRatio: 0.15,
 	}
 }
 

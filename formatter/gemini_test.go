@@ -201,7 +201,11 @@ func TestGemini_FormatTools(t *testing.T) {
 			},
 		},
 	}
-	decls := f.FormatTools(specs)
+	declsRaw, err := f.FormatTools(specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decls := declsRaw.([]map[string]any)
 	if len(decls) != 1 {
 		t.Fatalf("expected 1 declaration, got %d", len(decls))
 	}

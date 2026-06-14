@@ -128,10 +128,147 @@ srv.RegisterA2ARoutes(card) //  hypothetical; check actual API
 
 ---
 
-## 7. 相关文件
+## 7. 认证中间件
+
+A2A Server 支持多种认证方式，通过中间件链灵活装配：
+
+### API Key 认证
+
+```go
+import "github.com/linkerlin/agentscope.go/a2a/middleware"
+
+apiKeyAuth := middleware.APIKeyAuth("X-API-Key", func(key string) bool {
+    return key == os.Getenv("A2A_API_KEY")
+})
+server := a2a.NewServer(card, adapter, a2a.WithMiddleware(apiKeyAuth))
+```
+
+### Bearer Token 认证
+
+```go
+bearerAuth := middleware.BearerAuth(func(token string) bool {
+    return token == os.Getenv("A2A_BEARER_TOKEN")
+})
+server := a2a.NewServer(card, adapter, a2a.WithMiddleware(bearerAuth))
+```
+
+### JWT 认证
+
+```go
+jwtAuth := middleware.JWTAuth("your-secret-key", middleware.JWTConfig{
+    Issuer:   "agentscope",
+    Audience: "a2a",
+})
+server := a2a.NewServer(card, adapter, a2a.WithMiddleware(jwtAuth))
+```
+
+---
+
+## 8. 限流器
+
+内置令牌桶限流器，保护 A2A 端点免受突发流量冲击：
+
+```go
+rateLimiter := middleware.TokenBucketLimiter(middleware.TokenBucketConfig{
+    Rate:  10, // 每秒 10 个请求
+    Burst: 20, // 最多突发 20 个请求
+})
+server := a2a.NewServer(card, adapter, a2a.WithMiddleware(rateLimiter))
+```
+
+按客户端 IP 限流：
+
+```go
+ipLimiter := middleware.TokenBucketPerIP(middleware.TokenBucketConfig{
+    Rate:  5,
+    Burst: 10,
+})
+server := a2a.NewServer(card, adapter, a2a.WithMiddleware(ipLimiter))
+```
+
+---
+
+## 9. WebSocket 实时推送
+
+除 SSE 外，A2A Server 也支持 WebSocket 进行双向实时通信：
+
+```go
+wsHandler := a2a.NewWebSocketHandler(adapter, a2a.WebSocketConfig{
+    Heartbeat: 30 * time.Second,
+    MaxConns:  100,
+})
+
+mux := http.NewServeMux()
+server := a2a.NewServer(card, adapter)
+server.RegisterOn(mux)
+wsHandler.RegisterOn(mux, "/a2a/ws")
+
+log.Fatal(http.ListenAndServe(":9000", mux))
+```
+
+客户端连接：
+
+```go
+wsClient, _ := a2a.NewWebSocketClient("ws://localhost:9000/a2a/ws")
+wsClient.SendTask(ctx, task)
+for msg := range wsClient.Receive() {
+    fmt.Println("Update:", msg.Status.State)
+}
+```
+
+---
+
+## 10. CORS 与日志中间件
+
+```go
+chain := middleware.Chain(
+    middleware.CORS(middleware.CORSConfig{
+        AllowedOrigins: []string{"https://app.example.com"},
+        AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+        AllowedHeaders: []string{"Content-Type", "Authorization"},
+    }),
+    middleware.RequestLogger(middleware.LoggerConfig{
+        Format: "json",
+        SkipPaths: []string{"/health", "/.well-known/agent.json"},
+    }),
+    middleware.Recovery(),
+)
+server := a2a.NewServer(card, adapter, a2a.WithMiddleware(chain))
+```
+
+---
+
+## 11. SecureServer 一键装配
+
+`SecureServer` 将认证、限流、CORS、日志、恢复打包为预设配置：
+
+```go
+secure := a2a.NewSecureServer(card, adapter, a2a.SecureConfig{
+    APIKey:      os.Getenv("A2A_API_KEY"),
+    JWTSecret:   os.Getenv("A2A_JWT_SECRET"),
+    RateLimit:   middleware.TokenBucketConfig{Rate: 10, Burst: 20},
+    CORS:        middleware.CORSConfig{AllowedOrigins: []string{"*"}},
+    EnableWS:    true,
+    WSConfig:    a2a.WebSocketConfig{Heartbeat: 30 * time.Second},
+})
+
+log.Fatal(http.ListenAndServe(":9000", secure))
+```
+
+> `SecureServer` 自动注册 `/task/send`、`/task/sendSubscribe`、`/a2a/ws` 及健康检查端点，适合生产环境直接部署。
+
+---
+
+## 12. 相关文件
 
 - `a2a/server.go`
 - `a2a/client.go`
 - `a2a/registry.go`
 - `a2a/v2_adapter.go`
+- `a2a/middleware/auth.go`
+- `a2a/middleware/ratelimit.go`
+- `a2a/middleware/cors.go`
+- `a2a/middleware/logger.go`
+- `a2a/websocket.go`
+- `a2a/secure_server.go`
 - `examples/a2a/main.go`

@@ -17,9 +17,13 @@ const geminiDefaultBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 // NewGemini creates a Gemini embedding model.
 // modelName defaults to "text-embedding-004" if empty.
 // Supports text embeddings via embedContent API.
-// For multimodal (text+image), extend the content.parts with inline_data (future enhancement; see Python embedding for reference).
-// Example for multimodal would use "content": {"parts": [{"text": "..."}, {"inline_data": {"mime_type": "image/png", "data": "base64..."}}]}
 func NewGemini(apiKey, modelName string) model.EmbeddingModel {
+	return NewGeminiWithDims(apiKey, modelName, 0)
+}
+
+// NewGeminiWithDims creates a Gemini embedding model with explicit dimension override.
+// Pass 0 to use the model's default (768 for text-embedding-004).
+func NewGeminiWithDims(apiKey, modelName string, dims int) model.EmbeddingModel {
 	if modelName == "" {
 		modelName = "text-embedding-004"
 	}
@@ -27,6 +31,7 @@ func NewGemini(apiKey, modelName string) model.EmbeddingModel {
 		apiKey:    apiKey,
 		modelName: modelName,
 		baseURL:   geminiDefaultBaseURL,
+		dims:      dims,
 		client:    &http.Client{Timeout: 120 * time.Second},
 	}
 }
@@ -35,11 +40,15 @@ type geminiModel struct {
 	apiKey    string
 	modelName string
 	baseURL   string
+	dims      int
 	client    *http.Client
 }
 
 func (m *geminiModel) ModelName() string { return m.modelName }
 func (m *geminiModel) Dimensions() int {
+	if m.dims > 0 {
+		return m.dims
+	}
 	// text-embedding-004 is 768 dim typically
 	return 768
 }

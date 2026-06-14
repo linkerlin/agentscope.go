@@ -12,14 +12,14 @@ import (
 
 // TrainingSample 表示一条 SFT/RL 训练样本。
 type TrainingSample struct {
-	ID        string          `json:"id"`
-	Messages  []*message.Msg  `json:"messages"`       // 对话历史
-	ToolsUsed []ToolCall      `json:"tools_used"`     // 工具调用记录
-	Reward    float64         `json:"reward"`         // 奖励分数（RL 用）
-	Feedback  string          `json:"feedback"`       // 人工反馈
-	Source    string          `json:"source"`         // 来源：agent_run / human / auto_eval
-	CreatedAt time.Time       `json:"created_at"`
-	Metadata  map[string]any  `json:"metadata"`
+	ID        string         `json:"id"`
+	Messages  []*message.Msg `json:"messages"`   // 对话历史
+	ToolsUsed []ToolCall     `json:"tools_used"` // 工具调用记录
+	Reward    float64        `json:"reward"`     // 奖励分数（RL 用）
+	Feedback  string         `json:"feedback"`   // 人工反馈
+	Source    string         `json:"source"`     // 来源：agent_run / human / auto_eval
+	CreatedAt time.Time      `json:"created_at"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // ToolCall 记录工具调用详情。
@@ -92,9 +92,9 @@ func (d *TrainingDataset) ExportRL() []map[string]any {
 			continue
 		}
 		result = append(result, map[string]any{
-			"prompt":   buildPrompt(best.Messages),
-			"chosen":   best.Messages[len(best.Messages)-1].GetTextContent(),
-			"rejected": worst.Messages[len(worst.Messages)-1].GetTextContent(),
+			"prompt":      buildPrompt(best.Messages),
+			"chosen":      best.Messages[len(best.Messages)-1].GetTextContent(),
+			"rejected":    worst.Messages[len(worst.Messages)-1].GetTextContent(),
 			"reward_diff": best.Reward - worst.Reward,
 		})
 	}

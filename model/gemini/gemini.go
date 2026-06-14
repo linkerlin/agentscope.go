@@ -275,7 +275,7 @@ func (m *ChatModel) buildRequestBody(messages []*message.Msg, stream bool, optio
 		req["generationConfig"] = genConfig
 	}
 	if len(opts.Tools) > 0 {
-		decls := m.fmt.FormatTools(opts.Tools)
+		decls, _ := m.fmt.FormatTools(opts.Tools)
 		req["tools"] = []map[string]any{{"functionDeclarations": decls}}
 	}
 	if opts.ToolChoice != nil {

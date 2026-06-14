@@ -142,3 +142,115 @@ func TestSelfCorrectingParser_ParseWithCorrection_ModelError(t *testing.T) {
 		t.Fatalf("expected model error %v, got %v", modelErr, err)
 	}
 }
+
+type mockStreamModel struct {
+	chunks []string
+	name   string
+}
+
+func (m *mockStreamModel) ModelName() string { return m.name }
+
+func (m *mockStreamModel) Chat(ctx context.Context, msgs []*message.Msg, opts ...model.ChatOption) (*message.Msg, error) {
+	full := ""
+	for _, c := range m.chunks {
+		full += c
+	}
+	return message.NewMsg().Role(message.RoleAssistant).TextContent(full).Build(), nil
+}
+
+func (m *mockStreamModel) ChatStream(ctx context.Context, msgs []*message.Msg, opts ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+	ch := make(chan *model.StreamChunk, len(m.chunks)+1)
+	go func() {
+		defer close(ch)
+		for _, delta := range m.chunks {
+			ch <- &model.StreamChunk{Delta: delta}
+		}
+		ch <- &model.StreamChunk{Done: true}
+	}()
+	return ch, nil
+}
+
+func TestStructuredRunner_RunStream(t *testing.T) {
+	m := &mockStreamModel{
+		name:   "mock",
+		chunks: []string{"{\"na", "me\": \"", "Alice\", \"a", "ge\": 3", "0}"},
+	}
+	runner := &StructuredRunner{Model: m}
+	schema := &JSONSchema{Type: "object"}
+
+	type Person struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+	var target Person
+
+	results, err := runner.RunStream(context.Background(), "describe", schema, &target)
+	if err != nil {
+		t.Fatalf("RunStream failed: %v", err)
+	}
+
+	var partials []map[string]any
+	var gotFinal bool
+	for r := range results {
+		if r.Err != nil {
+			t.Fatalf("unexpected error: %v", r.Err)
+		}
+		if r.Done {
+			gotFinal = true
+		}
+		if r.Partial != nil {
+			partials = append(partials, r.Partial)
+		}
+	}
+
+	if !gotFinal {
+		t.Fatal("expected final result")
+	}
+	if target.Name != "Alice" || target.Age != 30 {
+		t.Fatalf("target not populated: %+v", target)
+	}
+	if len(partials) == 0 {
+		t.Fatal("expected at least one partial result")
+	}
+}
+
+func TestTryParsePartial_CompleteJSON(t *testing.T) {
+	result := tryParsePartial(`{"a":1,"b":"hello"}`)
+	if result == nil || result["a"] != float64(1) {
+		t.Fatalf("unexpected: %v", result)
+	}
+}
+
+func TestTryParsePartial_PartialJSON(t *testing.T) {
+	result := tryParsePartial(`{"a":1,"b":"inc`)
+	if result == nil {
+		t.Fatal("expected partial parse")
+	}
+	if result["a"] != float64(1) {
+		t.Fatalf("expected a=1, got %v", result["a"])
+	}
+}
+
+func TestTryParsePartial_EmptyString(t *testing.T) {
+	result := tryParsePartial("")
+	if result != nil {
+		t.Fatal("expected nil for empty string")
+	}
+}
+
+func TestTryParsePartial_MarkdownFence(t *testing.T) {
+	result := tryParsePartial("```json\n{\"x\":1}\n```")
+	if result == nil || result["x"] != float64(1) {
+		t.Fatalf("unexpected: %v", result)
+	}
+}
+
+func TestRunStream_NilModel(t *testing.T) {
+	runner := &StructuredRunner{Model: nil}
+	schema := &JSONSchema{Type: "object"}
+	var out struct{}
+	_, err := runner.RunStream(context.Background(), "test", schema, &out)
+	if err == nil || err.Error() != "output: nil model" {
+		t.Fatalf("expected nil model error, got %v", err)
+	}
+}

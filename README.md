@@ -93,8 +93,8 @@ go run .
 | `model` | `ChatModel` 接口，支持流式响应 |
 | `agent` | `Agent` 基础接口与 `Base` 统一生命周期（Hook、流式事件、Usage 统计） |
 | `agent/react` | ReAct Agent 实现，内嵌 `agent.Base` |
-| `memory` | `Memory` 接口 + 内存实现 + ReMe 长期记忆 |
-| `tool` | `Tool` 接口 + 内置工具（Read/Write/Edit/Glob/Grep/Shell/Subagent/WebFetch/JSON） |
+| `memory` | `Memory` 接口 + 5 实现（InMemory/Window/ReMeInMemory/ReMeFile/ReMeVector） + 7 向量后端 + Hybrid Search(BM25+Reranker) + Dream 演化 + 知识图谱 |
+| `tool` | `Tool` 接口 + 内置工具（file: Read/Write/Edit/Glob/Grep, shell, web, json, multimodal + Task/Schedule/Subagent） |
 | `formatter` | 独立的模型请求/响应格式化抽象层（OpenAI / Anthropic / Gemini / DashScope / Ollama） |
 | `pipeline` | 多 Agent 编排：Pipeline（顺序）+ Parallel（并发） |
 | `msghub` | 广播式多 Agent 消息调度（Hub） |
@@ -110,8 +110,68 @@ go run .
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
-| `embedding` | 独立 Embedding 包：OpenAI / Ollama / Gemini / DashScope + FileCache（多模态支持提示），可直接用于 gateway / memory / RAG |
+| `embedding` | 独立 Embedding 包：OpenAI / Ollama / Gemini / DashScope / DashScope多模态 + FileCache，可直接用于 gateway / memory / RAG |
 | `evolver` | GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill→Gene 蒸馏（Phase 6 对齐 evolver 优势） |
+| `embedding/onnx` | ONNX 本地推理：CLIP 图像嵌入 + Whisper 音频嵌入 + 模型管理器（HTTP 代理方案，零 CGO 依赖） |
+
+## ONNX 生产化（多模态本地推理）
+
+无需 Python 环境，纯 Go 实现图像/音频预处理管道，通过 HTTP 代理连接 ONNX Runtime 服务：
+
+```go
+import "github.com/linkerlin/agentscope.go/embedding/onnx"
+
+// 图像预处理（CLIP）→ 输出 NCHW [1,3,224,224]
+preprocessor := onnx.NewImagePreprocessor(onnx.DefaultCLIPPreprocessConfig())
+vec, _ := preprocessor.Preprocess(imageReader)
+
+// 音频预处理（Whisper）→ 输出 Mel 频谱图 [1,80,3000]
+audioProc := onnx.NewAudioPreprocessor(onnx.DefaultWhisperPreprocessConfig())
+mel, _ := audioProc.Preprocess(pcmSamples, 16000)
+
+// CLIP 图像嵌入器（HTTP 代理）
+clip := onnx.NewCLIPImageEmbedder(onnx.DefaultCLIPImageEmbedderConfig())
+embedding, _ := clip.EmbedImage(vec)
+
+// 跨模态相似度（图像-文本对齐）
+sim, _ := onnx.CrossModalSimilarity(imageEmbedding, textEmbedding)
+
+// 模型管理器：自动下载/缓存/版本管理
+manager, _ := onnx.NewModelManager(onnx.DefaultModelManagerConfig())
+manager.RegisterModel(onnx.PredefinedModels()[0]) // CLIP ViT-B/32
+```
+
+## A2A 增强（认证 + 限流 + WebSocket）
+
+A2A 协议完整实现，新增生产级安全与实时通信能力：
+
+```go
+import "github.com/linkerlin/agentscope.go/a2a"
+
+// 安全服务器：认证 + 限流 + CORS + 日志
+server := a2a.NewSecureServer(card, runner, store)
+server.auth.AddAPIKey("sk-xxx", "production-client")
+server.WithRateLimit(a2a.NewRateLimiter(100, 200)) // 100 req/s, burst 200
+
+// WebSocket 实时任务推送
+wsServer := a2a.NewWebSocketEnabledServer(card, runner, store)
+// 客户端通过 WebSocket 订阅任务状态，实时接收 task_update 事件
+```
+
+## 性能基准
+
+| 测试项 | 性能 | 说明 |
+|--------|------|------|
+| 嵌入缓存命中 | 550 ns/op | 内存 LRU，无锁读 |
+| 跨模态相似度 | 741 ns/op | 512 维余弦相似度 |
+| 向量存储搜索（1000 节点） | 229 μs/op | 暴力搜索 + HNSW 自动切换 |
+| FTS 全文搜索（1000 文档） | 97 μs/op | FTS5 trigram + CJK 回退 |
+| ReMe 文件记忆添加 | 463 μs/op | 含持久化写入 |
+| ReAct 记忆注入 | 132 μs/op | 向量检索 + 格式化 + 注入 |
+| ONNX 图像预处理 | 3.5 ms/op | 1024×768 → 224×224 + 归一化 |
+| ONNX 音频预处理 | ~9.7 s/op | 30s 音频 → Mel 频谱图（可优化） |
+
+运行基准：`go test ./memory/... -run=^$ -bench=. -benchtime=1s`
 
 ## 高层生产服务 Bootstrap（强烈推荐）
 
@@ -213,6 +273,25 @@ res, _ := v.SummarizeMemory(ctx, msgs, "alice", "coding_task", "")
 
 // 统一检索
 nodes, _ := v.RetrieveMemoryUnified(ctx, "Go 最佳实践", "alice", "coding_task", "", memory.RetrieveOptions{TopK: 5})
+```
+
+### ReAct 记忆注入编排
+
+```go
+import "github.com/linkerlin/agentscope.go/memory"
+
+// 创建 ReAct 步级记录器
+recorder := memory.NewReactStepRecorder(memory.NewInMemoryStepStore())
+
+// 创建记忆注入编排器（4 种策略：recent/targeted/personal/hybrid）
+orchestrator := memory.NewReactOrchestrator(recorder, store, memory.DefaultReactOrchestratorConfig())
+
+// 在 ReAct 循环中注入相关记忆
+memNodes, sysMsg, _ := orchestrator.InjectMemory(ctx, query, history, "alice", "coding_task")
+
+// 复盘提取：成功路径 / 失败教训 / 新知识
+replay := memory.NewReactReplayExtractor(memory.DefaultReactReplayConfig())
+result, _ := replay.Replay(ctx, steps)
 ```
 
 ## 钩子系统（人机协作）
@@ -439,6 +518,24 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 
 ## 示例
 
+- [`examples/a2a`](examples/a2a/main.go) —— A2A 协议基础：AgentCard、Task、SSE
+- [`examples/a2a_redis_registry`](examples/a2a_redis_registry/main.go) —— A2A Redis 分布式注册中心
+- [`examples/embedding`](examples/embedding/main.go) —— 独立 Embedding 包（OpenAI/Ollama + FileCache）
+- [`examples/schedule`](examples/schedule/main.go) —— Cron 定时任务调度器
+- [`examples/rag`](examples/rag/main.go) —— RAG 问答完整流程（Loader + Embedding + ReMe）
+- [`examples/observability`](examples/observability/main.go) —— OpenTelemetry + LangSmith 追踪
+- [`examples/state`](examples/state/main.go) —— AgentState 持久化（JSONFile/Redis）
+- [`examples/a2a_secure`](examples/a2a_secure/main.go) —— A2A 认证 + 限流 + WebSocket
+- [`examples/memory_benchmark`](examples/memory_benchmark/main.go) —— 记忆系统基准测试运行
+- [`examples/onnx`](examples/onnx/main.go) —— ONNX 图像/音频预处理与嵌入
+- [`examples/react_orchestrator`](examples/react_orchestrator/main.go) —— ReAct 记忆注入编排
+- [`examples/cross_modal`](examples/cross_modal/main.go) —— 跨模态检索（文本→图像/音频）
+- [`examples/multimodal`](examples/multimodal/main.go) —— 多模态 Agent（图像/音频输入）
+- [`examples/multimodal_router`](examples/multimodal_router/main.go) —— 多模态路由自动切换
+- [`examples/middleware`](examples/middleware/main.go) —— Agent 生命周期中间件链
+- [`examples/interrupt`](examples/interrupt/main.go) —— 中断处理与暂停恢复
+- [`examples/trace`](examples/trace/main.go) —— 事件追踪与 Hook 系统
+- [`examples/web_ui`](examples/web_ui/main.go) —— Web UI 实时对话
 - [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
 - [`examples/tools`](examples/tools/main.go) —— 带计算工具的 Agent
 - [`examples/v2_event_stream`](examples/v2_event_stream/main.go) —— V2 事件流完整生命周期演示

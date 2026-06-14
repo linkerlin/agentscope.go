@@ -11,11 +11,11 @@ import (
 
 // WeaviateVectorStore 基于 Weaviate REST API (v1) 的远程向量存储实现。
 type WeaviateVectorStore struct {
-	baseURL    string
-	className  string
-	dim        int
-	embed      EmbeddingModel
-	client     *http.Client
+	baseURL   string
+	className string
+	dim       int
+	embed     EmbeddingModel
+	client    *http.Client
 }
 
 // NewWeaviateVectorStore 创建 Weaviate 向量存储。
@@ -77,16 +77,16 @@ func (s *WeaviateVectorStore) ensureSchema(ctx context.Context) error {
 
 	// Create class with vectorizer=none (we provide vectors manually)
 	schema := map[string]any{
-		"class": s.className,
-		"vectorizer": "none",
+		"class":           s.className,
+		"vectorizer":      "none",
 		"vectorIndexType": "hnsw",
 		"vectorIndexConfig": map[string]any{
-			"ef": 256,
-			"efConstruction": 128,
-			"maxConnections": 64,
+			"ef":              256,
+			"efConstruction":  128,
+			"maxConnections":  64,
 			"dynamicEfFactor": 8,
-			"dynamicEfMin": 100,
-			"distance": "cosine",
+			"dynamicEfMin":    100,
+			"distance":        "cosine",
 		},
 		"properties": []map[string]any{
 			{"name": "memory_id", "dataType": []string{"text"}, "tokenization": "field"},
@@ -123,7 +123,7 @@ func (s *WeaviateVectorStore) Insert(ctx context.Context, nodes []*MemoryNode) e
 		}
 		metaJSON, _ := json.Marshal(n.Metadata)
 		body := map[string]any{
-			"class": s.className,
+			"class":  s.className,
 			"vector": vec,
 			"properties": map[string]any{
 				"memory_id":     n.MemoryID,
@@ -212,8 +212,8 @@ func (s *WeaviateVectorStore) Get(ctx context.Context, memoryID string) (*Memory
 	// Use GraphQL or filter search
 	body := map[string]any{
 		"query": map[string]any{
-			"operator": "Equal",
-			"path":     []string{"memory_id"},
+			"operator":  "Equal",
+			"path":      []string{"memory_id"},
 			"valueText": memoryID,
 		},
 		"limit": 1,

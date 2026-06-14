@@ -3,6 +3,7 @@ package evolver
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // GEPFlow provides high-level helpers that orchestrate the core evolver advantages:
@@ -158,7 +159,7 @@ func extractStrategy(content string) []string {
 }
 
 // tiny utils (avoid heavy deps)
-func toLower(s string) string { return s } // placeholder, real would unicode fold but sufficient for demo
+func toLower(s string) string { return strings.ToLower(s) }
 func splitLines(s string) []string {
 	var res []string
 	start := 0

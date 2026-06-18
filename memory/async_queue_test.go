@@ -50,7 +50,13 @@ func TestAsyncTaskQueuePriority(t *testing.T) {
 
 	var order []int
 	var mu sync.Mutex
+	// Gate execution until all tasks are queued. The worker starts running as
+	// soon as the queue is created, so without this gate it could dequeue the
+	// first-submitted (priority 1) task before the higher-priority tasks are
+	// submitted, making the test flaky under load.
+	ready := make(chan struct{})
 	q.RegisterHandler(TaskTypeSummarize, func(ctx context.Context, task *AsyncTask) (*AsyncTaskResult, error) {
+		<-ready
 		mu.Lock()
 		order = append(order, task.Priority)
 		mu.Unlock()
@@ -61,6 +67,7 @@ func TestAsyncTaskQueuePriority(t *testing.T) {
 	q.Submit(&AsyncTask{Type: TaskTypeSummarize, Priority: 1})
 	q.Submit(&AsyncTask{Type: TaskTypeSummarize, Priority: 10})
 	q.Submit(&AsyncTask{Type: TaskTypeSummarize, Priority: 5})
+	close(ready) // all three are now queued; worker processes in priority order
 
 	time.Sleep(500 * time.Millisecond)
 

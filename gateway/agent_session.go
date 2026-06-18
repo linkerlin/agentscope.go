@@ -81,12 +81,28 @@ func (f *AgentFactory) BuildSessionAgent(
 	if mode == "" {
 		mode = permission.ModeExplore
 	}
-	permEngine := permission.NewEngine(mode, defaultWorkspacePermRules())
+	// Wire the session workspace root into the permission context so that
+	// ACCEPT_EDITS mode can auto-allow edits inside the session workspace
+	// (aligns with Python agentscope #1823: workspace root in permission context).
+	permEngine := permission.NewEngineWithContext(
+		permission.NewContext(mode).WithWorkingDirs(wsDir),
+		defaultWorkspacePermRules(),
+	)
 
 	tk := toolkit.NewToolkit()
 	for _, t := range sessionWorkspaceTools(wsDir, deps) {
 		if err := tk.Register(t); err != nil {
 			return nil, err
+		}
+	}
+	// Agent team (#1833): if the leader declares subagent templates, spawn each
+	// as a SubagentTool and register it on the leader's toolkit. Spawned
+	// subagents inherit the leader's permission engine (#1815).
+	if cfg != nil && len(cfg.SubagentTemplates) > 0 {
+		if subTools, err := f.BuildSubagentTools(cfg, cred, chatModel, sw, permEngine, deps); err == nil {
+			for _, st := range subTools {
+				_ = tk.Register(st)
+			}
 		}
 	}
 	if sw.Skills != nil {

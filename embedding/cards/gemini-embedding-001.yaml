@@ -1,0 +1,8 @@
+id: gemini-embedding-001
+provider: gemini
+display_name: Gemini embedding-001
+model: gemini-embedding-001
+dimensions: 3072
+max_input_tokens: 2048
+modalities: [text]
+default: true

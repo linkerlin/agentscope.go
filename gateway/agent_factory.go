@@ -24,9 +24,15 @@ import (
 // ModelBuilderFunc builds a ChatModel from an API key, model name and optional base URL.
 type ModelBuilderFunc func(apiKey, modelName, baseURL string) (model.ChatModel, error)
 
+// AgentClassBuilder constructs an agent.Agent from a persisted AgentConfig and
+// the already-built ChatModel. Register custom classes via RegisterAgentClass
+// to support non-ReAct agent types (aligns with Python #1838 custom agent class).
+type AgentClassBuilder func(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error)
+
 // AgentFactory constructs agent instances from persisted AgentConfig and Credential.
 type AgentFactory struct {
 	modelBuilders map[string]ModelBuilderFunc
+	agentBuilders map[string]AgentClassBuilder
 	cipher        *service.Cipher
 }
 
@@ -35,15 +41,65 @@ type AgentFactory struct {
 func NewAgentFactory(cipher *service.Cipher) *AgentFactory {
 	f := &AgentFactory{
 		modelBuilders: make(map[string]ModelBuilderFunc),
+		agentBuilders: make(map[string]AgentClassBuilder),
 		cipher:        cipher,
 	}
 	f.registerBuiltins()
+	// "react" is the default agent class; AgentConfig.AgentClass == "" resolves to it.
+	f.agentBuilders["react"] = defaultReactAgentBuilder
 	return f
 }
 
 // RegisterProvider registers a custom model builder for the given provider name.
 func (f *AgentFactory) RegisterProvider(name string, fn ModelBuilderFunc) {
 	f.modelBuilders[name] = fn
+}
+
+// RegisterAgentClass registers a custom agent construction strategy. The
+// built-in "react" class is pre-registered; overriding it replaces the default.
+// Unknown AgentConfig.AgentClass values at build time produce a clear error.
+func (f *AgentFactory) RegisterAgentClass(name string, builder AgentClassBuilder) {
+	if name == "" || builder == nil {
+		return
+	}
+	f.agentBuilders[name] = builder
+}
+
+// RegisteredAgentClasses returns the available agent class names.
+func (f *AgentFactory) RegisteredAgentClasses() []string {
+	names := make([]string, 0, len(f.agentBuilders))
+	for name := range f.agentBuilders {
+		names = append(names, name)
+	}
+	return names
+}
+
+// buildAgentForClass resolves AgentConfig.AgentClass (default "react") and
+// invokes the registered builder. An unregistered class yields an error.
+func (f *AgentFactory) buildAgentForClass(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error) {
+	class := cfg.AgentClass
+	if class == "" {
+		class = "react"
+	}
+	builder, ok := f.agentBuilders[class]
+	if !ok {
+		return nil, fmt.Errorf("agent_factory: unknown agent class %q (registered: %v); register it via RegisterAgentClass", class, f.RegisteredAgentClasses())
+	}
+	return builder(cfg, chatModel)
+}
+
+// defaultReactAgentBuilder is the built-in "react" class: assembles a ReAct
+// agent from the config + chat model.
+func defaultReactAgentBuilder(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error) {
+	b := react.Builder().
+		Name(cfg.Name).
+		ID(cfg.ID).
+		SysPrompt(cfg.SystemPrompt).
+		Model(chatModel)
+	if cfg.Metadata != nil {
+		b = b.Metadata(cfg.Metadata)
+	}
+	return b.Build()
 }
 
 // Build creates an agent.Agent from the given configuration and credential.
@@ -84,17 +140,7 @@ func (f *AgentFactory) Build(cfg *service.AgentConfig, cred *service.Credential)
 		return nil, fmt.Errorf("agent_factory: build model for %s/%s: %w", provider, modelName, err)
 	}
 
-	b := react.Builder().
-		Name(cfg.Name).
-		ID(cfg.ID).
-		SysPrompt(cfg.SystemPrompt).
-		Model(chatModel)
-
-	if cfg.Metadata != nil {
-		b = b.Metadata(cfg.Metadata)
-	}
-
-	return b.Build()
+	return f.buildAgentForClass(cfg, chatModel)
 }
 
 // BuildFromTyped builds an agent from config + a typed Credential (plain-text secrets expected inside the typed struct).
@@ -149,17 +195,7 @@ func (f *AgentFactory) BuildFromTyped(cfg *service.AgentConfig, cred credential.
 		return nil, fmt.Errorf("agent_factory: build model for %s/%s: %w", provider, modelName, err)
 	}
 
-	b := react.Builder().
-		Name(cfg.Name).
-		ID(cfg.ID).
-		SysPrompt(cfg.SystemPrompt).
-		Model(chatModel)
-
-	if cfg.Metadata != nil {
-		b = b.Metadata(cfg.Metadata)
-	}
-
-	return b.Build()
+	return f.buildAgentForClass(cfg, chatModel)
 }
 
 // decryptKey decrypts the credential's encrypted field when a cipher is present.

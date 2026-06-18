@@ -1,0 +1,7 @@
+id: text-embedding-v4
+provider: dashscope
+display_name: DashScope text-embedding-v4
+model: text-embedding-v4
+dimensions: 1024
+max_input_tokens: 8192
+modalities: [text]

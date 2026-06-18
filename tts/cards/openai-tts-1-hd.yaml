@@ -1,0 +1,8 @@
+id: openai-tts-1-hd
+provider: openai
+display_name: OpenAI TTS-1 HD
+model: tts-1-hd
+default_voice: alloy
+formats: [mp3, opus, aac, flac, wav, pcm]
+realtime: false
+multilingual: false

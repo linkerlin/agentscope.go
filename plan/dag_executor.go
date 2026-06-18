@@ -127,6 +127,11 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *RichPlan) error {
 
 		var failedStep *Subtask
 		var failedErr error
+		// mu guards shared mutations inside the parallel batch:
+		// plan.UpdatedAt (a multi-word time.Time struct) and the
+		// failedStep/failedErr pair. Each goroutine writes its own
+		// *Subtask, so per-step fields do not need this lock.
+		var mu sync.Mutex
 
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(len(batch))
@@ -141,8 +146,10 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *RichPlan) error {
 				if e.onStepStart != nil {
 					e.onStepStart(step)
 				}
+				mu.Lock()
 				step.State = SubtaskInProgress
 				plan.UpdatedAt = time.Now()
+				mu.Unlock()
 
 				depResults := make(map[string]string)
 				for _, dep := range step.Dependencies {
@@ -153,22 +160,28 @@ func (e *DAGExecutor) Execute(ctx context.Context, plan *RichPlan) error {
 
 				outcome, execErr := e.executeWithRetry(gctx, step, depResults)
 				if execErr != nil {
+					mu.Lock()
 					step.State = SubtaskAbandoned
 					plan.UpdatedAt = time.Now()
+					mu.Unlock()
 					if e.onStepFail != nil {
 						e.onStepFail(step, execErr)
 					}
 					if e.stopOnError {
+						mu.Lock()
 						failedStep = step
 						failedErr = execErr
+						mu.Unlock()
 						return execErr
 					}
 					return nil
 				}
 
+				mu.Lock()
 				step.State = SubtaskDone
 				step.Outcome = outcome
 				plan.UpdatedAt = time.Now()
+				mu.Unlock()
 				results.Store(step.ID, outcome)
 
 				if e.onStepDone != nil {

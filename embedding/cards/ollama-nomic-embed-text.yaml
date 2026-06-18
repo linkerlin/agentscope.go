@@ -1,0 +1,8 @@
+id: nomic-embed-text
+provider: ollama
+display_name: Ollama nomic-embed-text
+model: nomic-embed-text
+dimensions: 768
+max_input_tokens: 8192
+modalities: [text]
+default: true

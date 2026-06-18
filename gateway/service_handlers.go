@@ -59,6 +59,7 @@ type createAgentRequest struct {
 	ModelID      string         `json:"model_id"`
 	Description  string         `json:"description,omitempty"`
 	SystemPrompt string         `json:"system_prompt,omitempty"`
+	AgentClass   string         `json:"agent_class,omitempty"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
@@ -89,6 +90,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		ModelID:      req.ModelID,
 		Description:  req.Description,
 		SystemPrompt: req.SystemPrompt,
+		AgentClass:   req.AgentClass,
 		Metadata:     req.Metadata,
 		CreatedAt:    time.Now(),
 	}

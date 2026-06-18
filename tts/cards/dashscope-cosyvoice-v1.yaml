@@ -1,0 +1,8 @@
+id: cosyvoice-v1
+provider: dashscope
+display_name: CosyVoice v1
+model: cosyvoice-v1
+default_voice: longxiaochun
+formats: [mp3, wav, pcm]
+realtime: false
+multilingual: true

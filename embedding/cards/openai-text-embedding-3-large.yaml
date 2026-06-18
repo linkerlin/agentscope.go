@@ -1,0 +1,8 @@
+id: text-embedding-3-large
+provider: openai
+display_name: OpenAI text-embedding-3-large
+model: text-embedding-3-large
+dimensions: 3072
+max_input_tokens: 8191
+modalities: [text]
+default: true

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -43,6 +44,10 @@ type Pool struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	closed  bool
+	// seq generates monotonically-unique task IDs, avoiding collisions when
+	// multiple tasks are submitted within the same clock tick (which could
+	// happen with a pure time.Now().UnixNano() id under load).
+	seq int64
 }
 
 type workItem struct {
@@ -69,7 +74,9 @@ func NewPool(workers, queueCap int) *Pool {
 
 // Submit enqueues a function for asynchronous execution and returns a task ID.
 func (p *Pool) Submit(fn func() (any, error)) string {
-	id := fmt.Sprintf("task_%d", time.Now().UnixNano())
+	// Monotonic counter guarantees uniqueness even under rapid concurrent
+	// submission; the timestamp is kept for human-readability/debugging.
+	id := fmt.Sprintf("task_%d_%d", atomic.AddInt64(&p.seq, 1), time.Now().UnixNano())
 	task := &Task{
 		ID:      id,
 		Status:  StatusPending,

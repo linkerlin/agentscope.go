@@ -1,0 +1,8 @@
+id: text-embedding-v3
+provider: dashscope
+display_name: DashScope text-embedding-v3
+model: text-embedding-v3
+dimensions: 1024
+max_input_tokens: 8192
+modalities: [text]
+default: true

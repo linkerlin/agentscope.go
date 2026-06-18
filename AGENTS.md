@@ -36,6 +36,8 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
           workspace/     Local/Docker/E2B + MCP Gateway + Offloader
           permission/    规则引擎 + Bash 复合命令拆分 (启发式/tree-sitter) + Shell 命令验证
           embedding/     独立 Embedding 包 (OpenAI/Ollama/Gemini/DashScope/DashScope多模态 + FileCache)
+          tts/           🆕 独立 TTS 包 (DashScope CosyVoice/qwen3-tts + OpenAI 适配器 + RealtimeModel + ModelCard YAML)
+          messagebus/   🆕 分布式消息总线 (LocalBus 进程内 + RedisBus pub/sub 多进程, 对齐 #1849)
 记忆层     memory/        ReMe (文件/向量) + 7 向量后端 (5完整+SQLiteVec+2占位) + Hybrid Search(BM25+Reranker) + Dream 演化 + 知识图谱 + FTS5
 可观测性   observability/ OpenTelemetry + LangSmith + TracingMiddlewareAdapter + otelbridge
 演化层     evolver/       GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill2GEP 蒸馏
@@ -73,6 +75,7 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 | `formatter/` | 946 | 1,203 | 7 | 3 独立 Formatter (OpenAI/Anthropic/Gemini) + 2 别名 + 11 MultiAgent 变体 |
 | `skill/` | 1,038 | 393 | 4 | SkillBox + SkillViewer + load_skill |
 | `evolver/` | 928 | 94 | 1 | GEP Gene/Capsule + Evolver 接口(16方法) + Mock/MCP/Recording 客户端 |
+| `messagebus/` | 230 | 175 | 1 | 🆕 分布式消息总线 (LocalBus + RedisBus pub/sub, 对齐 #1849) |
 | `event/` | 1,007 | 434 | 4 | 20+ 事件类型 + Bus |
 | `a2a/` | 1,652 | 1,156 | 7 | Agent 间协议 + 认证/限流/WebSocket + 安全中间件 + ShardRouter/ClusterManager (Go 独有) |
 | `plugin/` | 480 | 520 | 3 | 🆕 Plugin 系统: Plugin 接口 + Manager + Registrar + YAML 配置 + .so 加载 (Linux) |
@@ -83,8 +86,9 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 | `credential/` | 510 | 94 | 1 | 凭证抽象/Factory |
 | `observability/` | 477 | 514 | 4 | OTel + LangSmith + TracingMiddlewareAdapter |
 | `state/` | 384 | 305 | 3 | AgentState 持久化 (JSONFile/Redis) |
-| `middleware/` | 318 | 126 | 2 | 洋葱模型中间件链 |
-| `embedding/` | 316 | 85 | 1 | 5 后端 (OpenAI/Ollama/Gemini/DashScope/DashScope多模态) + FileCache |
+| `middleware/` | 1090 | 723 | 5 | 洋葱模型中间件链 + BudgetControl (token 预算) + TTSMiddleware + LongTermMemory (mem0 三模式) |
+| `tts/` | 398 | 158 | 1 | 🆕 独立 TTS 包：Model/RealtimeModel + DashScope + OpenAI 适配器 + ModelCard YAML (5 卡片) |
+| `embedding/` | 603 | 240 | 2 | 5 后端 (OpenAI/Ollama/Gemini/DashScope/DashScope多模态) + FileCache + ModelCard YAML (7 卡片) |
 | `embedding/onnx` | 2,400 | 1,200 | 2 | ONNX HTTP 代理：CLIP/Whisper 预处理 + 模型管理器 + 跨模态相似度 |
 | `rag/` | 301 | 259 | 4 | RAG + Tika 集成 |
 | `session/` | 250 | 131 | 2 | 会话管理 |
@@ -166,6 +170,13 @@ make test   # 或 make ci
 24. **知识图谱推理 + 抽取**：`memory/graph/reasoning.go` 提供 FindAllPaths/MultiHopNeighbors/Subgraph/HasCycle/NodeImportance/SearchNodes 算法；`memory/graph/knowledge_extractor.go` 使用 LLM 从文本提取实体/关系三元组并自动注入图谱
 25. **Plugin 系统**：`plugin/` 包提供 `Plugin` 接口（Init/Register/Shutdown 三阶段生命周期）+ `Manager`（优先级排序 + 配置驱动）+ `Registrar`（Model/Tool/Memory/Hook/Middleware/Formatter 六注册点）+ YAML 配置 + Linux `.so` 动态加载（build tag 隔离）
 26. **性能工程化**：`gateway/pprof.go` 提供 pprof 端点集成（`WithPProf()` 链式启用）；`benchmark/` 包统管全项目基准测试 Catalog；Makefile `bench-save`/`bench-compare`/`bench-cpu`/`bench-mem` 目标支持基线对比和性能剖析
+27. **中间件请求变更生效**（对齐 Python v2）：`agent/react/stream.go` 的 `runModel`/`invokeModelChat` final 闭包从 `input` 读取 `Messages`/`ChatOpts`，使 on_reasoning/on_model_call 中间件对请求的变更（注入 hint、强制 tool_choice）真正生效。`BudgetControlMiddleware` 据此实现：累加器经共享 `context.Context` 在 on_reply/on_model_call/on_reasoning 三链间传递，超限注入 HintBlock + 强制 `tool_choice=none`
+28. **独立 TTS 抽象**（对齐 Python #1832）：`tts/` 包定义轻量 `Model`/`RealtimeModel` 接口（独立于重型 `model.AudioModel`），DashScope 后端（CosyVoice/qwen3-tts 同步生成 API）+ OpenAI 适配器（复用 `model.OpenAITTS`）+ 内嵌 YAML ModelCard。`TTSMiddleware` 合成回复语音并以 base64 `AudioBlock` 附加（默认非致命、Strict 可选）
+29. **长期记忆中间件**（对齐 Python #1775）：`middleware.LongTermMemory` 接口（`Search`/`Add`）+ `LongTermMemoryMiddleware` 三模式（static_control 在 on_reasoning 注入检索 HintBlock 并回写 / agent_control 暴露 `search_memory`/`add_memory` 工具 / both）。`NewFuncLongTermMemory` 函数适配器零耦合桥接 ReMe 向量记忆或外部 mem0 HTTP；用户隔离（UserID/AgentID namespacing）
+30. **自定义 Agent 类注册表**（对齐 Python #1838）：`AgentFactory.RegisterAgentClass(name, AgentClassBuilder)` 支持非 ReAct agent 类型；`service.AgentConfig.AgentClass`（默认 `"react"`）+ `SubagentTemplates` 字段；`Build`/`BuildFromTyped` 经 `buildAgentForClass` 分发，未注册类清晰报错。向后兼容（默认行为不变）
+31. **Embedding ModelCard 化**（对齐 Python #1852）：`embedding.ModelCard` + 内嵌 per-provider YAML 卡片 + `ListModelCards`/`ModelCardsByProvider`，与 chat 模型卡片体系一致，支撑 Studio 动态表单与 provider 自文档化
+32. **Agent Team 运行时 spawn + 权限继承**（对齐 #1833/#1815）：`AgentFactory.BuildSubagentTools` 在 `BuildSessionAgent` 中将 leader 的 `SubagentTemplates` spawn 为 `SubagentTool`；子 agent 继承 leader 的 `*permission.Engine` 并共享会话工作区 + 基础 file/shell 工具集（不含嵌套 subagent 工具，避免递归）
+33. **分布式消息总线**（对齐 #1849）：`messagebus.Bus` 抽象 + `LocalBus`（进程内、发布非阻塞）+ `RedisBus`（Redis pub/sub、多进程）；`AppConfig.MessageBus`/`Server.WithMessageBus` 接入，支撑跨进程 cancel/wake-up/tool-offload-complete 协调
 
 ## 已知代码质量问题（审阅发现，待修复）
 

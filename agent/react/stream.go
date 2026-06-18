@@ -25,20 +25,24 @@ func (a *ReActAgent) runModel(
 	iter int,
 	requestTools bool,
 ) (*message.Msg, error) {
-	final := func(ctx context.Context) (*message.Msg, error) {
+	chain := a.Base.MiddlewareChain()
+	if chain == nil || len(chain.Reasoning) == 0 {
 		return a.runModelInner(ctx, history, chatOpts, iter, requestTools)
 	}
-	chain := a.Base.MiddlewareChain()
-	if chain != nil && len(chain.Reasoning) > 0 {
-		input := &middleware.ReasoningInput{
-			Iteration: iter,
-			Messages:  append([]*message.Msg(nil), history...),
-			ChatOpts:  chatOpts,
-		}
-		handler := middleware.ChainReasoning(chain, a.Base, input, final)
-		return handler(ctx)
+	// Build the reasoning input up front so the final closure reads from it.
+	// This lets on_reasoning middleware mutate Messages (e.g. inject budget
+	// hints) and ChatOpts (e.g. force tool_choice=none) and have the changes
+	// take effect on the actual model call — aligning with Python v2
+	// MiddlewareBase semantics.
+	input := &middleware.ReasoningInput{
+		Iteration: iter,
+		Messages:  append([]*message.Msg(nil), history...),
+		ChatOpts:  append([]model.ChatOption(nil), chatOpts...),
 	}
-	return final(ctx)
+	handler := middleware.ChainReasoning(chain, a.Base, input, func(ctx context.Context) (*message.Msg, error) {
+		return a.runModelInner(ctx, input.Messages, input.ChatOpts, iter, requestTools)
+	})
+	return handler(ctx)
 }
 
 func (a *ReActAgent) runModelInner(
@@ -138,19 +142,20 @@ func (a *ReActAgent) invokeModelChat(
 	chatOpts []model.ChatOption,
 	iter int,
 ) (*message.Msg, error) {
-	final := func(ctx context.Context) (*message.Msg, error) {
-		return a.chatModel.Chat(ctx, history, chatOpts...)
-	}
 	chain := a.Base.MiddlewareChain()
 	if chain == nil || len(chain.ModelCall) == 0 {
-		return final(ctx)
+		return a.chatModel.Chat(ctx, history, chatOpts...)
 	}
 	input := &middleware.ModelCallInput{
 		Messages:  append([]*message.Msg(nil), history...),
-		ChatOpts:  chatOpts,
+		ChatOpts:  append([]model.ChatOption(nil), chatOpts...),
 		ModelName: a.chatModel.ModelName(),
 	}
-	handler := middleware.ChainModelCall(chain, a.Base, input, final)
+	// Final closure reads from input so on_model_call middleware can mutate
+	// Messages/ChatOpts and affect the actual Chat call.
+	handler := middleware.ChainModelCall(chain, a.Base, input, func(ctx context.Context) (*message.Msg, error) {
+		return a.chatModel.Chat(ctx, input.Messages, input.ChatOpts...)
+	})
 	return handler(ctx)
 }
 

@@ -3,6 +3,7 @@ package gateway
 import (
 	"testing"
 
+	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -60,5 +61,51 @@ func TestAgentFactory_RegisterProvider(t *testing.T) {
 	// Just verify registration does not panic and builder is callable.
 	if _, ok := f.modelBuilders["custom"]; !ok {
 		t.Fatal("expected custom provider to be registered")
+	}
+}
+
+func TestAgentFactory_DefaultAgentClassRegistered(t *testing.T) {
+	f := NewAgentFactory(nil)
+	classes := f.RegisteredAgentClasses()
+	found := false
+	for _, c := range classes {
+		if c == "react" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected default 'react' agent class, got %v", classes)
+	}
+}
+
+func TestAgentFactory_RegisterAgentClass(t *testing.T) {
+	f := NewAgentFactory(nil)
+	mock := &smMockAgent{}
+	f.RegisterAgentClass("noop", func(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error) {
+		return mock, nil
+	})
+
+	// Custom class is used.
+	got, err := f.buildAgentForClass(&service.AgentConfig{AgentClass: "noop"}, nil)
+	if err != nil || got != mock {
+		t.Fatalf("expected custom class builder to be used, got %v err=%v", got, err)
+	}
+
+	// Unknown class errors clearly.
+	if _, err := f.buildAgentForClass(&service.AgentConfig{AgentClass: "missing"}, nil); err == nil {
+		t.Fatal("expected error for unknown agent class")
+	}
+}
+
+func TestAgentFactory_EmptyClassDefaultsToReact(t *testing.T) {
+	f := NewAgentFactory(nil)
+	sentinel := &smMockAgent{}
+	// Override the default "react" builder with a sentinel to prove "" resolves to "react".
+	f.RegisterAgentClass("react", func(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error) {
+		return sentinel, nil
+	})
+	got, err := f.buildAgentForClass(&service.AgentConfig{AgentClass: ""}, nil)
+	if err != nil || got != sentinel {
+		t.Fatalf("expected empty AgentClass to resolve to 'react', got %v err=%v", got, err)
 	}
 }

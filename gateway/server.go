@@ -13,6 +13,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -81,6 +82,9 @@ type Server struct {
 	embeddingModel      model.EmbeddingModel
 	audioModel          model.AudioModel
 	sessionAgentBuilder SessionAgentBuilder
+	// messageBus enables cross-process coordination (distributed cancel /
+	// wake-up / tool-offload-complete events). nil = single-process (no bus).
+	messageBus messagebus.Bus
 
 	// defaultSessionDeps holds auto-assembled defaults for per-session agents
 	// (populated by NewApp when AutoStandardTools etc. are enabled).
@@ -130,6 +134,17 @@ func (s *Server) WithRegistry(r *AgentRegistry) *Server {
 	s.registry = r
 	return s
 }
+
+// WithMessageBus attaches a pub/sub bus for cross-process coordination
+// (distributed cancel / wake-up / tool-offload events). Optional; nil keeps the
+// server single-process. Aligns with Python agentscope's message bus (#1849).
+func (s *Server) WithMessageBus(b messagebus.Bus) *Server {
+	s.messageBus = b
+	return s
+}
+
+// MessageBus returns the attached bus (may be nil in single-process deployments).
+func (s *Server) MessageBus() messagebus.Bus { return s.messageBus }
 
 // WithSessionManager attaches a SessionManager for per-session
 // serialisation, fan-out and replay.

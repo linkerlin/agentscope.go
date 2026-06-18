@@ -1,0 +1,8 @@
+id: qwen3-tts-flash-realtime
+provider: dashscope
+display_name: Qwen3 TTS Flash (Realtime)
+model: qwen3-tts-flash-realtime
+default_voice: Cherry
+formats: [pcm]
+realtime: true
+multilingual: true

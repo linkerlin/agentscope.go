@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-06-18
+
+### Added — 对照 Python 参考实现的追赶 (演进方案 v3, Tier 1)
+- **`tts/` 独立 TTS 包** (对齐 Python #1832)：`tts.Model` / `tts.RealtimeModel` 抽象（非实时 `Synthesize` + 实时 `Connect/Push/Close`）、`Options`/`Response`、DashScope 后端（CosyVoice/qwen3-tts 同步生成 API + 可注入 HTTP client）、OpenAI 适配器（复用既有 `model.OpenAITTS`，零重复）、`tts.ModelCard` + 内嵌 YAML 卡片（cosyvoice-v1 / qwen3-tts-flash / qwen3-tts-flash-realtime / tts-1 / tts-1-hd）、`ListModelCards`/`FindModelCards`。
+- **`middleware/tts.go` TTSMiddleware** (对齐 Python #1832)：拦截 assistant 回复文本 → 合成语音 → 以 base64 `AudioBlock` 附加到回复消息；支持 `Strict` 错误传播模式，默认非致命（错误记入 `Metadata["tts_error"]`）。
+- **`middleware/budget.go` BudgetControlMiddleware** (对齐 Python #1738)：按 reply 计的加权 token 预算（`InputTokenWeight*in + OutputTokenWeight*out`），超限注入 `HintBlock` + 强制 `tool_choice=none`；预算累加器经共享 `context.Context` 在 on_reply/on_model_call/on_reasoning 三链间传递（实例无状态、可跨 agent 共享）；token 用量优先 `msg.Usage`，回退 `msg.Metadata["usage"]`（流式）。
+- **`middleware/longterm_memory.go` 长期记忆中间件** (对齐 Python #1775)：`LongTermMemory` 接口（`Search`/`Add`）+ 三模式（`static_control` 自动检索注入+回写 / `agent_control` 暴露工具 / `both`）；`InMemoryLongTermMemory`（线程安全，demo/测试）、`NewFuncLongTermMemory`（函数适配器，零耦合桥接 ReMe/外部 mem0）；`search_memory`/`add_memory` 工具；经框架修复在 on_reasoning 注入记忆 HintBlock。
+- **`embedding/` ModelCard 化** (对齐 Python #1852)：`embedding.ModelCard` + 内嵌 per-provider YAML 卡片（OpenAI text-embedding-3-large/small、Gemini embedding-001、DashScope text-embedding-v3/v4 + 多模态、Ollama nomic-embed-text）+ `ListModelCards`/`FindModelCard`/`ModelCardsByProvider`，支撑 Studio 动态表单。
+- **自定义 Agent 类注册表** (对齐 Python #1838)：`AgentFactory.RegisterAgentClass(name, builder)` + `AgentClassBuilder` 类型；`service.AgentConfig` 新增 `AgentClass`（默认 `"react"`）与 `SubagentTemplates` 字段；`createAgentRequest` 透传 `agent_class`。未注册类构建时报清晰错误。
+- **gateway workspace→权限接线** (对齐 Python #1823)：`gateway/agent_session.go` 将会话工作区根路径注入 `permission.Context.WorkingDirs`，使 ACCEPT_EDITS 模式可在会话工作区内自动放行（修复"管道存在但未接线"缺陷）。
+
+### Changed
+- **中间件框架增强** (`agent/react/stream.go`)：`runModel` / `invokeModelChat` 的 final 闭包改为从 `input` 读取 `Messages`/`ChatOpts`，使 on_reasoning / on_model_call 中间件对请求的变更（如注入 hint、强制 tool_choice）真正生效——对齐 Python v2 MiddlewareBase 语义，且不破坏既有中间件（LoggingMiddleware 等不变）。
+- **`gateway/agent_factory.go`**：提取 `buildAgentForClass` + `defaultReactAgentBuilder`，`Build`/`BuildFromTyped` 改为经 Agent 类注册表分发（默认行为不变，向后兼容）。
+
+### Fixed
+- **`plan/dag_executor.go` 数据竞争**：修复并行批次中多个 goroutine 无同步并发写 `plan.UpdatedAt`（`time.Time` 多字结构）与 `failedStep`/`failedErr` 的竞态；新增 scoped `sync.Mutex` 保护共享状态。
+- **`async/pool.go` 任务 ID 碰撞**：`Submit` 改用原子递增计数器生成唯一 ID（`task_<seq>_<nano>`），消除高并发下 `time.Now().UnixNano()` 碰撞导致的 `TestPool_ManyTasks` 偶发失败。全量 `go test ./... -race` 恢复稳定全绿。
+- **`memory/async_queue_test.go` 优先级测试竞态**：`TestAsyncTaskQueuePriority` 用 ready-gate 确保三任务全部入队后 worker 才开始处理，消除"worker 抢先处理首个低优先级任务"导致的偶发失败。
+
+### Added — 对照 Python 参考实现的追赶 (演进方案 v3, Tier 3/4)
+- **Agent Team 运行时 spawn + 权限继承**（对齐 #1833/#1815）：`gateway/agent_team.go` 新增 `AgentFactory.BuildSubagentTools`，将 leader 的 `SubagentTemplates` 在 `BuildSessionAgent` 中 spawn 为 `SubagentTool`；每个子 agent **继承 leader 的权限引擎**（#1815）并共享会话工作区，获得基础 file/shell 工具集；新增 `NewSessionWorkspace` 构造器。
+- **`messagebus/` 分布式消息总线**（对齐 #1849）：`Bus` 接口 + `Message`；`LocalBus`（进程内、发布非阻塞、慢订阅者不拖累）+ `RedisBus`（Redis pub/sub，多进程/分布式）；`AppConfig.MessageBus` + `Server.WithMessageBus`/`MessageBus()` 接入，支撑跨进程 cancel/wake-up/offload 协调。
+- **可运行示例**：`examples/longterm_memory`（三模式 + 回写）、`examples/tts`（TTSMiddleware + 卡片）、`examples/messagebus`（LocalBus + 内嵌 miniredis RedisBus）、`examples/agent_team`（子 agent 模板 spawn + 委托）。
+
 ## [2.0.0] - 2026-06-12
 
 ### Added — 社区治理与工程化

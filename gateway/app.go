@@ -3,6 +3,7 @@ package gateway
 import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/embedding"
+	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
@@ -40,6 +41,10 @@ type AppConfig struct {
 	ModelCardsDir      string
 	EmbeddingModel     model.EmbeddingModel
 	AudioModel         model.AudioModel
+	// MessageBus enables cross-process coordination (distributed cancel /
+	// wake-up / tool-offload events). Optional; nil = single-process.
+	// Aligns with Python agentscope's message bus (#1849).
+	MessageBus messagebus.Bus
 
 	// --- Auto-assembly options (more "create_app" like experience) ---
 	WorkspaceBaseDir      string               // if set and WorkspaceManager==nil, auto-create Local WorkspaceManager
@@ -72,6 +77,9 @@ func NewApp(cfg AppConfig) *Server {
 	}
 	if cfg.Registry != nil {
 		srv.WithRegistry(cfg.Registry)
+	}
+	if cfg.MessageBus != nil {
+		srv.WithMessageBus(cfg.MessageBus)
 	}
 	if cfg.SessionManager != nil {
 		srv.WithSessionManager(cfg.SessionManager)

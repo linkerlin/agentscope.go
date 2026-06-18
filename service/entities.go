@@ -61,18 +61,38 @@ type ChatModelConfig struct {
 	Parameters   map[string]any `json:"parameters,omitempty"`
 }
 
-// AgentConfig represents the persisted configuration of an agent.
-type AgentConfig struct {
-	ID           string         `json:"id"`
-	UserID       string         `json:"user_id"`
+// SubagentTemplate describes a child agent spawned (as a tool) by a leader
+// agent. Aligns with Python agentscope's agent-team custom subagent templates
+// (#1833). The leader inherits its permission context to spawned subagents
+// (#1815) at build time.
+type SubagentTemplate struct {
 	Name         string         `json:"name"`
-	Description  string         `json:"description,omitempty"`
+	ModelID      string         `json:"model_id,omitempty"`
 	SystemPrompt string         `json:"system_prompt,omitempty"`
-	ModelID      string         `json:"model_id"`
+	Description  string         `json:"description,omitempty"`
 	ToolIDs      []string       `json:"tool_ids,omitempty"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+}
+
+// AgentConfig represents the persisted configuration of an agent.
+type AgentConfig struct {
+	ID           string `json:"id"`
+	UserID       string `json:"user_id"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	ModelID      string `json:"model_id"`
+	// AgentClass selects the agent construction strategy (default "react").
+	// Custom classes are registered on the gateway's AgentFactory via
+	// RegisterAgentClass. Aligns with Python agentscope's custom agent class
+	// support (#1838).
+	AgentClass string `json:"agent_class,omitempty"`
+	// SubagentTemplates describe child agents a leader agent spawns as tools.
+	SubagentTemplates []SubagentTemplate `json:"subagent_templates,omitempty"`
+	ToolIDs           []string           `json:"tool_ids,omitempty"`
+	Metadata          map[string]any     `json:"metadata,omitempty"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
 }
 
 // Credential stores an encrypted API key for a model provider.

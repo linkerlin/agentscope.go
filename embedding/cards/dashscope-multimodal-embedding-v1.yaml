@@ -1,0 +1,7 @@
+id: multimodal-embedding-one-peace-v1
+provider: dashscope
+display_name: DashScope Multimodal Embedding (One-Peace)
+model: multimodal-embedding-one-peace-v1
+dimensions: 1024
+max_input_tokens: 2048
+modalities: [text, image, video, audio]

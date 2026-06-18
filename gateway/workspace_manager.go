@@ -20,6 +20,13 @@ type SessionWorkspace struct {
 	dir       string // session root; hosts .mcp persistence file
 }
 
+// NewSessionWorkspace constructs a SessionWorkspace from an existing workspace
+// and its root directory. Useful for programmatic setup (e.g. agent-team demos
+// and tests) outside the WorkspaceManager lifecycle.
+func NewSessionWorkspace(ws workspace.Workspace, dir string) *SessionWorkspace {
+	return &SessionWorkspace{Workspace: ws, dir: dir}
+}
+
 // Dir returns the session workspace root directory.
 func (sw *SessionWorkspace) Dir() string {
 	if sw == nil {

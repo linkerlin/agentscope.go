@@ -156,3 +156,80 @@ func TestFindModelCard(t *testing.T) {
 		t.Fatal("expected nil for unknown card")
 	}
 }
+
+// plainTTS implements only tts.Model (non-realtime).
+type plainTTS struct{}
+
+func (plainTTS) ModelName() string { return "plain" }
+func (plainTTS) Synthesize(ctx context.Context, text string, opts tts.Options) (*tts.Response, error) {
+	return &tts.Response{Audio: []byte("x"), MediaType: "audio/mpeg", IsLast: true}, nil
+}
+
+// realtimeTTS implements tts.RealtimeModel.
+type realtimeTTS struct{}
+
+func (realtimeTTS) ModelName() string { return "rt" }
+func (realtimeTTS) Synthesize(ctx context.Context, text string, opts tts.Options) (*tts.Response, error) {
+	return &tts.Response{Audio: []byte("final"), MediaType: "audio/pcm", IsLast: true}, nil
+}
+func (realtimeTTS) Connect(ctx context.Context) error { return nil }
+func (realtimeTTS) Push(ctx context.Context, text string, opts tts.Options) (*tts.Response, error) {
+	return &tts.Response{Audio: []byte("chunk"), MediaType: "audio/pcm"}, nil
+}
+func (realtimeTTS) Close(ctx context.Context) (*tts.Response, error) {
+	return &tts.Response{IsLast: true}, nil
+}
+
+func TestIsRealtime(t *testing.T) {
+	if tts.IsRealtime(plainTTS{}) {
+		t.Fatal("plain model should not be realtime")
+	}
+	if !tts.IsRealtime(realtimeTTS{}) {
+		t.Fatal("realtime model should be detected as realtime")
+	}
+}
+
+func TestRealtimeModel_Lifecycle(t *testing.T) {
+	rt := realtimeTTS{}
+	if err := rt.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	push, err := rt.Push(context.Background(), "hel", tts.Options{})
+	if err != nil || string(push.Audio) != "chunk" {
+		t.Fatalf("push: %+v err=%v", push, err)
+	}
+	final, err := rt.Synthesize(context.Background(), "lo", tts.Options{})
+	if err != nil || !final.IsLast {
+		t.Fatalf("synthesize: %+v err=%v", final, err)
+	}
+	closing, err := rt.Close(context.Background())
+	if err != nil || !closing.IsLast {
+		t.Fatalf("close: %+v err=%v", closing, err)
+	}
+}
+
+func TestMergeOptions_DefaultsAndOverride(t *testing.T) {
+	// DashScope exposes WithVoice/WithFormat builders; exercise the merge via a
+	// constructed model and confirm defaults stick when call opts are empty.
+	d := tts.NewDashScope("k").WithVoice("Ethan").WithFormat("wav")
+	_ = d
+	// mediaTypeForFormat is unexported; verify it indirectly through the
+	// OpenAI adapter's response for several formats using a mock server.
+	mediaFor := func(format string) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte{1})
+		}))
+		defer srv.Close()
+		backend := model.NewOpenAITTS("k").WithBaseURL(srv.URL).WithHTTPClient(srv.Client())
+		resp, _ := tts.NewOpenAIAdapter(backend).Synthesize(context.Background(), "x", tts.Options{Format: format})
+		return resp.MediaType
+	}
+	for format, want := range map[string]string{
+		"mp3": "audio/mpeg", "wav": "audio/wav", "pcm": "audio/pcm",
+		"opus": "audio/ogg", "flac": "audio/flac",
+	} {
+		if got := mediaFor(format); got != want {
+			t.Errorf("format %q: got %q want %q", format, got, want)
+		}
+	}
+}

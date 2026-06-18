@@ -9,6 +9,7 @@ import (
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
 )
@@ -112,5 +113,98 @@ func TestRunModelNilChunk(t *testing.T) {
 	}
 	if msg.GetTextContent() != "a" {
 		t.Fatalf("expected a, got %s", msg.GetTextContent())
+	}
+}
+
+// recordingModel captures the ChatOptions and messages the model actually
+// receives, so the framework-fix test can assert middleware mutations propagate.
+type recordingModel struct {
+	name    string
+	gotOpts []model.ChatOption
+	gotMsgs []*message.Msg
+}
+
+func (m *recordingModel) ModelName() string { return m.name }
+func (m *recordingModel) Chat(ctx context.Context, msgs []*message.Msg, opts ...model.ChatOption) (*message.Msg, error) {
+	m.gotOpts = opts
+	m.gotMsgs = msgs
+	return message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build(), nil
+}
+func (m *recordingModel) ChatStream(ctx context.Context, msgs []*message.Msg, opts ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+	return nil, errors.New("not used")
+}
+
+// forceNoneReasoningMW is an on_reasoning middleware that mutates ChatOpts
+// (force tool_choice=none) and injects a marker message into the input.
+type forceNoneReasoningMW struct{ middleware.Base }
+
+func (m *forceNoneReasoningMW) OnReasoning(ctx context.Context, ag middleware.Agent, input *middleware.ReasoningInput, next middleware.ReasoningNext) (*message.Msg, error) {
+	input.ChatOpts = append(input.ChatOpts, model.WithToolChoice(&model.ToolChoice{Mode: "none"}))
+	input.Messages = append(input.Messages, message.NewMsg().Role(message.RoleAssistant).Name("inject").TextContent("INJECTED-MARKER").Build())
+	return next(ctx)
+}
+
+// TestRunModel_ReasoningMiddlewareMutationPropagates verifies the Tier 1B
+// framework fix: an on_reasoning middleware's mutations to input.ChatOpts and
+// input.Messages reach the actual model call (previously the final closure
+// captured the original history/opts and ignored middleware edits).
+func TestRunModel_ReasoningMiddlewareMutationPropagates(t *testing.T) {
+	rec := &recordingModel{name: "rec"}
+	a := &ReActAgent{
+		Base:      agent.NewBase("", "t", "", "", nil, nil, nil, &forceNoneReasoningMW{}),
+		chatModel: rec,
+		memory:    memory.NewInMemoryMemory(),
+	}
+	hist := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
+	if _, err := a.runModel(context.Background(), hist, nil, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	// tool_choice=none must reach the model.
+	var co model.ChatOptions
+	for _, o := range rec.gotOpts {
+		o(&co)
+	}
+	if co.ToolChoice == nil || co.ToolChoice.Mode != "none" {
+		t.Fatalf("expected tool_choice=none to propagate to the model, got %+v", co.ToolChoice)
+	}
+	// The injected marker message must reach the model.
+	found := false
+	for _, m := range rec.gotMsgs {
+		if m.GetTextContent() == "INJECTED-MARKER" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected the middleware-injected message to reach the model")
+	}
+}
+
+// TestInvokeModelChat_ModelCallMiddlewareMutationPropagates verifies the same
+// fix at the on_model_call layer: a ModelCall interceptor's ChatOpts mutation
+// reaches the Chat call.
+type overrideFormatModelMW struct{ middleware.Base }
+
+func (m *overrideFormatModelMW) OnModelCall(ctx context.Context, ag middleware.Agent, input *middleware.ModelCallInput, next middleware.ModelCallNext) (*message.Msg, error) {
+	input.ChatOpts = append(input.ChatOpts, model.WithTemperature(0.42))
+	return next(ctx)
+}
+
+func TestInvokeModelChat_ModelCallMiddlewareMutationPropagates(t *testing.T) {
+	rec := &recordingModel{name: "rec"}
+	a := &ReActAgent{
+		Base:      agent.NewBase("", "t", "", "", nil, nil, nil, &overrideFormatModelMW{}),
+		chatModel: rec,
+		memory:    memory.NewInMemoryMemory(),
+	}
+	hist := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
+	if _, err := a.invokeModelChat(context.Background(), hist, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	var co model.ChatOptions
+	for _, o := range rec.gotOpts {
+		o(&co)
+	}
+	if co.Temperature != 0.42 {
+		t.Fatalf("expected temperature=0.42 from model-call middleware to propagate, got %v", co.Temperature)
 	}
 }

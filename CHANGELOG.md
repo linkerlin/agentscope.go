@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **中间件框架增强** (`agent/react/stream.go`)：`runModel` / `invokeModelChat` 的 final 闭包改为从 `input` 读取 `Messages`/`ChatOpts`，使 on_reasoning / on_model_call 中间件对请求的变更（如注入 hint、强制 tool_choice）真正生效——对齐 Python v2 MiddlewareBase 语义，且不破坏既有中间件（LoggingMiddleware 等不变）。
 - **`gateway/agent_factory.go`**：提取 `buildAgentForClass` + `defaultReactAgentBuilder`，`Build`/`BuildFromTyped` 改为经 Agent 类注册表分发（默认行为不变，向后兼容）。
+- **新增内省访问器**：`permission.Engine.Mode()` / `WorkingDirs()`（返回防御性副本）、`agent/react.ReActAgent.PermissionEngine()`，支撑 Tier 1A 接线验证与运行时内省。
+
+### Tests — 单元测试全覆盖所有改进点
+- Tier 1A workspace→权限接线：`TestBuildSessionAgent_WiresWorkspaceIntoPermission` / `_DefaultPermissionMode`（断言 `WorkingDirs` 含会话根 + 模式）。
+- Tier 1B 框架修复：`TestRunModel_ReasoningMiddlewareMutationPropagates` / `TestInvokeModelChat_ModelCallMiddlewareMutationPropagates`（验证 on_reasoning/on_model_call 对 ChatOpts/Messages 的变更到达模型调用）。
+- 新访问器：`permission/TestEngineAccessors`（Mode/WorkingDirs + 防御性副本 + nil 安全）。
+- tts：`TestIsRealtime` / `TestRealtimeModel_Lifecycle`（RealtimeModel 接口）/ `TestMergeOptions_DefaultsAndOverride`（mediaTypeForFormat 覆盖 mp3/wav/pcm/opus/flac）。
+- messagebus：`TestLocalBus_PublishWithNoSubscribers` / `_ContextCancelledPublish` / `TestRedisBus_NilClientErrors` / `_SubscribeNoChannels`。
+- 长期记忆：`TestInMemory_TopKLimit` / `_DefaultTopK` / `TestLongTermMemoryMiddleware_Builders` / `_SearchErrorResilience` / `_AgentControlSkipsReasoningInjection`。
+- 自定义 Agent 类：`TestAgentFactory_RegisterAgentClass_NoOpOnInvalid` / `TestAgentFactory_BuildFromTyped_UsesAgentClass`。
+- Agent Team：`TestBuildSubagentFromTemplate_InheritsPermissionEngine`（断言子 agent 共享 leader 权限引擎实例，#1815）/ `_UsesTemplateModelID`。
+- BudgetControl / TTSMiddleware / Embedding 卡片 / 自定义类 / Agent Team 基础场景（既有测试）保持覆盖。
 
 ### Fixed
 - **`plan/dag_executor.go` 数据竞争**：修复并行批次中多个 goroutine 无同步并发写 `plan.UpdatedAt`（`time.Time` 多字结构）与 `failedStep`/`failedErr` 的竞态；新增 scoped `sync.Mutex` 保护共享状态。

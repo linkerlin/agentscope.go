@@ -175,3 +175,51 @@ func TestRedisBus_CancelClosesChannel(t *testing.T) {
 		t.Fatal("expected channel closure after cancel")
 	}
 }
+
+func TestLocalBus_PublishWithNoSubscribers(t *testing.T) {
+	bus := messagebus.NewLocalBus()
+	defer bus.Close()
+	// Publishing to a channel with no subscribers is a no-op (no error/panic).
+	if err := bus.Publish(context.Background(), "ghost", []byte("x")); err != nil {
+		t.Fatalf("publish no subscribers: %v", err)
+	}
+}
+
+func TestLocalBus_ContextCancelledPublish(t *testing.T) {
+	bus := messagebus.NewLocalBus()
+	defer bus.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := bus.Publish(ctx, "x", []byte("y")); err == nil {
+		t.Fatal("expected error when publish context cancelled")
+	}
+}
+
+func TestRedisBus_NilClientErrors(t *testing.T) {
+	bus := messagebus.NewRedisBus(nil, "")
+	if err := bus.Publish(context.Background(), "x", []byte("y")); err != messagebus.ErrClosed {
+		t.Fatalf("expected ErrClosed on nil client publish, got %v", err)
+	}
+	if _, _, err := bus.Subscribe(context.Background(), "x"); err != messagebus.ErrClosed {
+		t.Fatalf("expected ErrClosed on nil client subscribe, got %v", err)
+	}
+	if err := bus.Close(); err != nil {
+		t.Fatalf("Close should be no-op: %v", err)
+	}
+}
+
+func TestRedisBus_SubscribeNoChannels(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+	client := bredis.NewClient(&bredis.Options{Addr: mr.Addr()})
+	defer client.Close()
+
+	bus := messagebus.NewRedisBus(client, "")
+	ch, cancel, err := bus.Subscribe(context.Background())
+	if ch != nil || cancel != nil || err != nil {
+		t.Fatalf("expected nil returns for no channels, got ch=%v cancel=%v err=%v", ch, cancel, err)
+	}
+}

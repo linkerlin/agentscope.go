@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -217,6 +218,66 @@ func TestFuncLongTermMemory(t *testing.T) {
 	}
 	if err := nilAdapter.Add(context.Background(), nil, middleware.AddOptions{}); err != nil {
 		t.Fatal("nil AddFn should return nil error")
+	}
+}
+
+func TestInMemory_TopKLimit(t *testing.T) {
+	m := middleware.NewInMemoryLongTermMemory()
+	for i := 0; i < 10; i++ {
+		_ = m.Add(context.Background(), []string{"shared keyword item"}, middleware.AddOptions{UserID: "u"})
+	}
+	got, _ := m.Search(context.Background(), "keyword", middleware.SearchOptions{TopK: 3, UserID: "u"})
+	if len(got) != 3 {
+		t.Fatalf("expected TopK=3 to limit results, got %d", len(got))
+	}
+}
+
+func TestInMemory_DefaultTopK(t *testing.T) {
+	m := middleware.NewInMemoryLongTermMemory()
+	for i := 0; i < 8; i++ {
+		_ = m.Add(context.Background(), []string{"item"}, middleware.AddOptions{UserID: "u"})
+	}
+	// TopK=0 falls back to the default (5).
+	got, _ := m.Search(context.Background(), "", middleware.SearchOptions{UserID: "u"})
+	if len(got) != 5 {
+		t.Fatalf("expected default TopK=5, got %d", len(got))
+	}
+}
+
+func TestLongTermMemoryMiddleware_Builders(t *testing.T) {
+	mw := middleware.NewLongTermMemoryMiddleware(middleware.NewInMemoryLongTermMemory(), "u").
+		WithMode(middleware.MemoryModeAgentControl).
+		WithAgentID("agent-7").
+		WithTopK(12)
+	if mw.Mode != middleware.MemoryModeAgentControl || mw.AgentID != "agent-7" || mw.TopK != 12 {
+		t.Fatalf("builders did not apply: %+v", mw)
+	}
+}
+
+func TestLongTermMemoryMiddleware_SearchErrorResilience(t *testing.T) {
+	// Backend whose Search always errors: the middleware must not inject and
+	// must not break the reply, and must not write back an empty exchange.
+	failing := middleware.NewFuncLongTermMemory(
+		func(ctx context.Context, q string, o middleware.SearchOptions) ([]middleware.Memory, error) {
+			return nil, fmt.Errorf("backend down")
+		},
+		func(ctx context.Context, texts []string, o middleware.AddOptions) error { return nil },
+	)
+	mw := middleware.NewLongTermMemoryMiddleware(failing, "u").WithMode(middleware.MemoryModeBoth)
+	hint := runLTMReply(t, mw, "anything")
+	if hint != "" {
+		t.Fatalf("search error should yield no injection, got %q", hint)
+	}
+}
+
+func TestLongTermMemoryMiddleware_AgentControlSkipsReasoningInjection(t *testing.T) {
+	// In agent_control mode OnReasoning is a pass-through even when the backend
+	// has memories (the agent uses tools instead).
+	backend := middleware.NewInMemoryLongTermMemory()
+	_ = backend.Add(context.Background(), []string{"a fact"}, middleware.AddOptions{UserID: "u"})
+	mw := middleware.NewLongTermMemoryMiddleware(backend, "u").WithMode(middleware.MemoryModeAgentControl)
+	if hint := runLTMReply(t, mw, "fact"); hint != "" {
+		t.Fatalf("agent_control must not inject via reasoning, got %q", hint)
 	}
 }
 

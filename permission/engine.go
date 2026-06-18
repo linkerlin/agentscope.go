@@ -98,6 +98,24 @@ func (e *Engine) WithReadOnlyTools(names ...string) *Engine {
 	return e
 }
 
+// Mode returns the configured permission mode.
+func (e *Engine) Mode() Mode {
+	if e == nil || e.ctx == nil {
+		return ""
+	}
+	return e.ctx.Mode
+}
+
+// WorkingDirs returns the working directories allowed in ACCEPT_EDITS mode
+// (e.g. the session workspace root wired by the gateway). Useful for
+// introspection and tests.
+func (e *Engine) WorkingDirs() []string {
+	if e == nil || e.ctx == nil {
+		return nil
+	}
+	return append([]string(nil), e.ctx.WorkingDirs...)
+}
+
 func defaultReadOnlyTools() map[string]bool {
 	return map[string]bool{
 		"read_file":      true,

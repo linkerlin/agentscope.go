@@ -258,6 +258,11 @@ func (b *ReActAgentBuilder) WithTaskStore(store *state.TaskStore) *ReActAgentBui
 // TaskStore returns the agent's task store (may be nil).
 func (a *ReActAgent) TaskStore() *state.TaskStore { return a.taskStore }
 
+// PermissionEngine returns the agent's permission engine (may be nil). Useful
+// for introspection (e.g. verifying the session workspace root is wired into
+// WorkingDirs in ACCEPT_EDITS mode).
+func (a *ReActAgent) PermissionEngine() *permission.Engine { return a.permissionEngine }
+
 //nolint:revive
 func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 	if b.name == "" {

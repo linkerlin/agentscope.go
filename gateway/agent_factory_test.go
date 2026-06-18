@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/credential"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -107,5 +108,39 @@ func TestAgentFactory_EmptyClassDefaultsToReact(t *testing.T) {
 	got, err := f.buildAgentForClass(&service.AgentConfig{AgentClass: ""}, nil)
 	if err != nil || got != sentinel {
 		t.Fatalf("expected empty AgentClass to resolve to 'react', got %v err=%v", got, err)
+	}
+}
+
+func TestAgentFactory_RegisterAgentClass_NoOpOnInvalid(t *testing.T) {
+	f := NewAgentFactory(nil)
+	before := len(f.agentBuilders)
+	f.RegisterAgentClass("", func(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error) {
+		return nil, nil
+	}) // empty name -> no-op
+	f.RegisterAgentClass("x", nil) // nil builder -> no-op
+	if len(f.agentBuilders) != before {
+		t.Fatalf("invalid registrations should be no-ops: before=%d after=%d", before, len(f.agentBuilders))
+	}
+}
+
+func TestAgentFactory_BuildFromTyped_UsesAgentClass(t *testing.T) {
+	f := NewAgentFactory(nil)
+	// Override the built-in "openai" model builder so BuildFromTyped resolves a
+	// typed OpenAICredential to a mock model without network access.
+	f.RegisterProvider("openai", func(key, name, url string) (model.ChatModel, error) {
+		return &mockChatModel{name: name}, nil
+	})
+	sentinel := &smMockAgent{}
+	f.RegisterAgentClass("custom", func(cfg *service.AgentConfig, chatModel model.ChatModel) (agent.Agent, error) {
+		return sentinel, nil
+	})
+
+	cred := credential.NewOpenAI("n", "key") // typed credential, Provider()=="openai"
+	got, err := f.BuildFromTyped(&service.AgentConfig{Name: "n", ModelID: "openai/gpt", AgentClass: "custom"}, cred)
+	if err != nil {
+		t.Fatalf("BuildFromTyped: %v", err)
+	}
+	if got != sentinel {
+		t.Fatal("expected BuildFromTyped to dispatch through the custom agent class")
 	}
 }

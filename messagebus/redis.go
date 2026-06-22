@@ -2,7 +2,9 @@ package messagebus
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -88,4 +90,99 @@ func (b *RedisBus) Subscribe(ctx context.Context, channels ...string) (<-chan Me
 // caller.
 func (b *RedisBus) Close() error { return nil }
 
+// --- RedisBus TeamBus implementation (cross-process inbox + wakeup) ---
+
+func (b *RedisBus) inboxKey(sid string) string { return b.prefix + ":inbox:" + sid }
+func (b *RedisBus) wakeupKey() string          { return b.prefix + ":wakeup" }
+
+func (b *RedisBus) InboxPush(ctx context.Context, sessionID string, msg TeamMessage) error {
+	if b.client == nil {
+		return ErrClosed
+	}
+	if msg.SentAt.IsZero() {
+		msg.SentAt = time.Now()
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return b.client.RPush(ctx, b.inboxKey(sessionID), data).Err()
+}
+
+func (b *RedisBus) InboxDrain(ctx context.Context, sessionID string) ([]TeamMessage, error) {
+	if b.client == nil {
+		return nil, ErrClosed
+	}
+	key := b.inboxKey(sessionID)
+	pipe := b.client.TxPipeline()
+	lrange := pipe.LRange(ctx, key, 0, -1)
+	pipe.Del(ctx, key)
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
+	var out []TeamMessage
+	for _, raw := range lrange.Val() {
+		var m TeamMessage
+		if json.Unmarshal([]byte(raw), &m) == nil {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+func (b *RedisBus) EnqueueWakeup(ctx context.Context, sessionID string) error {
+	if b.client == nil {
+		return ErrClosed
+	}
+	return b.client.RPush(ctx, b.wakeupKey(), sessionID).Err()
+}
+
+// SubscribeWakeup uses BLPOP on a persistent wakeup list so wakeups enqueued
+// before the subscriber connected are not lost (mirrors Python's persistent
+// wakeup stream). One consumer drains the list; for multi-consumer fan-out use
+// separate wakeup lists per process.
+func (b *RedisBus) SubscribeWakeup(ctx context.Context) (<-chan WakeupEvent, Cancel, error) {
+	if b.client == nil {
+		return nil, nil, ErrClosed
+	}
+	out := make(chan WakeupEvent, defaultSubscriberBuffer)
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			default:
+			}
+			// BLPOP blocks up to a short timeout so we can re-check ctx.
+			res, err := b.client.BLPop(ctx, 5*time.Second, b.wakeupKey()).Result()
+			if err != nil {
+				if err == redis.Nil || err == context.Canceled {
+					continue
+				}
+				select {
+				case <-done:
+					return
+				case <-time.After(time.Second):
+				}
+				continue
+			}
+			if len(res) >= 2 {
+				select {
+				case out <- WakeupEvent{SessionID: res[1]}:
+				case <-done:
+					return
+				}
+			}
+		}
+	}()
+	cancel := Cancel(func() { once.Do(func() { close(done) }) })
+	return out, cancel, nil
+}
+
 var _ Bus = (*RedisBus)(nil)
+var _ TeamBus = (*RedisBus)(nil)

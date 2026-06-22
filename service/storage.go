@@ -49,4 +49,11 @@ type Storage interface {
 	ListAllSchedules(ctx context.Context) ([]*Schedule, error)
 	DeleteSchedule(ctx context.Context, id string) error
 	ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*Session, error)
+
+	// Teams (agent-team async collaboration; aligns with Python agentscope AgentTeam)
+	SaveTeam(ctx context.Context, team *Team) error
+	GetTeam(ctx context.Context, id string) (*Team, error)
+	ListTeamsByUser(ctx context.Context, userID string) ([]*Team, error)
+	DeleteTeam(ctx context.Context, id string) error
+	GetTeamByLeaderSession(ctx context.Context, sessionID string) (*Team, error)
 }

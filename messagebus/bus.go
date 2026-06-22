@@ -50,15 +50,22 @@ type Cancel func()
 // dropped (not delivered) when a subscriber's buffer is full, so a slow
 // subscriber never stalls the publisher or other subscribers.
 type LocalBus struct {
-	mu     sync.RWMutex
-	subs   map[string]map[int]chan Message
-	nextID int
-	closed bool
+	mu       sync.RWMutex
+	subs     map[string]map[int]chan Message
+	nextID   int
+	closed   bool
+	inbox    map[string][]TeamMessage
+	wakeSubs map[int]chan WakeupEvent
+	wakeNext int
 }
 
 // NewLocalBus creates an empty in-process bus.
 func NewLocalBus() *LocalBus {
-	return &LocalBus{subs: map[string]map[int]chan Message{}}
+	return &LocalBus{
+		subs:     map[string]map[int]chan Message{},
+		inbox:    map[string][]TeamMessage{},
+		wakeSubs: map[int]chan WakeupEvent{},
+	}
 }
 
 // Publish fans payload out to all current subscribers of channel.
@@ -134,5 +141,10 @@ func (b *LocalBus) Close() error {
 		}
 	}
 	b.subs = map[string]map[int]chan Message{}
+	for _, ch := range b.wakeSubs {
+		close(ch)
+	}
+	b.wakeSubs = map[int]chan WakeupEvent{}
+	b.inbox = map[string][]TeamMessage{}
 	return nil
 }

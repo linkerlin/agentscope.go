@@ -104,6 +104,18 @@ func (m *mockStorage) ListSessionsBySchedule(ctx context.Context, userID, schedu
 	return nil, nil
 }
 
+func (m *mockStorage) SaveTeam(ctx context.Context, team *service.Team) error { return nil }
+func (m *mockStorage) GetTeam(ctx context.Context, id string) (*service.Team, error) {
+	return nil, nil
+}
+func (m *mockStorage) ListTeamsByUser(ctx context.Context, userID string) ([]*service.Team, error) {
+	return nil, nil
+}
+func (m *mockStorage) DeleteTeam(ctx context.Context, id string) error { return nil }
+func (m *mockStorage) GetTeamByLeaderSession(ctx context.Context, sessionID string) (*service.Team, error) {
+	return nil, nil
+}
+
 // stateTestV2Agent is a minimal V2Agent stub used only in this test file.
 type stateTestV2Agent struct {
 	state     *agent.AgentState

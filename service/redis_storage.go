@@ -606,6 +606,9 @@ func keySchedulesGlobal() string { return "schedules:all" }
 func keyScheduleSessions(scheduleID string) string {
 	return fmt.Sprintf("schedule_sessions:%s", scheduleID)
 }
+func keyTeam(id string) string          { return fmt.Sprintf("teams:%s", id) }
+func keyTeamsByUser(uid string) string  { return fmt.Sprintf("teams_by_user:%s", uid) }
+func keyTeamByLeader(sid string) string { return fmt.Sprintf("team_by_leader:%s", sid) }
 
 func makeKeys(fn func(string) string, ids []string) []string {
 	keys := make([]string, len(ids))
@@ -613,6 +616,84 @@ func makeKeys(fn func(string) string, ids []string) []string {
 		keys[i] = fn(id)
 	}
 	return keys
+}
+
+// --- Teams ---
+
+func (s *RedisStorage) SaveTeam(ctx context.Context, team *Team) error {
+	team.UpdatedAt = time.Now()
+	if team.CreatedAt.IsZero() {
+		team.CreatedAt = team.UpdatedAt
+	}
+	data, err := json.Marshal(team)
+	if err != nil {
+		return fmt.Errorf("redis: marshal team: %w", err)
+	}
+	if err := s.client.Set(ctx, keyTeam(team.ID), data, 0).Err(); err != nil {
+		return err
+	}
+	if team.UserID != "" {
+		s.client.SAdd(ctx, keyTeamsByUser(team.UserID), team.ID)
+	}
+	if team.LeaderSessionID != "" {
+		s.client.Set(ctx, keyTeamByLeader(team.LeaderSessionID), team.ID, 0)
+	}
+	return nil
+}
+
+func (s *RedisStorage) GetTeam(ctx context.Context, id string) (*Team, error) {
+	data, err := s.client.Get(ctx, keyTeam(id)).Result()
+	if err == redis.Nil {
+		return nil, fmt.Errorf("team not found: %s", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("redis: get team: %w", err)
+	}
+	var t Team
+	if err := json.Unmarshal([]byte(data), &t); err != nil {
+		return nil, fmt.Errorf("redis: unmarshal team: %w", err)
+	}
+	return &t, nil
+}
+
+func (s *RedisStorage) ListTeamsByUser(ctx context.Context, userID string) ([]*Team, error) {
+	ids, err := s.client.SMembers(ctx, keyTeamsByUser(userID)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: list teams: %w", err)
+	}
+	out := make([]*Team, 0, len(ids))
+	for _, id := range ids {
+		if t, err := s.GetTeam(ctx, id); err == nil {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (s *RedisStorage) DeleteTeam(ctx context.Context, id string) error {
+	t, err := s.GetTeam(ctx, id)
+	if err != nil {
+		return nil
+	}
+	s.client.Del(ctx, keyTeam(id))
+	if t.UserID != "" {
+		s.client.SRem(ctx, keyTeamsByUser(t.UserID), id)
+	}
+	if t.LeaderSessionID != "" {
+		s.client.Del(ctx, keyTeamByLeader(t.LeaderSessionID))
+	}
+	return nil
+}
+
+func (s *RedisStorage) GetTeamByLeaderSession(ctx context.Context, sessionID string) (*Team, error) {
+	id, err := s.client.Get(ctx, keyTeamByLeader(sessionID)).Result()
+	if err == redis.Nil {
+		return nil, fmt.Errorf("no team led by session: %s", sessionID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("redis: get team by leader: %w", err)
+	}
+	return s.GetTeam(ctx, id)
 }
 
 // Compile-time check.

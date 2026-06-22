@@ -26,6 +26,8 @@ type Session struct {
 	StateKey         string    `json:"state_key,omitempty"` // key to retrieve AgentState from StateStore
 	SourceScheduleID string    `json:"source_schedule_id,omitempty"`
 	WorkspaceID      string    `json:"workspace_id,omitempty"`
+	TeamID           string    `json:"team_id,omitempty"` // team membership (leader or worker session)
+	Source           string    `json:"source,omitempty"`  // "user" (default) or "team" (worker)
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -91,6 +93,10 @@ type AgentConfig struct {
 	SubagentTemplates []SubagentTemplate `json:"subagent_templates,omitempty"`
 	ToolIDs           []string           `json:"tool_ids,omitempty"`
 	Metadata          map[string]any     `json:"metadata,omitempty"`
+	// Source is "user" (default, visible in global agent lists) or "team"
+	// (a worker spawned by a leader — hidden from global lists). Aligns with
+	// Python agentscope's agent source field for team workers.
+	Source            string             `json:"source,omitempty"`
 	CreatedAt         time.Time          `json:"created_at"`
 	UpdatedAt         time.Time          `json:"updated_at"`
 }
@@ -126,4 +132,28 @@ type AgentSnapshot struct {
 	ReplyID   string            `json:"reply_id"`
 	State     *agent.AgentState `json:"state"`
 	CreatedAt time.Time         `json:"created_at"`
+}
+
+// TeamMember records a worker agent within a team, carrying the routing info
+// (name + session id) needed by TeamSay without extra storage lookups.
+type TeamMember struct {
+	AgentID   string `json:"agent_id"`
+	Name      string `json:"name"`
+	SessionID string `json:"session_id"`
+}
+
+// Team mirrors Python agentscope's TeamRecord + TeamData: a leader session
+// coordinates a set of independent worker agents (each with its own session)
+// via asynchronous messaging through the message bus. The leader is identified
+// by LeaderSessionID; workers are listed in Members. Each worker agent has
+// Source="team" and its session carries the same TeamID.
+type Team struct {
+	ID              string       `json:"id"`
+	UserID          string       `json:"user_id"`
+	LeaderSessionID string       `json:"leader_session_id"`
+	Name            string       `json:"name"`
+	Description     string       `json:"description,omitempty"`
+	Members         []TeamMember `json:"members,omitempty"`
+	CreatedAt       time.Time    `json:"created_at"`
+	UpdatedAt       time.Time    `json:"updated_at"`
 }

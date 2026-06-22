@@ -8,6 +8,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
@@ -31,6 +32,11 @@ type SessionAgentDeps struct {
 	ExtraTools     []tool.Tool
 	DefaultPrompt  string
 	PermissionMode permission.Mode
+	// TeamDeps enables agent-team async collaboration tools (TeamCreate/
+	// AgentCreate/TeamSay/TeamDelete). When set with TeamContext, tools mount
+	// based on agent Source (leader gets all four; worker gets TeamSay only).
+	TeamDeps    *TeamToolDeps
+	TeamContext *TeamToolContext
 }
 
 // SessionAgentBuilder builds an agent for a specific session (Py get_agent parity).
@@ -84,9 +90,11 @@ func (f *AgentFactory) BuildSessionAgent(
 	// Wire the session workspace root into the permission context so that
 	// ACCEPT_EDITS mode can auto-allow edits inside the session workspace
 	// (aligns with Python agentscope #1823: workspace root in permission context).
+	permRules := defaultWorkspacePermRules()
+	permRules = append(permRules, teamPermissionRules()...)
 	permEngine := permission.NewEngineWithContext(
 		permission.NewContext(mode).WithWorkingDirs(wsDir),
-		defaultWorkspacePermRules(),
+		permRules,
 	)
 
 	tk := toolkit.NewToolkit()
@@ -103,6 +111,17 @@ func (f *AgentFactory) BuildSessionAgent(
 			for _, st := range subTools {
 				_ = tk.Register(st)
 			}
+		}
+	}
+	// Agent team async tools: mount the full leader set (tools self-check
+	// preconditions at call time) or just TeamSay for a worker (source="team").
+	if deps.TeamDeps != nil && deps.TeamContext != nil {
+		role := "leader"
+		if cfg != nil && cfg.Source == "team" {
+			role = "worker"
+		}
+		for _, tt := range newTeamTools(role, *deps.TeamContext, deps.TeamDeps) {
+			_ = tk.Register(tt)
 		}
 	}
 	if sw.Skills != nil {
@@ -194,6 +213,16 @@ func sessionWorkspaceTools(wsDir string, deps SessionAgentDeps) []tool.Tool {
 	return tools
 }
 
+// teamPermissionRules always-allows the four team tools, mirroring Python's
+// check_permissions unconditionally returning ALLOW for team tools.
+func teamPermissionRules() []permission.Rule {
+	rules := make([]permission.Rule, 0, len(teamToolNames))
+	for _, n := range teamToolNames {
+		rules = append(rules, permission.Rule{Target: "tool_name", Pattern: n, Decision: permission.DecisionAllow})
+	}
+	return rules
+}
+
 func defaultWorkspacePermRules() []permission.Rule {
 	return []permission.Rule{
 		{Target: "tool_name", Pattern: "read_file", Decision: permission.DecisionAllow},
@@ -283,6 +312,13 @@ func (s *Server) buildSessionAgentFromStorage(ctx context.Context, agentID, sess
 		if defaults.TaskStore != nil {
 			deps.TaskStore = defaults.TaskStore
 		}
+	}
+
+	// Inject agent-team async collaboration deps when the server's bus supports
+	// TeamBus (LocalBus/RedisBus). Tools mount based on agent Source.
+	if tb := messagebus.AsTeamBus(s.messageBus); tb != nil {
+		deps.TeamDeps = &TeamToolDeps{Storage: s.storage, Bus: tb}
+		deps.TeamContext = &TeamToolContext{UserID: se.UserID, AgentID: agentID, SessionID: sessionID}
 	}
 
 	return s.registry.factory.BuildSessionAgent(cfg, matched, sw, deps)

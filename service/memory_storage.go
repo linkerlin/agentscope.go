@@ -18,6 +18,7 @@ type MemoryStorage struct {
 	snapshots          map[string]*AgentSnapshot
 	schedules          map[string]*Schedule
 	sessionsBySchedule map[string][]string // scheduleID -> session IDs
+	teams              map[string]*Team
 }
 
 // NewMemoryStorage creates a new MemoryStorage.
@@ -31,6 +32,7 @@ func NewMemoryStorage() *MemoryStorage {
 		snapshots:          make(map[string]*AgentSnapshot),
 		schedules:          make(map[string]*Schedule),
 		sessionsBySchedule: make(map[string][]string),
+		teams:              make(map[string]*Team),
 	}
 }
 
@@ -353,6 +355,59 @@ func (s *MemoryStorage) ListSessionsBySchedule(ctx context.Context, userID, sche
 		}
 	}
 	return out, nil
+}
+
+// --- Teams ---
+
+func (s *MemoryStorage) SaveTeam(ctx context.Context, team *Team) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	team.UpdatedAt = time.Now()
+	if team.CreatedAt.IsZero() {
+		team.CreatedAt = team.UpdatedAt
+	}
+	s.teams[team.ID] = team
+	return nil
+}
+
+func (s *MemoryStorage) GetTeam(ctx context.Context, id string) (*Team, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.teams[id]
+	if !ok {
+		return nil, fmt.Errorf("team not found: %s", id)
+	}
+	return t, nil
+}
+
+func (s *MemoryStorage) ListTeamsByUser(ctx context.Context, userID string) ([]*Team, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Team
+	for _, t := range s.teams {
+		if t.UserID == userID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (s *MemoryStorage) DeleteTeam(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.teams, id)
+	return nil
+}
+
+func (s *MemoryStorage) GetTeamByLeaderSession(ctx context.Context, sessionID string) (*Team, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, t := range s.teams {
+		if t.LeaderSessionID == sessionID {
+			return t, nil
+		}
+	}
+	return nil, fmt.Errorf("no team led by session: %s", sessionID)
 }
 
 // Compile-time check.

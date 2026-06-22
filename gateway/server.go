@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +86,9 @@ type Server struct {
 	// messageBus enables cross-process coordination (distributed cancel /
 	// wake-up / tool-offload-complete events). nil = single-process (no bus).
 	messageBus messagebus.Bus
+	// wakeupDispatcher drains team inboxes and re-runs idle worker sessions.
+	// Auto-started in Start() when the bus implements TeamBus.
+	wakeupDispatcher *WakeupDispatcher
 
 	// defaultSessionDeps holds auto-assembled defaults for per-session agents
 	// (populated by NewApp when AutoStandardTools etc. are enabled).
@@ -182,10 +186,31 @@ func (s *Server) Start() {
 	if s.backgroundTaskMgr != nil {
 		s.backgroundTaskMgr.Start()
 	}
+	s.startWakeupDispatcher()
+}
+
+// startWakeupDispatcher launches the team-collaboration wakeup loop when the
+// configured bus implements TeamBus and the required managers are present.
+// Idempotent; safe to call multiple times.
+func (s *Server) startWakeupDispatcher() {
+	if s.wakeupDispatcher != nil {
+		return
+	}
+	tb := messagebus.AsTeamBus(s.messageBus)
+	if tb == nil || s.sessionMgr == nil || s.storage == nil {
+		return
+	}
+	d := NewWakeupDispatcher(tb, s.sessionMgr, s.storage, s.buildSessionAgentFromStorage)
+	if err := d.Start(context.Background()); err == nil {
+		s.wakeupDispatcher = d
+	}
 }
 
 // Close stops background components (schedules, etc.). Call on shutdown.
 func (s *Server) Close() error {
+	if s.wakeupDispatcher != nil {
+		s.wakeupDispatcher.Stop()
+	}
 	if s.backgroundTaskMgr != nil {
 		s.backgroundTaskMgr.Stop()
 	}

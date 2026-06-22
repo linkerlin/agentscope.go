@@ -177,6 +177,7 @@ make test   # 或 make ci
 31. **Embedding ModelCard 化**（对齐 Python #1852）：`embedding.ModelCard` + 内嵌 per-provider YAML 卡片 + `ListModelCards`/`ModelCardsByProvider`，与 chat 模型卡片体系一致，支撑 Studio 动态表单与 provider 自文档化
 32. **Agent Team 运行时 spawn + 权限继承**（对齐 #1833/#1815）：`AgentFactory.BuildSubagentTools` 在 `BuildSessionAgent` 中将 leader 的 `SubagentTemplates` spawn 为 `SubagentTool`；子 agent 继承 leader 的 `*permission.Engine` 并共享会话工作区 + 基础 file/shell 工具集（不含嵌套 subagent 工具，避免递归）
 33. **分布式消息总线**（对齐 #1849）：`messagebus.Bus` 抽象 + `LocalBus`（进程内、发布非阻塞）+ `RedisBus`（Redis pub/sub、多进程）；`AppConfig.MessageBus`/`Server.WithMessageBus` 接入，支撑跨进程 cancel/wake-up/tool-offload-complete 协调
+34. **Agent Team 异步协作运行时**（对齐 Python agentscope AgentTeam）：完整移植 Python 的 leader/worker 异步协作模型（区别于 #32 的同步 agent-as-tool）。`messagebus.TeamBus` 接口（`InboxPush`/`InboxDrain`/`EnqueueWakeup`/`SubscribeWakeup`）由 `LocalBus`（内存）与 `RedisBus`（Redis LIST+BLPOP，持久不丢）实现；`service.Team`/`TeamMember` 数据模型 + Storage CRUD；四个 team 工具 `TeamCreate`/`AgentCreate`/`TeamSay`/`TeamDelete`（`gateway/team_tools.go`，工具调用时自查前置条件，权限恒 ALLOW）；`WakeupDispatcher`（`gateway/wakeup_dispatcher.go`）订阅 wakeup 信号 → drain inbox → 重组 `<team-message>` 为 user 输入 → `SessionManager.Run` 重跑空闲 worker，忙时轮询重试。worker 为独立 `source=team` agent+session，跨进程靠共享 storage( inbox)+bus(wakeup) 协调。`BuildSessionAgent` 按 `AgentConfig.Source` 挂载 leader 全集/worker 仅 `TeamSay`；`Server.Start` 自动拉起 dispatcher
 
 ## 已知代码质量问题（审阅发现，待修复）
 

@@ -93,7 +93,7 @@ func (b *RedisBus) Close() error { return nil }
 // --- RedisBus TeamBus implementation (cross-process inbox + wakeup) ---
 
 func (b *RedisBus) inboxKey(sid string) string { return b.prefix + ":inbox:" + sid }
-func (b *RedisBus) wakeupKey() string          { return b.prefix + ":wakeup" }
+func (b *RedisBus) wakeupStreamKey() string    { return b.prefix + ":wakeup:stream" }
 
 func (b *RedisBus) InboxPush(ctx context.Context, sessionID string, msg TeamMessage) error {
 	if b.client == nil {
@@ -130,17 +130,28 @@ func (b *RedisBus) InboxDrain(ctx context.Context, sessionID string) ([]TeamMess
 	return out, nil
 }
 
+// EnqueueWakeup appends to a Redis Stream. Each SubscribeWakeup consumer reads
+// the stream independently from its own cursor, so ALL subscribers receive every
+// wakeup (true fan-out). Cross-process duplicate delivery is safe because
+// InboxDrain is an atomic LRANGE+DEL: only one process wins the drain, others
+// drain an empty inbox and skip. MAXLEN~ trims old entries to bound growth.
 func (b *RedisBus) EnqueueWakeup(ctx context.Context, sessionID string) error {
 	if b.client == nil {
 		return ErrClosed
 	}
-	return b.client.RPush(ctx, b.wakeupKey(), sessionID).Err()
+	return b.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: b.wakeupStreamKey(),
+		MaxLen: 10000,
+		Approx: true,
+		Values: map[string]any{"session": sessionID},
+	}).Err()
 }
 
-// SubscribeWakeup uses BLPOP on a persistent wakeup list so wakeups enqueued
-// before the subscriber connected are not lost (mirrors Python's persistent
-// wakeup stream). One consumer drains the list; for multi-consumer fan-out use
-// separate wakeup lists per process.
+// SubscribeWakeup reads the wakeup stream independently of other consumers
+// (true fan-out). It starts from "0" so wakeups enqueued before connecting are
+// not lost, then blocks for new entries. Because every consumer sees every
+// wakeup, multi-process duplicate handling is made idempotent by the atomic
+// InboxDrain. Mirrors Python agentscope's persistent wakeup stream.
 func (b *RedisBus) SubscribeWakeup(ctx context.Context) (<-chan WakeupEvent, Cancel, error) {
 	if b.client == nil {
 		return nil, nil, ErrClosed
@@ -150,6 +161,8 @@ func (b *RedisBus) SubscribeWakeup(ctx context.Context) (<-chan WakeupEvent, Can
 	var once sync.Once
 	go func() {
 		defer close(out)
+		stream := b.wakeupStreamKey()
+		lastID := "0" // drain backlog first, then follow new entries
 		for {
 			select {
 			case <-done:
@@ -158,8 +171,11 @@ func (b *RedisBus) SubscribeWakeup(ctx context.Context) (<-chan WakeupEvent, Can
 				return
 			default:
 			}
-			// BLPOP blocks up to a short timeout so we can re-check ctx.
-			res, err := b.client.BLPop(ctx, 5*time.Second, b.wakeupKey()).Result()
+			res, err := b.client.XRead(ctx, &redis.XReadArgs{
+				Streams: []string{stream, lastID},
+				Count:   100,
+				Block:   5 * time.Second,
+			}).Result()
 			if err != nil {
 				if err == redis.Nil || err == context.Canceled {
 					continue
@@ -171,11 +187,18 @@ func (b *RedisBus) SubscribeWakeup(ctx context.Context) (<-chan WakeupEvent, Can
 				}
 				continue
 			}
-			if len(res) >= 2 {
-				select {
-				case out <- WakeupEvent{SessionID: res[1]}:
-				case <-done:
-					return
+			for _, s := range res {
+				for _, m := range s.Messages {
+					lastID = m.ID
+					sid, _ := m.Values["session"].(string)
+					if sid == "" {
+						continue
+					}
+					select {
+					case out <- WakeupEvent{SessionID: sid}:
+					case <-done:
+						return
+					}
 				}
 			}
 		}

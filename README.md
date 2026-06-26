@@ -1,10 +1,10 @@
 # agentscope.go
 
-[AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现 —— 一个生产级的 AI Agent 开发框架，助你使用 Go 构建基于大语言模型的智能应用。
+AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 构建基于大语言模型的智能应用。
 
 ## 概述
 
-AgentScope Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
+AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
 ## 快速开始
 

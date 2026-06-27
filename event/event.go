@@ -88,7 +88,7 @@ func NewBase(eventType, replyID string) baseEvent {
 // UserConfirmResultEvent.
 type ConfirmDecision struct {
 	ToolCallID   string         `json:"tool_call_id"`
-	Decision     string         `json:"decision"` // "allow" | "deny" | "modify"
+	Decision     string         `json:"decision"` // "allow" | "always_allow" | "deny" | "modify"
 	ModifiedArgs map[string]any `json:"modified_args,omitempty"`
 }
 

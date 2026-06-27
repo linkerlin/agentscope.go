@@ -131,6 +131,12 @@ func (e *Engine) SetToolResolver(resolver func(string) tool.Tool) {
 	e.toolResolver = resolver
 }
 
+// AddRule appends a rule to the engine at runtime. It is used by consumers that
+// want to persist user decisions (e.g. "always allow this tool").
+func (e *Engine) AddRule(r Rule) {
+	e.rules = append(e.rules, r)
+}
+
 func (e *Engine) resolveTool(name string) tool.Tool {
 	if e.toolResolver == nil {
 		return nil

@@ -859,7 +859,7 @@ func applyConfirmDecisions(calls []*message.ToolUseBlock, decisions []event.Conf
 			continue
 		}
 		switch d.Decision {
-		case "allow":
+		case "allow", "always_allow":
 			result = append(result, c)
 		case "modify":
 			if len(d.ModifiedArgs) > 0 {

@@ -28,9 +28,20 @@ func (m *resumeMockModel) Chat(ctx context.Context, messages []*message.Msg, opt
 }
 
 func (m *resumeMockModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
-	ch := make(chan *model.StreamChunk, 2)
-	ch <- &model.StreamChunk{Delta: "stream"}
-	ch <- &model.StreamChunk{Done: true}
+	msg, err := m.Chat(ctx, messages, options...)
+	if err != nil {
+		return nil, err
+	}
+	ch := make(chan *model.StreamChunk, 4)
+	if text := msg.GetTextContent(); text != "" {
+		ch <- &model.StreamChunk{Delta: text}
+	}
+	content := msg.Content
+	if len(content) > 0 {
+		ch <- &model.StreamChunk{Done: true, Content: content}
+	} else {
+		ch <- &model.StreamChunk{Done: true}
+	}
 	close(ch)
 	return ch, nil
 }

@@ -404,30 +404,9 @@ func (a *ReActAgent) runModelStream(
 	modelName := a.chatModel.ModelName()
 	out <- event.NewModelCallStart(replyID, modelName)
 
-	// When tools are requested we still use Chat (non-streaming) so that tool
-	// calls are parsed reliably, but we emit the returned text in small deltas
-	// to give the UI a typing effect instead of one big block.
-	if requestTools {
-		msg, err := a.chatModel.Chat(ctx, history, chatOpts...)
-		if err != nil {
-			out <- event.NewError(replyID, fmt.Errorf("react agent model call: %w", err))
-			out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
-			return nil, fmt.Errorf("react agent model call: %w", err)
-		}
-		out <- event.NewTextBlockStart(replyID, 0)
-		emitTextDeltas(out, replyID, msg.GetTextContent())
-		out <- event.NewTextBlockEnd(replyID, 0)
-		u := extractUsage(msg)
-		out <- event.NewModelCallEnd(replyID, modelName, u.PromptTokens, u.CompletionTokens)
-		_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
-			BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
-			Messages:  append([]*message.Msg(nil), history...),
-			Response:  msg,
-		})
-		return msg, nil
-	}
-
-	// Streaming path: emit deltas as they arrive.
+	// Always stream. Tool calls are accumulated by the model wrapper and
+	// delivered in the final chunk, so the UI still sees a typing effect for
+	// the text parts while ReAct gets the parsed tool calls it needs.
 	ch, err := a.chatModel.ChatStream(ctx, history, chatOpts...)
 	if err != nil {
 		out <- event.NewError(replyID, fmt.Errorf("react agent model stream: %w", err))
@@ -441,6 +420,7 @@ func (a *ReActAgent) runModelStream(
 		streamUsage     *model.ChatUsage
 		inTextBlock     bool
 		inThinkingBlock bool
+		toolBlocks      []message.ContentBlock
 	)
 	for chunk := range ch {
 		if chunk == nil {
@@ -449,6 +429,9 @@ func (a *ReActAgent) runModelStream(
 		if chunk.Done {
 			if chunk.Usage != nil {
 				streamUsage = chunk.Usage
+			}
+			if len(chunk.Content) > 0 {
+				toolBlocks = append(toolBlocks, chunk.Content...)
 			}
 			break
 		}
@@ -487,10 +470,15 @@ func (a *ReActAgent) runModelStream(
 		out <- event.NewTextBlockEnd(replyID, 0)
 	}
 
-	msg := message.NewMsg().Role(message.RoleAssistant).TextContent(sb.String()).Build()
-	if thinkingSb.Len() > 0 {
-		msg.Content = append(msg.Content, message.NewThinkingBlock(thinkingSb.String(), ""))
+	var content []message.ContentBlock
+	if sb.Len() > 0 {
+		content = append(content, message.NewTextBlock(sb.String()))
 	}
+	content = append(content, toolBlocks...)
+	if thinkingSb.Len() > 0 {
+		content = append(content, message.NewThinkingBlock(thinkingSb.String(), ""))
+	}
+	msg := message.NewMsg().Role(message.RoleAssistant).Content(content...).Build()
 	if streamUsage != nil {
 		msg.Metadata["usage"] = *streamUsage
 	}
@@ -506,24 +494,6 @@ func (a *ReActAgent) runModelStream(
 		Response:  msg,
 	})
 	return msg, nil
-}
-
-// emitTextDeltas splits text into small chunks and emits them as text deltas
-// to create a typing effect for non-streaming model responses.
-func emitTextDeltas(out chan<- event.AgentEvent, replyID string, text string) {
-	runes := []rune(text)
-	const chunkSize = 4
-	const delay = 4 * time.Millisecond
-	for i := 0; i < len(runes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(runes) {
-			end = len(runes)
-		}
-		out <- event.NewTextBlockDelta(replyID, 0, string(runes[i:end]))
-		if end < len(runes) {
-			time.Sleep(delay)
-		}
-	}
 }
 
 // executeToolsStream executes tool calls concurrently and emits ToolResult* events.

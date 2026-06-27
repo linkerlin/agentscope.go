@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	goopenai "github.com/sashabaranov/go-openai"
@@ -178,6 +179,27 @@ func (m *OpenAIChatModel) ChatStream(ctx context.Context, messages []*message.Ms
 	return out, nil
 }
 
+// toolCallAccum aggregates streaming tool-call deltas for a single tool call index.
+type toolCallAccum struct {
+	id   string
+	name string
+	args strings.Builder
+}
+
+func (a *toolCallAccum) toBlock() *message.ToolUseBlock {
+	if a.name == "" {
+		return nil
+	}
+	args := a.args.String()
+	var input map[string]any
+	if args != "" {
+		_ = json.Unmarshal([]byte(args), &input)
+	}
+	b := message.NewToolUseBlock(a.id, a.name, input)
+	b.RawInput = args
+	return b
+}
+
 func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
 	opts := applyOptions(options)
 	req := goopenai.ChatCompletionRequest{
@@ -211,10 +233,19 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 		defer close(ch)
 		defer func() { _ = stream.Close() }()
 		var usage model.ChatUsage
+		toolCalls := make(map[int]*toolCallAccum)
 		for {
 			resp, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
-				ch <- &model.StreamChunk{Done: true, Usage: &usage}
+				var blocks []message.ContentBlock
+				for i := 0; i < len(toolCalls); i++ {
+					if tc := toolCalls[i]; tc != nil {
+						if b := tc.toBlock(); b != nil {
+							blocks = append(blocks, b)
+						}
+					}
+				}
+				ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: blocks}
 				return
 			}
 			if err != nil {
@@ -224,7 +255,7 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 			if len(resp.Choices) == 0 {
 				continue
 			}
-			delta := resp.Choices[0].Delta.Content
+			delta := resp.Choices[0].Delta
 			if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
 				usage = model.ChatUsage{
 					PromptTokens:     resp.Usage.PromptTokens,
@@ -232,7 +263,29 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 					TotalTokens:      resp.Usage.TotalTokens,
 				}
 			}
-			ch <- &model.StreamChunk{Delta: delta}
+			for _, tc := range delta.ToolCalls {
+				idx := 0
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				acc := toolCalls[idx]
+				if acc == nil {
+					acc = &toolCallAccum{}
+					toolCalls[idx] = acc
+				}
+				if tc.ID != "" {
+					acc.id = tc.ID
+				}
+				if tc.Function.Name != "" {
+					acc.name = tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					acc.args.WriteString(tc.Function.Arguments)
+				}
+			}
+			if delta.Content != "" {
+				ch <- &model.StreamChunk{Delta: delta.Content}
+			}
 		}
 	}()
 	return ch, nil

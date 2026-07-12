@@ -6,6 +6,18 @@ AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 
 
 AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
+## 新增能力（v2.4.0）
+
+<!-- BEGIN NEWS -->
+- **`RAG` 托管知识库**：document→parser(Text/PDF/PPTX/Image)→chunker→blob→kb→index 全管道 + RAGMiddleware + KB HTTP API。对齐 Python rag/ 托管服务。
+- **`消息总线 CoordBus`**：Lock/Registry/Queue/Log 四原语（Local+Redis 双后端）+ 跨会话投影。
+- **`Web UI 控制台`**：零构建 SPA（Chat/KB/System，go:embed 单二进制）。
+- **`Agentic Memory`**：agent 自主管理 Markdown 记忆文件（文件式，区别于被动检索的 ReMe）。
+- **`Tracing 语义属性`**：Span 五钩点提取（model/tool/iteration/usage）+ otelSpan 桥接。
+- **`MCP 声明式配置`**：ServerSpec YAML + 6-server 目录 + 弹性连接。
+- **`Langfuse`** 接入 + **`RBAC`** 测试 + **审计接线** + **`slog`** 结构化日志规范。
+<!-- END NEWS -->
+
 ## 快速开始
 
 **环境要求：** Go 1.25 或更高版本
@@ -100,13 +112,17 @@ go run .
 | `msghub` | 广播式多 Agent 消息调度（Hub） |
 | `workflow` | 高级多 Agent 编排：条件（Condition）、循环（Loop）、MapReduce |
 | `reflection` | Agent 自省/反思模式：Writer + Critic 循环迭代优化 |
-| `a2a` | A2A 协议实现：AgentCard、Task、SSE、Registry |
-| `gateway` | HTTP + SSE + WebSocket Gateway，支持多租户认证 + Session 持久化 |
-| `service` | 多租户 Service 层：Storage + Auth + Credential 加密 |
+| `a2a` | A2A 协议实现：AgentCard、Task、SSE、Registry、ShardRouter、安全（认证/限流/WebSocket） |
+| `gateway` | HTTP + SSE + WebSocket + AG-UI Gateway，多租户认证 + Session 持久化 + Tool Offload + KB API + 审计 + RBAC |
+| `service` | 多租户 Service 层：Storage + Auth + Credential 加密 + RBAC 角色/权限 + 审计日志 |
+| `rag` | **托管知识库**：document/parser(Text/PDF/PPTX/Image)/chunker/blob/kb/index 全管道 + RAGMiddleware + KB HTTP API |
+| `messagebus` | **分布式消息总线**：LocalBus + RedisBus + CoordBus 四原语(Lock/Registry/Queue/Log) + TeamBus + 跨会话投影 |
+| `middleware` | Agent 生命周期中间件（洋葱模型）+ Budget/TTS/LongTermMemory/**RAG**/**AgenticMemory** |
+| `logging` | **结构化日志规范**：stdlib slog 封装 + LOG_LEVEL/LOG_FORMAT 环境配置 + 请求级 FromContext |
 | `schedule` | Cron 定时任务调度器 |
 | `async` | 异步任务执行池 |
 | `loader` | 文档加载器（TextLoader / DirLoader） |
-| `observability` | OpenTelemetry + LangSmith 可观测性 |
+| `observability` | OpenTelemetry + LangSmith + **Langfuse** + Tracing 语义属性提取 + otelbridge |
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
@@ -523,6 +539,10 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/embedding`](examples/embedding/main.go) —— 独立 Embedding 包（OpenAI/Ollama + FileCache）
 - [`examples/schedule`](examples/schedule/main.go) —— Cron 定时任务调度器
 - [`examples/rag`](examples/rag/main.go) —— RAG 问答完整流程（Loader + Embedding + ReMe）
+- [`examples/rag_kb`](examples/rag_kb/main.go) —— **托管知识库管道**（上传→解析→分块→索引→检索，离线可运行）
+- [`examples/agentic_memory`](examples/agentic_memory/main.go) —— **Agentic Memory**（agent 自主管理 Markdown 记忆）
+- [`examples/mcp_servers`](examples/mcp_servers/main.go) —— **MCP 声明式配置**（YAML 加载 + 弹性连接多 server）
+- [`examples/web_ui`](examples/web_ui/main.go) —— **Web UI 控制台**（Chat/KB/System，零构建 SPA）
 - [`examples/observability`](examples/observability/main.go) —— OpenTelemetry + LangSmith 追踪
 - [`examples/state`](examples/state/main.go) —— AgentState 持久化（JSONFile/Redis）
 - [`examples/a2a_secure`](examples/a2a_secure/main.go) —— A2A 认证 + 限流 + WebSocket

@@ -41,32 +41,58 @@ func (t *TracingMiddlewareAdapter) OnResult(ctx context.Context, name string, re
 func (t *TracingMiddlewareAdapter) OnReply(ctx context.Context, agent middleware.Agent, input *middleware.ReplyInput, next middleware.ReplyNext) (*message.Msg, error) {
 	ctx, span := t.Tracer.Start(ctx, t.Name+"_on_reply")
 	defer span.End()
+	span.SetAttributes(
+		IntAttr("reply.message_count", len(input.Messages)),
+		StringAttr("reply.last_role", lastRole(input.Messages)),
+	)
 	return next(ctx)
 }
 
 func (t *TracingMiddlewareAdapter) OnReasoning(ctx context.Context, agent middleware.Agent, input *middleware.ReasoningInput, next middleware.ReasoningNext) (*message.Msg, error) {
 	ctx, span := t.Tracer.Start(ctx, t.Name+"_on_reasoning")
 	defer span.End()
+	span.SetAttributes(
+		IntAttr("reasoning.iteration", input.Iteration),
+		IntAttr("reasoning.message_count", len(input.Messages)),
+	)
 	return next(ctx)
 }
 
 func (t *TracingMiddlewareAdapter) OnActing(ctx context.Context, agent middleware.Agent, input *middleware.ActingInput, next middleware.ActingNext) (*tool.Response, error) {
-	ctx, span := t.Tracer.Start(ctx, t.Name+"_on_acting_"+input.ToolName)
+	ctx, span := t.Tracer.Start(ctx, t.Name+"_on_acting")
 	defer span.End()
+	span.SetAttributes(
+		StringAttr("tool.name", input.ToolName),
+		IntAttr("tool.input_keys", len(input.ToolInput)),
+	)
 	return next(ctx)
 }
 
 func (t *TracingMiddlewareAdapter) OnModelCall(ctx context.Context, agent middleware.Agent, input *middleware.ModelCallInput, next middleware.ModelCallNext) (*message.Msg, error) {
 	ctx, span := t.Tracer.Start(ctx, t.Name+"_on_model_call")
 	defer span.End()
+	span.SetAttributes(
+		StringAttr("model.name", input.ModelName),
+		IntAttr("model.message_count", len(input.Messages)),
+		IntAttr("model.chat_opts", len(input.ChatOpts)),
+	)
 	return next(ctx)
 }
 
 func (t *TracingMiddlewareAdapter) OnSystemPrompt(ctx context.Context, agent middleware.Agent, currentPrompt string) (string, error) {
 	_, span := t.Tracer.Start(ctx, t.Name+"_on_system_prompt")
 	defer span.End()
-	// For tracing, we can log the prompt but typically don't modify unless needed
+	span.SetAttributes(IntAttr("system_prompt.length", len(currentPrompt)))
 	return currentPrompt, nil
+}
+
+func lastRole(msgs []*message.Msg) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i] != nil {
+			return string(msgs[i].Role)
+		}
+	}
+	return ""
 }
 
 var _ middleware.ReplyInterceptor = (*TracingMiddlewareAdapter)(nil)
@@ -75,16 +101,56 @@ var _ middleware.ActingInterceptor = (*TracingMiddlewareAdapter)(nil)
 var _ middleware.ModelCallInterceptor = (*TracingMiddlewareAdapter)(nil)
 var _ middleware.SystemPromptTransformer = (*TracingMiddlewareAdapter)(nil)
 
-// RecordingTracer is a simple in-memory Tracer for demos and tests.
-// It records all started spans so you can inspect what was traced.
-// Useful for Phase 5 observability alignment demos.
+// RecordingSpan captures its name and attributes for later inspection in
+// tests/demos. Implements Span.
+type RecordingSpan struct {
+	Name  string
+	Attrs []SpanAttr
+	Err   error
+	Ended bool
+}
+
+func (s *RecordingSpan) End()                            { s.Ended = true }
+func (s *RecordingSpan) RecordError(err error)           { s.Err = err }
+func (s *RecordingSpan) SetAttributes(attrs ...SpanAttr) { s.Attrs = append(s.Attrs, attrs...) }
+
+func (s *RecordingSpan) Attr(key string) any {
+	for _, a := range s.Attrs {
+		if a.Key == key {
+			return a.Value
+		}
+	}
+	return nil
+}
+
+// RecordingTracer is a simple in-memory Tracer for demos and tests. It records
+// all started spans (as RecordingSpan) so you can inspect names + attributes.
 type RecordingTracer struct {
-	Spans []string
+	Spans []*RecordingSpan
 }
 
 func (r *RecordingTracer) Start(ctx context.Context, name string) (context.Context, Span) {
-	r.Spans = append(r.Spans, name)
-	return ctx, noopSpan{}
+	s := &RecordingSpan{Name: name}
+	r.Spans = append(r.Spans, s)
+	return ctx, s
+}
+
+// LastSpan returns the most recently started span, or nil.
+func (r *RecordingTracer) LastSpan() *RecordingSpan {
+	if len(r.Spans) == 0 {
+		return nil
+	}
+	return r.Spans[len(r.Spans)-1]
+}
+
+// SpanByName returns the first span with the given name, or nil.
+func (r *RecordingTracer) SpanByName(name string) *RecordingSpan {
+	for _, s := range r.Spans {
+		if s.Name == name {
+			return s
+		}
+	}
+	return nil
 }
 
 var _ Tracer = (*RecordingTracer)(nil)

@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-07-04 — Phase 5-8.1：托管服务化补齐 + Agentic Memory
+
+### Added — Phase 5：RAG 托管知识库服务（对齐 Python `rag/`+`app/rag/`+`middleware/_rag.py`）
+- **`rag/document/`**：Section/Chunk 数据模型（对齐 Python rag._document，跨语言 JSON 兼容）。
+- **`rag/parser/`**：`Parser` 接口 + `Registry`（按 MIME 路由）+ 4 解析器：TextParser（纯 stdlib）、PDFParser（`ledongthuc/pdf` 纯 Go 无 CGO + panic recover）、PPTXParser（纯 stdlib `archive/zip`+`encoding/xml`，逐页 `<a:t>` 提取 + 自然排序）、ImageParser（内容嗅 sniff → DataBlock，可选 OCR hook）。
+- **`rag/chunker/`**：`Chunker` 接口 + `ApproxTokenChunker`（`len(utf8)/4` 近似 token，chunk_size/overlap 可配，DataBlock 透传，rune 边界安全切分）。
+- **`rag/blob/`**：`BlobStore` 接口 + `LocalBlobStore`（`local://` URI，自动建目录）。
+- **`rag/kb/`**：`KnowledgeBase` 运行时句柄（绑定 embedder+collection，懒建表，search/insert/delete/list，metadata_filter 多租户强制隔离）+ `KBManager`+`CollectionPerKB` + `InMemoryVectorStore`（余弦+filter+doc 聚合）。
+- **`rag/index/`**：`Worker`（blob→parse→chunk→embed→insert 全管道 + OnStatus 回调）+ `Queue`（channel 调度，自然背压）。
+- **`middleware/rag.go` RAGMiddleware**：static/agent/both 三模式（OnReply 检索→context state→OnReasoning 注入 HintBlock；search_knowledge 工具；MinScore 过滤；错误不中断回复）。
+- **`gateway/kb_handlers.go`**：`KBService` 聚合 + `RegisterKBRoutes`（8 端点：CRUD + multipart/JSON 上传 + 文档列表/删除 + 搜索 + octet-stream 扩展名嗅探兜底）+ `Server.WithKBService` + `AppConfig.KBService` + `RegisterAppRoutes` 自动注册。
+- **`examples/rag_kb/`**：端到端可运行 demo（离线 stub embedder）。
+
+### Added — Phase 6：消息总线深化 + 跨会话投影（对齐 Python `app/message_bus` 通用原语）
+- **`messagebus/coord.go` + `coord_redis.go` CoordBus**：新增**可选接口**（`Lock`/`Registry`/`Queue`/`Log`），不破坏现有 `Bus`/`TeamBus`。LocalBus（channel 信号量锁+TTL、slice+notify ctx 可取消队列、map 注册表）；RedisBus（`SET NX PX`+Lua token 释放锁、HASH 注册表、`RPUSH`+`BLPOP` FIFO 队列、LIST 游标日志）。`AsCoordBus` nil 降级。
+- **`messagebus/keys.go`**：`CoordKeys` 业务键约定（QueueName/LockKey/RegistryNS/LogNS/ProjectionNS）+ `WakeupKind`（wake/resume）。
+- **`gateway/projection.go` SessionProjection**：基于 CoordBus registry 跨会话投影 UI 卡片，无 CoordBus 优雅降级。HTTP `GET/DELETE /api/v1/sessions/{id}/projections`。
+
+### Added — Phase 7：现代 Web UI 控制台（零构建，对齐 Python React Web UI）
+- **`examples/web_ui/static/`**：零 npm/Node 构建依赖——原生 vanilla JS + SSE + `go:embed`，单二进制部署。侧边栏三视图（Chat AG-UI SSE 流式 / Knowledge Bases CRUD+上传+检索 / System health+models）。GitHub 风深色主题。
+
+### Added — Phase 8.1：Agentic Memory 自主记忆（对齐 Python `AgenticMemoryMiddleware`）
+- **`middleware/agentic_memory.go`**：文件式自主记忆——agent 自己用已有文件工具管理 Markdown 记忆文件（区别于 ReMe 被动检索 / LongTermMemory 工具模式）。`LocalMemoryStore`（frontmatter 解析）；OnSystemPrompt 注入指令+有界 MEMORY.md 快照；OnReply 异步检索 goroutine；OnReasoning `chan`+`select{default:}` 非阻塞注入 HintBlock 仅一次。`FileSelector` 闭包解耦（默认 KeywordSelector，LLM 可 `WithSelector` 注入）。
+- **`examples/agentic_memory/`**：离线可运行 demo。
+
+### Added — Phase 8.2：Tracing 提取深化（对齐 Python `middleware/_tracing/extractor`）
+- **`observability/` Span 接口扩展**：`SetAttributes(...SpanAttr)` + `SpanAttr` 类型 + 属性 helper（String/Int/Int64/Float64/Bool）。`TracingMiddlewareAdapter` 五钩点提取语义属性（reply.message_count/last_role · reasoning.iteration · tool.name/input_keys · model.name/message_count · system_prompt.length）。`RecordingSpan`/`RecordingTracer.LastSpan/SpanByName` 供测试。`otelSpan.SetAttributes` 桥接 → 真实 OTel span（属性流入生产 tracer）。
+
+### Added — MCP 声明式配置 + Langfuse + RBAC 测试（旧 Phase 3 收尾）
+- **`toolkit/mcp/catalog.go`**：`ServerSpec` 声明式配置 + `CommonServers` 目录（filesystem/fetch/playwright/github/sqlite/brave-search）+ `ConnectServers` 弹性加载器（未安装二进制/连接失败优雅跳过）+ `LoadSpecsFromYAML` + `$VAR` 环境变量展开。`examples/mcp_servers/` 可运行 demo（实测连接 filesystem/browser/github = 63 工具）+ `docs/MCP.md`。
+- **`observability/langfuse.go` + `langfuse_observer.go`**：Langfuse 客户端（HTTP 批量 ingestion `/api/public/ingestion` + Basic auth publicKey:secretKey + trace/span/generation 事件）+ `LangfuseObserver`（订阅 event.Bus → 批量缓冲 flush，对齐 LangSmith 模式）。6 测试（含 httptest mock 端到端事件映射）。
+- **`service/rbac_test.go`**：补齐既有 RBAC 的 9 测试（角色权限矩阵 / RBACMiddleware allow+deny+默认 viewer / RoleFromContext / VerifyRoleAssignment 防提权 / MemoryAuditLogger CRUD / UserRole.OrgID 组织隔离字段）。
+- **`gateway/audit.go` 审计接线**：`requireAuth` 内置审计——每个已认证请求自动记录（who/method/path/status/IP，异步非阻塞）；`MemoryAuditLogger` 加锁线程安全；`GET /api/v1/audit-logs` admin-only 查询路由（按 user_id/resource 过滤）；`AppConfig.AuditLogger` + `WithAuditLogger`。6 测试（成功/失败/无 logger no-op/未认证不记录/admin 查询/非 admin 拒绝）。
+
+### Tests
+- RAG：document/parser（4 解析器+正例+错误路径+扩展名嗅探）/chunker（多块+多字节+透传+顺序+零值+空）/blob（CRUD+not-exist+不支持 URI）/kb（多租户隔离+重复+缺失+删表+embedder错误+空跳过）/index（端到端+缺KB/缺blob/不支持类型+Queue 排空/满）。
+- RAGMiddleware：static 注入/agent 无注入/空查询/错误吞没/MinScore/工具/系统提示词。
+- KB HTTP：创建/列表/删除/重复409/上传(JSON+multipart)/搜索/文档删除/404/空查询。
+- CoordBus：Local 11 测试（含 20-goroutine 并发互斥序列化+TTL+ctx 取消）+ Redis 7 测试（miniredis FastForward 解 TTL）。
+- SessionProjection：Local 正常/no-op 降级/HTTP CRUD/无 bus 404。
+- AgenticMemory：store/frontmatter/keyword/truncation/提示词注入/异步检索注入/无匹配不注入/仅注入一次/nil 降级（10 测试）。
+
+### Dependencies
+- 新增 `github.com/ledongthuc/pdf`（纯 Go PDF 文本提取，无 CGO）。
+
+---
+
 ## [Unreleased] - 2026-06-18
 
 ### Added — 对照 Python 参考实现的追赶 (演进方案 v3, Tier 1)

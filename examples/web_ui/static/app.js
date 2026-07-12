@@ -1,38 +1,62 @@
-const SESSION_STORAGE_KEY = "agentscope-go.session-id";
+// AgentScope Go Console — zero-build dashboard SPA.
+// Vanilla ES5-ish JS (no modules/bundler) so it runs from go:embed with no
+// build step. Sections: router · chat (AG-UI SSE) · knowledge bases · system.
 
-function getOrCreateSessionId() {
-  let id = localStorage.getItem(SESSION_STORAGE_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(SESSION_STORAGE_KEY, id);
-  }
+// ───────────────────────── shared helpers ─────────────────────────
+
+function getSessionId() {
+  const KEY = "agentscope-go.session-id";
+  let id = localStorage.getItem(KEY);
+  if (!id) { id = crypto.randomUUID(); localStorage.setItem(KEY, id); }
   return id;
 }
+const sessionId = getSessionId();
+document.getElementById("session-id").textContent = sessionId.slice(0, 8) + "…";
 
-const sessionId = getOrCreateSessionId();
-document.getElementById("session-id").textContent = sessionId;
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const res = await fetch(path, opts);
+  if (res.status === 204) return null;
+  const txt = await res.text();
+  let data = txt;
+  try { data = txt ? JSON.parse(txt) : null; } catch (_) {}
+  if (!res.ok) throw new Error(typeof data === "object" && data ? (data.error || data.message || res.statusText) : `${res.status}`);
+  return data;
+}
 
+// ───────────────────────── router ─────────────────────────
+
+document.querySelectorAll(".nav-item").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    const view = btn.dataset.view;
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + view).classList.add("active");
+    if (view === "kb") loadKBList();
+    if (view === "system") loadSystem();
+  });
+});
+
+// ───────────────────────── chat (AG-UI SSE) ─────────────────────────
+
+const SESSION_STORAGE_KEY = "agentscope-go.session-id";
 const messagesEl = document.getElementById("messages");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send-btn");
 const reconnectStatusEl = document.getElementById("reconnect-status");
-
-/** @type {AbortController | null} */
 let activeStream = null;
 
-const MEANINGFUL_AGUI_EVENTS = new Set([
-  "RUN_STARTED",
-  "RUN_FINISHED",
-  "RUN_ERROR",
-  "STEP_STARTED",
-  "REASONING_MESSAGE_START",
-  "REASONING_MESSAGE_CONTENT",
-  "TEXT_MESSAGE_CONTENT",
-  "TOOL_CALL_START",
-  "TOOL_CALL_ARGS",
-  "TOOL_CALL_RESULT",
-  "CUSTOM",
+const AGUI_EVENTS = new Set([
+  "RUN_STARTED","RUN_FINISHED","RUN_ERROR","STEP_STARTED",
+  "REASONING_MESSAGE_START","REASONING_MESSAGE_CONTENT",
+  "TEXT_MESSAGE_CONTENT","TOOL_CALL_START","TOOL_CALL_ARGS",
+  "TOOL_CALL_RESULT","CUSTOM","STREAM_DONE",
 ]);
 
 form.addEventListener("submit", (e) => {
@@ -42,304 +66,263 @@ form.addEventListener("submit", (e) => {
   input.value = "";
   sendMessage(text);
 });
-
-function setReconnectStatus(text) {
-  if (reconnectStatusEl) reconnectStatusEl.textContent = text;
-}
-
+function setReconnectStatus(t) { if (reconnectStatusEl) reconnectStatusEl.textContent = t; }
 function appendUserBubble(text) {
   const el = document.createElement("div");
   el.className = "bubble user";
   el.textContent = text;
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
-  return el;
 }
-
 function createAssistantRun() {
   const wrap = document.createElement("div");
   wrap.className = "bubble assistant";
-
   const meta = document.createElement("div");
-  meta.className = "run-meta";
-  meta.textContent = "Assistant · streaming…";
+  meta.className = "run-meta"; meta.textContent = "Assistant · streaming…";
   wrap.appendChild(meta);
-
   const reasoning = document.createElement("details");
-  reasoning.className = "reasoning";
-  reasoning.style.display = "none";
-  const summary = document.createElement("summary");
-  summary.textContent = "Reasoning";
-  const reasoningBody = document.createElement("div");
-  reasoningBody.className = "body";
-  reasoning.appendChild(summary);
-  reasoning.appendChild(reasoningBody);
+  reasoning.className = "reasoning"; reasoning.style.display = "none";
+  const summary = document.createElement("summary"); summary.textContent = "Reasoning";
+  const reasoningBody = document.createElement("div"); reasoningBody.className = "body";
+  reasoning.appendChild(summary); reasoning.appendChild(reasoningBody);
   wrap.appendChild(reasoning);
-
-  const toolsEl = document.createElement("div");
-  toolsEl.className = "tools";
+  const toolsEl = document.createElement("div"); toolsEl.className = "tools";
   wrap.appendChild(toolsEl);
-
-  const textEl = document.createElement("div");
-  textEl.className = "text typing";
+  const textEl = document.createElement("div"); textEl.className = "text typing";
   wrap.appendChild(textEl);
-
   messagesEl.appendChild(wrap);
   messagesEl.scrollTop = messagesEl.scrollHeight;
-
-  return {
-    wrap,
-    meta,
-    reasoning,
-    reasoningBody,
-    toolsEl,
-    textEl,
-    tools: new Map(),
-    toolArgs: new Map(),
-  };
+  return { wrap, meta, reasoning, reasoningBody, toolsEl, textEl, tools: new Map(), toolArgs: new Map() };
 }
-
-function getOrCreateTool(run, toolCallId, toolName) {
-  if (run.tools.has(toolCallId)) return run.tools.get(toolCallId);
+function getOrCreateTool(run, id, name) {
+  if (run.tools.has(id)) return run.tools.get(id);
   const card = document.createElement("div");
   card.className = "tool-card";
-  card.innerHTML = `<div class="name">${escapeHtml(toolName || toolCallId)}</div>
-    <div class="args"></div><div class="result"></div>`;
+  card.innerHTML = `<div class="name">${escapeHtml(name || id)}</div><div class="args"></div><div class="result"></div>`;
   run.toolsEl.appendChild(card);
-  run.tools.set(toolCallId, card);
-  run.toolArgs.set(toolCallId, "");
+  run.tools.set(id, card); run.toolArgs.set(id, "");
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return card;
 }
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function handleAGUIEvent(run, ev) {
   switch (ev.type) {
-    case "RUN_STARTED":
-      run.meta.textContent = `Run ${ev.runId || ""} · ${ev.threadId || sessionId}`;
-      break;
-
-    case "RUN_FINISHED":
-      run.textEl.classList.remove("typing");
-      run.meta.textContent = (run.meta.textContent || "").replace(/streaming…|重连中…/g, "done");
-      break;
-
-    case "RUN_ERROR":
-      run.textEl.classList.remove("typing");
-      run.textEl.innerHTML = `<span class="error-banner">${escapeHtml(ev.message || "Error")}</span>`;
-      break;
-
-    case "STEP_STARTED":
-      run.meta.insertAdjacentHTML(
-        "beforeend",
-        ` <span class="step-pill">${escapeHtml(ev.stepName || "step")}</span>`
-      );
-      break;
-
-    case "REASONING_MESSAGE_START":
-      run.reasoning.style.display = "block";
-      run.reasoning.open = true;
-      break;
-
-    case "REASONING_MESSAGE_CONTENT":
-      run.reasoningBody.textContent += ev.delta || "";
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      break;
-
-    case "TEXT_MESSAGE_CONTENT":
-      run.textEl.textContent += ev.delta || "";
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-      break;
-
-    case "TOOL_CALL_START": {
-      const card = getOrCreateTool(run, ev.toolCallId, ev.toolCallName);
-      card.querySelector(".args").textContent = "args: …";
-      break;
-    }
-
-    case "TOOL_CALL_ARGS": {
-      const prev = run.toolArgs.get(ev.toolCallId) || "";
-      const next = prev + (ev.delta || "");
-      run.toolArgs.set(ev.toolCallId, next);
-      const card = run.tools.get(ev.toolCallId);
-      if (card) card.querySelector(".args").textContent = "args: " + next;
-      break;
-    }
-
-    case "TOOL_CALL_RESULT": {
-      const card = run.tools.get(ev.toolCallId);
-      if (card) {
-        card.querySelector(".result").textContent = "result: " + (ev.content || "");
-      }
-      break;
-    }
-
-    case "CUSTOM":
-      if (ev.name === "require_user_confirm") {
-        run.textEl.insertAdjacentHTML(
-          "beforeend",
-          `<div class="error-banner">HITL: user confirmation required (resume via /v2/resume)</div>`
-        );
-      }
-      break;
-
-    case "STREAM_DONE":
-      run.textEl.classList.remove("typing");
-      break;
-
-    default:
-      break;
+    case "RUN_STARTED": run.meta.textContent = `Run ${ev.runId || ""} · ${ev.threadId || sessionId}`; break;
+    case "RUN_FINISHED": run.textEl.classList.remove("typing"); run.meta.textContent = (run.meta.textContent || "").replace(/streaming…|重连中…/g, "done"); break;
+    case "RUN_ERROR": run.textEl.classList.remove("typing"); run.textEl.innerHTML = `<span class="error-banner">${escapeHtml(ev.message || "Error")}</span>`; break;
+    case "STEP_STARTED": run.meta.insertAdjacentHTML("beforeend", ` <span class="step-pill">${escapeHtml(ev.stepName || "step")}</span>`); break;
+    case "REASONING_MESSAGE_START": run.reasoning.style.display = "block"; run.reasoning.open = true; break;
+    case "REASONING_MESSAGE_CONTENT": run.reasoningBody.textContent += ev.delta || ""; messagesEl.scrollTop = messagesEl.scrollHeight; break;
+    case "TEXT_MESSAGE_CONTENT": run.textEl.textContent += ev.delta || ""; messagesEl.scrollTop = messagesEl.scrollHeight; break;
+    case "TOOL_CALL_START": { const c = getOrCreateTool(run, ev.toolCallId, ev.toolCallName); c.querySelector(".args").textContent = "args: …"; break; }
+    case "TOOL_CALL_ARGS": { const prev = run.toolArgs.get(ev.toolCallId) || ""; const next = prev + (ev.delta || ""); run.toolArgs.set(ev.toolCallId, next); const c = run.tools.get(ev.toolCallId); if (c) c.querySelector(".args").textContent = "args: " + next; break; }
+    case "TOOL_CALL_RESULT": { const c = run.tools.get(ev.toolCallId); if (c) c.querySelector(".result").textContent = "result: " + (ev.content || ""); break; }
+    case "CUSTOM": if (ev.name === "require_user_confirm") run.textEl.insertAdjacentHTML("beforeend", `<div class="error-banner">HITL: user confirmation required (resume via /v2/resume)</div>`); break;
+    case "STREAM_DONE": run.textEl.classList.remove("typing"); break;
   }
 }
-
-/**
- * Reads an SSE response body and dispatches AG-UI events.
- * @returns {boolean} whether any meaningful event was received
- */
-async function consumeEventStream(res, run, { signal, onEvent } = {}) {
+async function consumeEventStream(res, run, signal) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
-  let meaningful = false;
-
+  let buffer = "", meaningful = false;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-
     const chunks = buffer.split("\n\n");
     buffer = chunks.pop() || "";
-
     for (const chunk of chunks) {
-      const line = chunk.split("\n").find((l) => l.startsWith("data: "));
+      const line = chunk.split("\n").find(l => l.startsWith("data: "));
       if (!line) continue;
       try {
         const ev = JSON.parse(line.slice(6));
-        if (MEANINGFUL_AGUI_EVENTS.has(ev.type)) {
-          meaningful = true;
-        }
+        if (AGUI_EVENTS.has(ev.type)) meaningful = true;
         handleAGUIEvent(run, ev);
-        onEvent?.(ev);
-      } catch (parseErr) {
-        console.warn("SSE parse error", parseErr, line);
-      }
+      } catch (e) { /* ignore parse error */ }
     }
-    if (signal?.aborted) {
-      reader.cancel();
-      break;
-    }
+    if (signal?.aborted) { reader.cancel(); break; }
   }
-
   return meaningful;
 }
-
 async function reconnectOnLoad() {
-  setReconnectStatus("重连中…");
-  sendBtn.disabled = true;
-
-  const controller = new AbortController();
-  activeStream = controller;
-
-  const run = createAssistantRun();
-  run.meta.textContent = "Assistant · 重连中…";
-
+  setReconnectStatus("重连中…"); sendBtn.disabled = true;
+  const controller = new AbortController(); activeStream = controller;
+  const run = createAssistantRun(); run.meta.textContent = "Assistant · 重连中…";
   try {
     const url = `/v2/chat?protocol=agui&session_id=${encodeURIComponent(sessionId)}`;
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json, text/event-stream",
-        "Agent-Session-Id": sessionId,
-      },
-      signal: controller.signal,
-    });
-
-    if (res.status === 404 || res.status === 503) {
-      run.wrap.remove();
-      setReconnectStatus("");
-      return;
-    }
-
-    if (!res.ok) {
-      run.wrap.remove();
-      setReconnectStatus(`重连失败 (${res.status})`);
-      return;
-    }
-
-    const meaningful = await consumeEventStream(res, run, { signal: controller.signal });
-
-    if (!meaningful) {
-      run.wrap.remove();
-      setReconnectStatus("");
-      return;
-    }
-
+    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId }, signal: controller.signal });
+    if (res.status === 404 || res.status === 503) { run.wrap.remove(); setReconnectStatus(""); return; }
+    if (!res.ok) { run.wrap.remove(); setReconnectStatus(`重连失败 (${res.status})`); return; }
+    const meaningful = await consumeEventStream(res, run, controller.signal);
+    if (!meaningful) { run.wrap.remove(); setReconnectStatus(""); return; }
     run.textEl.classList.remove("typing");
-    if (!run.meta.textContent.includes("done")) {
-      run.meta.textContent = (run.meta.textContent || "").replace("重连中…", "重连 · 进行中");
-    }
     setReconnectStatus("已重连");
   } catch (err) {
-    if (err.name !== "AbortError") {
-      console.warn("reconnect failed", err);
-      run.wrap.remove();
-      setReconnectStatus("重连失败");
-    }
+    if (err.name !== "AbortError") { run.wrap.remove(); setReconnectStatus("重连失败"); }
   } finally {
-    run.textEl.classList.remove("typing");
-    sendBtn.disabled = false;
-    if (activeStream === controller) {
-      activeStream = null;
-    }
+    run.textEl.classList.remove("typing"); sendBtn.disabled = false;
+    if (activeStream === controller) activeStream = null;
   }
 }
-
 async function sendMessage(text) {
   if (activeStream) activeStream.abort();
-
   appendUserBubble(text);
   const run = createAssistantRun();
-  sendBtn.disabled = true;
-  setReconnectStatus("");
-
-  const controller = new AbortController();
-  activeStream = controller;
-
+  sendBtn.disabled = true; setReconnectStatus("");
+  const controller = new AbortController(); activeStream = controller;
   try {
     const res = await fetch("/v2/chat?protocol=agui", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        "Agent-Session-Id": sessionId,
-      },
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId },
       body: JSON.stringify({ text, session_id: sessionId }),
       signal: controller.signal,
     });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`${res.status}: ${errText}`);
-    }
-
-    await consumeEventStream(res, run, { signal: controller.signal });
+    if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
+    await consumeEventStream(res, run, controller.signal);
   } catch (err) {
-    if (err.name !== "AbortError") {
-      run.textEl.classList.remove("typing");
-      run.textEl.innerHTML = `<span class="error-banner">${escapeHtml(err.message)}</span>`;
-    }
+    if (err.name !== "AbortError") { run.textEl.classList.remove("typing"); run.textEl.innerHTML = `<span class="error-banner">${escapeHtml(err.message)}</span>`; }
   } finally {
-    run.textEl.classList.remove("typing");
-    sendBtn.disabled = false;
-    activeStream = null;
+    run.textEl.classList.remove("typing"); sendBtn.disabled = false; activeStream = null;
+  }
+}
+reconnectOnLoad();
+
+// ───────────────────────── knowledge bases ─────────────────────────
+
+const kbListEl = document.getElementById("kb-list");
+const kbDetailEl = document.getElementById("kb-detail");
+const kbModal = document.getElementById("kb-modal");
+
+async function loadKBList() {
+  try {
+    const data = await api("GET", "/api/v1/knowledge-bases");
+    const kbs = (data && data.knowledge_bases) || [];
+    if (!kbs.length) { kbListEl.innerHTML = `<div class="empty">尚无知识库，点击「+ 新建」创建。</div>`; return; }
+    kbListEl.innerHTML = kbs.map(kb => `
+      <div class="kb-card" data-name="${escapeHtml(kb.name)}">
+        <button class="kb-del" data-del="${escapeHtml(kb.name)}" title="删除">✕</button>
+        <h3>${escapeHtml(kb.name)}</h3>
+        <div class="kb-meta">${escapeHtml(kb.description || "无描述")}<br>collection: ${escapeHtml(kb.collection || "")}</div>
+      </div>`).join("");
+    kbListEl.querySelectorAll(".kb-card").forEach(card => {
+      card.addEventListener("click", e => {
+        if (e.target.dataset.del) return;
+        openKBDetail(card.dataset.name);
+      });
+    });
+    kbListEl.querySelectorAll(".kb-del").forEach(btn => {
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        if (!confirm("删除知识库 " + btn.dataset.del + "?")) return;
+        await api("DELETE", "/api/v1/knowledge-bases/" + encodeURIComponent(btn.dataset.del));
+        loadKBList();
+      });
+    });
+  } catch (err) {
+    kbListEl.innerHTML = `<div class="empty">知识库 API 不可用：${escapeHtml(err.message)}<br><span class="dim">（需在服务端配置 KBService）</span></div>`;
   }
 }
 
-reconnectOnLoad();
+document.getElementById("kb-new-btn").addEventListener("click", () => kbModal.classList.remove("hidden"));
+document.getElementById("kb-modal-cancel").addEventListener("click", () => kbModal.classList.add("hidden"));
+document.getElementById("kb-modal-create").addEventListener("click", async () => {
+  const name = document.getElementById("kb-form-name").value.trim();
+  const desc = document.getElementById("kb-form-desc").value.trim();
+  if (!name) return;
+  try {
+    await api("POST", "/api/v1/knowledge-bases", { name, description: desc, embedder_id: "stub" });
+    kbModal.classList.add("hidden");
+    document.getElementById("kb-form-name").value = "";
+    document.getElementById("kb-form-desc").value = "";
+    loadKBList();
+  } catch (err) { alert("创建失败：" + err.message); }
+});
+
+let currentKB = null;
+function openKBDetail(name) {
+  currentKB = name;
+  kbListEl.classList.add("hidden");
+  document.querySelector("#view-kb .view-head").classList.add("hidden");
+  kbDetailEl.classList.remove("hidden");
+  document.getElementById("kb-detail-name").textContent = name;
+  loadKBDocs(name);
+  document.getElementById("kb-search-results").innerHTML = "";
+}
+document.getElementById("kb-back-btn").addEventListener("click", () => {
+  kbDetailEl.classList.add("hidden");
+  document.querySelector("#view-kb .view-head").classList.remove("hidden");
+  kbListEl.classList.remove("hidden");
+  currentKB = null;
+});
+
+async function loadKBDocs(name) {
+  const docList = document.getElementById("kb-doc-list");
+  try {
+    const data = await api("GET", "/api/v1/knowledge-bases/" + encodeURIComponent(name));
+    const docs = (data && data.documents) || [];
+    if (!docs.length) { docList.innerHTML = `<div class="empty">尚无文档，点击「上传文档」。</div>`; return; }
+    docList.innerHTML = docs.map(d => `
+      <div class="doc-item">
+        <span>📄 ${escapeHtml(d.source || d.doc_id)} <span class="dim">(${d.chunks} chunks)</span></span>
+        <button class="doc-del" data-doc="${escapeHtml(d.doc_id)}">✕</button>
+      </div>`).join("");
+    docList.querySelectorAll(".doc-del").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        await api("DELETE", `/api/v1/knowledge-bases/${encodeURIComponent(name)}/documents/${encodeURIComponent(btn.dataset.doc)}`);
+        loadKBDocs(name);
+      });
+    });
+  } catch (err) { docList.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+}
+
+document.getElementById("kb-upload-input").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files);
+  if (!files.length || !currentKB) return;
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch(`/api/v1/knowledge-bases/${encodeURIComponent(currentKB)}/documents`, { method: "POST", body: fd });
+      if (!res.ok) { const t = await res.text(); alert(`上传 ${file.name} 失败: ${t}`); }
+    } catch (err) { alert(`上传 ${file.name} 失败: ${err.message}`); }
+  }
+  e.target.value = "";
+  loadKBDocs(currentKB);
+});
+
+document.getElementById("kb-search-btn").addEventListener("click", doKBSearch);
+document.getElementById("kb-search-input").addEventListener("keydown", e => { if (e.key === "Enter") doKBSearch(); });
+async function doKBSearch() {
+  if (!currentKB) return;
+  const query = document.getElementById("kb-search-input").value.trim();
+  if (!query) return;
+  const resultsEl = document.getElementById("kb-search-results");
+  resultsEl.innerHTML = `<div class="empty">检索中…</div>`;
+  try {
+    const data = await api("POST", `/api/v1/knowledge-bases/${encodeURIComponent(currentKB)}/search`, { query });
+    const results = (data && data.results) || [];
+    if (!results.length) { resultsEl.innerHTML = `<div class="empty">无匹配结果。</div>`; return; }
+    resultsEl.innerHTML = results.map(r => `
+      <div class="result-item">
+        <span class="score">${r.score ? r.score.toFixed(3) : ""}</span>
+        <div class="src">${escapeHtml(r.source || "")}</div>
+        <div>${escapeHtml(r.text || "")}</div>
+      </div>`).join("");
+  } catch (err) { resultsEl.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+}
+
+// ───────────────────────── system ─────────────────────────
+
+async function loadSystem() {
+  const healthEl = document.getElementById("sys-health");
+  const modelsEl = document.getElementById("sys-models");
+  try {
+    const res = await fetch("/health");
+    healthEl.textContent = `health: ${res.status} ${res.statusText}`;
+  } catch (e) { healthEl.textContent = "health: " + e.message; }
+  try {
+    const data = await api("GET", "/api/v1/models");
+    const models = (data && (data.models || data.data)) || [];
+    if (!models.length) { modelsEl.textContent = "(models API 未配置或为空)"; return; }
+    modelsEl.innerHTML = models.map(m => `<div>• ${escapeHtml(m.id || m.name || JSON.stringify(m))}</div>`).join("");
+  } catch (e) { modelsEl.textContent = "(" + e.message + ")"; }
+}

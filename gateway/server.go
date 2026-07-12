@@ -90,6 +90,14 @@ type Server struct {
 	// Auto-started in Start() when the bus implements TeamBus.
 	wakeupDispatcher *WakeupDispatcher
 
+	// kbService powers the knowledge-base HTTP API (CRUD + upload + search).
+	// nil disables KB routes. Attach via WithKBService.
+	kbService *KBService
+
+	// auditLogger records authenticated requests (who/method/path/status).
+	// nil disables auditing. Attach via WithAuditLogger.
+	auditLogger service.AuditLogger
+
 	// defaultSessionDeps holds auto-assembled defaults for per-session agents
 	// (populated by NewApp when AutoStandardTools etc. are enabled).
 	defaultSessionDeps SessionAgentDeps
@@ -236,9 +244,10 @@ func (s *Server) WithCipher(c *service.Cipher) *Server {
 }
 
 // requireAuth wraps a handler with authentication if an authenticator is configured.
+// When an audit logger is also set, authenticated requests are recorded automatically.
 func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	if s.authenticator == nil {
-		return h
+		return s.auditWrapped(h)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, err := s.authenticator.Authenticate(r)
@@ -248,7 +257,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		h(w, r.WithContext(ctx))
+		s.auditWrapped(h)(w, r.WithContext(ctx))
 	}
 }
 

@@ -1,0 +1,59 @@
+# MCP Servers 配置示例
+# 加载方式: mcp.LoadSpecsFromYAML("mcp-servers.yaml")
+# 未安装的 server 会被优雅跳过（不影响其他 server）
+
+servers:
+  # 文件系统访问（读写指定目录）
+  - name: filesystem
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "$WORKDIR"]
+    # enabled: true   # 默认 true；设 false 跳过
+
+  # 网页抓取
+  - name: fetch
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-fetch"]
+
+  # 浏览器自动化（Playwright）
+  - name: browser
+    transport: stdio
+    command: npx
+    args: ["@playwright/mcp@latest"]
+
+  # GitHub 操作（需要 token）
+  - name: github
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "$GITHUB_TOKEN"
+
+  # Brave 搜索（需要 API key）
+  - name: brave-search
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-brave-search"]
+    env:
+      BRAVE_API_KEY: "$BRAVE_API_KEY"
+    enabled: false   # 暂时禁用，配好 key 后改 true
+
+  # SQLite 数据库（需要 uvx）
+  - name: sqlite
+    transport: stdio
+    command: uvx
+    args: ["mcp-server-sqlite", "--db-path", "$DB_PATH"]
+    enabled: false
+
+  # 远程 HTTP MCP server 示例
+  # - name: remote-custom
+  #   transport: http
+  #   url: "https://mcp.example.com/mcp"
+  #   headers:
+  #     Authorization: "Bearer $MCP_TOKEN"
+
+  # 远程 SSE MCP server 示例
+  # - name: remote-sse
+  #   transport: sse
+  #   url: "https://mcp.example.com/sse"

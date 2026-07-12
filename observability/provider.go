@@ -69,6 +69,34 @@ func (s *otelSpan) RecordError(err error) {
 	s.span.RecordError(err)
 }
 
+// SetAttributes bridges observability.SpanAttr values into real OTel span
+// attributes, so the rich attributes extracted by TracingMiddlewareAdapter
+// flow into a production tracer.
+func (s *otelSpan) SetAttributes(attrs ...SpanAttr) {
+	otAttrs := make([]attribute.KeyValue, 0, len(attrs))
+	for _, a := range attrs {
+		otAttrs = append(otAttrs, toOtelAttr(a))
+	}
+	s.span.SetAttributes(otAttrs...)
+}
+
+func toOtelAttr(a SpanAttr) attribute.KeyValue {
+	switch v := a.Value.(type) {
+	case string:
+		return attribute.String(a.Key, v)
+	case int:
+		return attribute.Int(a.Key, v)
+	case int64:
+		return attribute.Int64(a.Key, v)
+	case float64:
+		return attribute.Float64(a.Key, v)
+	case bool:
+		return attribute.Bool(a.Key, v)
+	default:
+		return attribute.String(a.Key, fmt.Sprintf("%v", v))
+	}
+}
+
 // SetAgentAttributes adds common agent attributes to a span.
 func SetAgentAttributes(span trace.Span, agentName string) {
 	span.SetAttributes(attribute.String("agent.name", agentName))

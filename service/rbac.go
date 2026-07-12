@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -151,8 +152,10 @@ type AuditLogger interface {
 	ListByResource(ctx context.Context, resource string, limit int) ([]*AuditLog, error)
 }
 
-// MemoryAuditLogger 内存审计日志实现（开发测试）
+// MemoryAuditLogger 内存审计日志实现（开发测试）。线程安全：审计记录可能在
+// 后台 goroutine 中写入，因此所有方法加锁保护。
 type MemoryAuditLogger struct {
+	mu   sync.Mutex
 	logs []*AuditLog
 }
 
@@ -161,11 +164,15 @@ func NewMemoryAuditLogger() *MemoryAuditLogger {
 }
 
 func (l *MemoryAuditLogger) Log(ctx context.Context, entry *AuditLog) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.logs = append(l.logs, entry)
 	return nil
 }
 
 func (l *MemoryAuditLogger) ListByUser(ctx context.Context, userID string, limit int) ([]*AuditLog, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	result := make([]*AuditLog, 0)
 	for i := len(l.logs) - 1; i >= 0 && len(result) < limit; i-- {
 		if l.logs[i].UserID == userID {
@@ -176,6 +183,8 @@ func (l *MemoryAuditLogger) ListByUser(ctx context.Context, userID string, limit
 }
 
 func (l *MemoryAuditLogger) ListByResource(ctx context.Context, resource string, limit int) ([]*AuditLog, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	result := make([]*AuditLog, 0)
 	for i := len(l.logs) - 1; i >= 0 && len(result) < limit; i-- {
 		if strings.HasPrefix(l.logs[i].Resource, resource) {

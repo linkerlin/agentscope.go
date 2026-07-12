@@ -56,6 +56,15 @@ type AppConfig struct {
 	// Embedding cache dir: if set and EmbeddingModel provided, auto-wrap with embedding.WithFileCache
 	EmbeddingCacheDir string
 
+	// KBService powers the knowledge-base HTTP API (CRUD + upload + search).
+	// Optional; nil disables KB routes. Build via gateway.NewKBService(...).
+	KBService *KBService
+
+	// AuditLogger records authenticated requests (who/method/path/status).
+	// Optional; nil disables auditing. Use service.NewMemoryAuditLogger() for
+	// dev or a Redis-backed logger for production.
+	AuditLogger service.AuditLogger
+
 	// Evolver integration (Phase 6 GEP alignment): set true or provide external MCP URL
 	// to allow session agents to discover/call evolver tools (run/reflect/solidify, genes, capsules,
 	// remember/recall, meetings, ATP tasks) via the existing MCP gateway.
@@ -124,6 +133,12 @@ func NewApp(cfg AppConfig) *Server {
 
 	if cfg.ModelCardsDir != "" {
 		srv.WithModelCardsDir(cfg.ModelCardsDir)
+	}
+	if cfg.KBService != nil {
+		srv.WithKBService(cfg.KBService)
+	}
+	if cfg.AuditLogger != nil {
+		srv.WithAuditLogger(cfg.AuditLogger)
 	}
 	if cfg.EmbeddingModel != nil {
 		emb := cfg.EmbeddingModel
@@ -199,4 +214,7 @@ func (s *Server) RegisterAppRoutes(jwtAuth *service.JWTAuthenticator) {
 	s.RegisterEmbeddingRoutes()
 	s.RegisterAudioRoutes()
 	s.RegisterV2Routes()
+	s.RegisterKBRoutes()
+	s.RegisterProjectionRoutes()
+	s.RegisterAuditRoutes()
 }

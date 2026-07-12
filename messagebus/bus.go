@@ -57,6 +57,12 @@ type LocalBus struct {
 	inbox    map[string][]TeamMessage
 	wakeSubs map[int]chan WakeupEvent
 	wakeNext int
+
+	// CoordBus state (domain-agnostic coordination primitives).
+	locks    map[string]*localLock
+	registry map[string]map[string][]byte
+	queues   map[string]*localQueue
+	logs     map[string][][]byte
 }
 
 // NewLocalBus creates an empty in-process bus.
@@ -65,6 +71,10 @@ func NewLocalBus() *LocalBus {
 		subs:     map[string]map[int]chan Message{},
 		inbox:    map[string][]TeamMessage{},
 		wakeSubs: map[int]chan WakeupEvent{},
+		locks:    map[string]*localLock{},
+		registry: map[string]map[string][]byte{},
+		queues:   map[string]*localQueue{},
+		logs:     map[string][][]byte{},
 	}
 }
 

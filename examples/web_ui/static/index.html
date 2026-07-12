@@ -3,33 +3,109 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AgentScope Go · AG-UI</title>
+  <title>AgentScope Go · Console</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="app">
-    <header class="header">
-      <div>
-        <h1>AgentScope Go</h1>
-        <p class="subtitle">AG-UI protocol · Streamable HTTP</p>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="logo">◆</span>
+        <span class="brand-name">AgentScope<span class="dim">.go</span></span>
       </div>
-      <div class="session">
-        <span class="label">Session</span>
-        <code id="session-id"></code>
+      <nav class="nav">
+        <button class="nav-item active" data-view="chat">
+          <span class="nav-ico">💬</span> Chat
+        </button>
+        <button class="nav-item" data-view="kb">
+          <span class="nav-ico">📚</span> Knowledge Bases
+        </button>
+        <button class="nav-item" data-view="system">
+          <span class="nav-ico">⚙</span> System
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="session-box">
+          <span class="label">Session</span>
+          <code id="session-id"></code>
+        </div>
         <span id="reconnect-status" class="reconnect-status" aria-live="polite"></span>
       </div>
-    </header>
+    </aside>
 
-    <main id="messages" class="messages" aria-live="polite"></main>
+    <main class="main">
+      <!-- Chat view -->
+      <section id="view-chat" class="view active">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <footer class="composer">
+          <form id="chat-form">
+            <textarea id="input" rows="2" placeholder="输入消息… (demo 模式可试 tool / offload)" autofocus></textarea>
+            <button type="submit" id="send-btn">发送</button>
+          </form>
+        </footer>
+      </section>
 
-    <footer class="composer">
-      <form id="chat-form">
-        <textarea id="input" rows="2" placeholder="输入消息… (demo 模式可试 tool)" autofocus></textarea>
-        <button type="submit" id="send-btn">发送</button>
-      </form>
-      <p class="hint">加载时 <code>GET /v2/chat</code> 自动重连 · 发送 <code>POST /v2/chat</code></p>
-    </footer>
+      <!-- Knowledge Bases view -->
+      <section id="view-kb" class="view">
+        <header class="view-head">
+          <h2>Knowledge Bases</h2>
+          <button class="btn primary" id="kb-new-btn">+ 新建</button>
+        </header>
+        <div id="kb-list" class="kb-grid"></div>
+
+        <div id="kb-detail" class="kb-detail hidden">
+          <button class="btn ghost" id="kb-back-btn">← 返回列表</button>
+          <div class="kb-detail-head">
+            <div>
+              <h3 id="kb-detail-name"></h3>
+              <p id="kb-detail-desc" class="dim"></p>
+            </div>
+          </div>
+          <div class="kb-actions">
+            <label class="btn primary file-btn">
+              上传文档
+              <input type="file" id="kb-upload-input" multiple hidden />
+            </label>
+            <input type="text" id="kb-search-input" class="text-input" placeholder="搜索知识库…" />
+            <button class="btn" id="kb-search-btn">检索</button>
+          </div>
+          <div id="kb-search-results" class="kb-results"></div>
+          <h4 class="mt">已索引文档</h4>
+          <div id="kb-doc-list" class="doc-list"></div>
+        </div>
+      </section>
+
+      <!-- System view -->
+      <section id="view-system" class="view">
+        <header class="view-head"><h2>System</h2></header>
+        <div class="cards">
+          <div class="card">
+            <h3>Health</h3>
+            <pre id="sys-health" class="mono">检查中…</pre>
+          </div>
+          <div class="card">
+            <h3>Models</h3>
+            <div id="sys-models" class="mono">加载中…</div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <!-- KB create modal -->
+  <div id="kb-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>新建知识库</h3>
+      <label>Name<input type="text" id="kb-form-name" class="text-input" /></label>
+      <label>Description<input type="text" id="kb-form-desc" class="text-input" /></label>
+      <input type="hidden" id="kb-form-embedder" value="stub" />
+      <div class="modal-actions">
+        <button class="btn ghost" id="kb-modal-cancel">取消</button>
+        <button class="btn primary" id="kb-modal-create">创建</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/app.js"></script>
 </body>
 </html>

@@ -216,6 +216,9 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 			}
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
+				if usage.TotalTokens == 0 {
+					usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+				}
 				ch <- &model.StreamChunk{Done: true, Usage: &usage}
 				return
 			}
@@ -223,9 +226,20 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 			if err := json.Unmarshal([]byte(data), &ev); err != nil {
 				continue
 			}
+			if ev["type"] == "message_start" {
+				if u, ok := ev["usage"].(map[string]any); ok {
+					usage.PromptTokens = intAny(u["input_tokens"])
+					if usage.CompletionTokens == 0 {
+						usage.CompletionTokens = intAny(u["output_tokens"])
+					}
+				}
+			}
 			if ev["type"] == "message_delta" {
 				if u, ok := ev["usage"].(map[string]any); ok {
 					usage.CompletionTokens = intAny(u["output_tokens"])
+					if usage.PromptTokens == 0 {
+						usage.PromptTokens = intAny(u["input_tokens"])
+					}
 				}
 			}
 			if ev["type"] != "content_block_delta" {
@@ -242,6 +256,9 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 			if thinking, ok := delta["thinking"].(string); ok && thinking != "" {
 				ch <- &model.StreamChunk{Content: []message.ContentBlock{message.NewThinkingBlock(thinking, "")}}
 			}
+		}
+		if usage.TotalTokens == 0 {
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 		}
 		ch <- &model.StreamChunk{Done: true, Usage: &usage}
 	}()

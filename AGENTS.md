@@ -5,7 +5,7 @@
 
 ## 项目概述
 
-本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.3.0**。
+本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.4.0**。
 
 ## V2 架构总览
 
@@ -25,7 +25,7 @@
           msghub/        消息中心广播
           reflection/    反思机制 (Writer+Critic)
 Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 状态机 + 结构化输出)
-          middleware/     Agent 生命周期中间件链 (洋葱模型: Reply/Reasoning/Acting/ModelCall/SystemPrompt)
+          middleware/     Agent 生命周期中间件链 (洋葱模型: Reply/Reasoning/Acting/ModelCall/SystemPrompt) + RAG/AgenticMemory/LongTermMemory/TTS/Budget
           subagent/      元工具: Agent 作为 Tool 递归委托
 事件系统   event/         20+ 事件类型 + Bus + MetricsHandler
           hook/          经典 Hook (12 HookPoint) + StreamHook (9 事件) + JSONL Trace Exporter
@@ -37,9 +37,10 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
           permission/    规则引擎 + Bash 复合命令拆分 (启发式/tree-sitter) + Shell 命令验证
           embedding/     独立 Embedding 包 (OpenAI/Ollama/Gemini/DashScope/DashScope多模态 + FileCache)
           tts/           🆕 独立 TTS 包 (DashScope CosyVoice/qwen3-tts + OpenAI 适配器 + RealtimeModel + ModelCard YAML)
-          messagebus/   🆕 分布式消息总线 (LocalBus 进程内 + RedisBus pub/sub 多进程, 对齐 #1849)
+          messagebus/   分布式消息总线 (LocalBus + RedisBus) + CoordBus 四原语 (Lock/Registry/Queue/Log) + TeamBus + SessionProjection, 对齐 #1849
 记忆层     memory/        ReMe (文件/向量) + 7 向量后端 (5完整+SQLiteVec+2占位) + Hybrid Search(BM25+Reranker) + Dream 演化 + 知识图谱 + FTS5
-可观测性   observability/ OpenTelemetry + LangSmith + TracingMiddlewareAdapter + otelbridge
+可观测性   observability/ OpenTelemetry + LangSmith + Langfuse + TracingMiddlewareAdapter(语义属性提取) + otelbridge
+          logging/       结构化日志规范 (stdlib slog 封装 + 环境配置 + 请求级 context logger)
 演化层     evolver/       GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill2GEP 蒸馏
 扩展层     plugin/        🆕 Plugin 系统: Plugin 接口 + Manager + Registrar + YAML 配置 + .so 加载 (Linux)
 辅助包     config/        配置管理
@@ -50,9 +51,9 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
            retry/         重试策略 (线性退避/永久错误分类)
           async/         异步任务执行池
           plan/          PlanNotebook 多步骤任务管理
-          rag/           RAG 集成 (含 Apache Tika + Memory Adapter)
-          skill/         SkillBox + SkillViewer + load_skill + 蒸馏到 Gene
-          tests/         跨语言契约测试
+          logging/       结构化日志规范 (stdlib slog 封装 + LOG_LEVEL/LOG_FORMAT 环境配置 + 请求级 FromContext)
+           skill/         SkillBox + SkillViewer + load_skill + 蒸馏到 Gene
+           tests/         跨语言契约测试
            embedding/onnx/ ONNX HTTP 代理：CLIP/Whisper 预处理(Go本地) + 嵌入推理(HTTP代理) + 模型管理器
            a2a/           A2A 增强：认证/限流/WebSocket/安全中间件/ShardRouter/ClusterManager
            benchmark/     性能基准测试目录 + Catalog (Gateway/Memory/Plan/Graph/A2A)
@@ -73,6 +74,14 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 | `service/` | 1,336 | 1,177 | 6 | Storage/Auth/Cipher |
 | `permission/` | 1,205 | 661 | 8 | 规则引擎 + Bash AST |
 | `formatter/` | 946 | 1,203 | 7 | 3 独立 Formatter (OpenAI/Anthropic/Gemini) + 2 别名 + 11 MultiAgent 变体 |
+| `rag/document/` | 85 | 60 | 2 | Section/Chunk 数据模型 (对齐 Python rag._document) |
+| `rag/parser/` | 380 | 420 | 5 | Parser 接口 + Registry + Text/PDF/PPTX/Image 解析器 |
+| `rag/chunker/` | 165 | 195 | 2 | Chunker 接口 + ApproxTokenChunker (近似 token, rune 边界) |
+| `rag/blob/` | 90 | 110 | 2 | BlobStore 接口 + LocalBlobStore |
+| `rag/kb/` | 330 | 300 | 2 | KnowledgeBase 句柄 + KBManager + InMemoryVectorStore (多租户) |
+| `rag/index/` | 145 | 210 | 2 | Worker 全管道编排 + Queue channel 调度 |
+| `middleware/`(含RAG/Agentic) | 1,521 | 1,142 | 7 | 洋葱链 + Budget/TTS/LongTermMemory/RAG/AgenticMemory |
+| `logging/` | 115 | 120 | 1 | 结构化日志规范 (slog 封装 + 环境配置 + FromContext 请求级) |
 | `skill/` | 1,038 | 393 | 4 | SkillBox + SkillViewer + load_skill |
 | `evolver/` | 928 | 94 | 1 | GEP Gene/Capsule + Evolver 接口(16方法) + Mock/MCP/Recording 客户端 |
 | `messagebus/` | 230 | 175 | 1 | 🆕 分布式消息总线 (LocalBus + RedisBus pub/sub, 对齐 #1849) |
@@ -107,7 +116,7 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 | `shutdown/` | 42 | 35 | 1 | 优雅关闭 |
 | `interruption/` | 51 | 52 | 1 | 中断处理 |
 | `runcontext/` | 39 | 37 | 2 | 运行时上下文 |
-| **总计** | **~43,000** | **~28,500** | **~250** | 持续增长 |
+| **总计** | **~66,500** | **~39,900** | **~303** | 162 包，持续增长 |
 
 ## 测试
 
@@ -132,6 +141,7 @@ go test ./... -race -count=1   # 全量通过（提交前强制）
 - 推荐安装 golangci-lint 并通过 `make lint` / `golangci-lint run ./...`
 - 新代码优先使用顶级 `embedding/` 包（NewOpenAI / NewOllama / NewGemini / NewDashScope + WithFileCache）。`memory/embedding` 仅为向后兼容的 adapter（已标记 Deprecated）。
 - 中间件使用洋葱模型（`OnXxx(ctx, agent, input, next XxxNext) -> (*Msg, error)`），支持 Reply/Reasoning/Acting/ModelCall/SystemPrompt 五个拦截点
+- **结构化日志**：新代码用 `logging` 包（基于 stdlib `log/slog`）。`logging.Default()` 获取 logger，`logging.FromContext(ctx)` 取请求级 logger，`logging.WithLogger(ctx, l)` 注入。键值对用 `logging.KeyAgentID`/`KeySessionID` 等常量。环境变量 `LOG_LEVEL`/`LOG_FORMAT` 配置。禁止 `fmt.Println`/`log.Printf` 做日志（仅 examples/demo 允许）。
 
 本地推荐流程（使用 Makefile）：
 ```bash
@@ -178,6 +188,11 @@ make test   # 或 make ci
 32. **Agent Team 运行时 spawn + 权限继承**（对齐 #1833/#1815）：`AgentFactory.BuildSubagentTools` 在 `BuildSessionAgent` 中将 leader 的 `SubagentTemplates` spawn 为 `SubagentTool`；子 agent 继承 leader 的 `*permission.Engine` 并共享会话工作区 + 基础 file/shell 工具集（不含嵌套 subagent 工具，避免递归）
 33. **分布式消息总线**（对齐 #1849）：`messagebus.Bus` 抽象 + `LocalBus`（进程内、发布非阻塞）+ `RedisBus`（Redis pub/sub、多进程）；`AppConfig.MessageBus`/`Server.WithMessageBus` 接入，支撑跨进程 cancel/wake-up/tool-offload-complete 协调
 34. **Agent Team 异步协作运行时**（对齐 Python agentscope AgentTeam）：完整移植 Python 的 leader/worker 异步协作模型（区别于 #32 的同步 agent-as-tool）。`messagebus.TeamBus` 接口（`InboxPush`/`InboxDrain`/`EnqueueWakeup`/`SubscribeWakeup`）由 `LocalBus`（内存）与 `RedisBus`（Redis LIST+BLPOP，持久不丢）实现；`service.Team`/`TeamMember` 数据模型 + Storage CRUD；四个 team 工具 `TeamCreate`/`AgentCreate`/`TeamSay`/`TeamDelete`（`gateway/team_tools.go`，工具调用时自查前置条件，权限恒 ALLOW）；`WakeupDispatcher`（`gateway/wakeup_dispatcher.go`）订阅 wakeup 信号 → drain inbox → 重组 `<team-message>` 为 user 输入 → `SessionManager.Run` 重跑空闲 worker，忙时轮询重试。worker 为独立 `source=team` agent+session，跨进程靠共享 storage( inbox)+bus(wakeup) 协调。`BuildSessionAgent` 按 `AgentConfig.Source` 挂载 leader 全集/worker 仅 `TeamSay`；`Server.Start` 自动拉起 dispatcher
+35. **RAG 托管知识库管道**（对齐 Python `rag/`+`app/rag/`+`middleware/_rag.py`）：`rag/document`(Section/Chunk)→`rag/parser`(Registry 按 MIME 路由: Text/PDF/PPTX/Image，PDF 纯 Go `ledongthuc/pdf`+panic recover，PPTX 纯 stdlib `archive/zip`+`encoding/xml`，Image 内容嗅 sniff)→`rag/chunker`(ApproxTokenChunker，utf8/4 近似 token+rune 边界切分)→`rag/blob`(LocalBlobStore `local://` URI)→`rag/kb`(KnowledgeBase 句柄绑定 embedder+collection+多租户 metadata_filter 强制隔离；KBManager+CollectionPerKB；InMemoryVectorStore 余弦+filter+doc聚合)→`rag/index`(Worker 串联全管道+Queue channel 背压)。`RAGMiddleware`(static/agent/both 三模式：OnReply 检索→context state→OnReasoning 注入 HintBlock；search_knowledge 工具；MinScore 过滤；错误不中断)。KB HTTP 路由 8 端点(CRUD+multipart/JSON上传+搜索+octet-stream扩展名嗅探兜底)。用 Go 地道方式补齐 Python 在 RAG 托管服务上 90% 的差距
+36. **CoordBus 消息总线协调原语**（对齐 Python `app/message_bus` 通用原语）：在 `messagebus` 包新增 `CoordBus` **可选接口**（`Lock`/`Registry`/`Queue`/`Log`），不破坏现有 `Bus`/`TeamBus`。LocalBus：channel 信号量锁+`time.AfterFunc` TTL 自动释放、slice+notify channel ctx 可取消队列、map 注册表；RedisBus：`SET NX PX`+Lua token 释放锁、HASH 注册表、`RPUSH`+`BLPOP` FIFO 队列、LIST 游标日志。`AsCoordBus` 类型断言获取，nil 时所有消费者降级单进程。`CoordKeys` 集中管理业务键格式（QueueName/LockKey/RegistryNS/LogNS/ProjectionNS + WakeupKind wake/resume）
+37. **跨会话投影**（对齐 Python session_projection）：`gateway.SessionProjection` 基于 CoordBus registry，一个会话可向另一会话投影 UI 卡片（如 worker HITL 请求投影到 leader）。无 CoordBus 时优雅降级 no-op。HTTP `GET/DELETE /api/v1/sessions/{id}/projections`
+38. **零构建现代 Web UI 控制台**（对齐 Python React Web UI，用 Go 地道方式）：`examples/web_ui/static/` 零 npm/Node 构建依赖——原生 vanilla JS + SSE + `go:embed`，单二进制部署。侧边栏导航三视图（Chat AG-UI SSE 流式 / Knowledge Bases CRUD+上传+检索 / System health+models）。GitHub 风深色主题（CSS 变量+响应式卡片网格）。前端直连 gateway HTTP API 无代理层。AG-UI 协议与 Python React 前端兼容
+39. **Agentic Memory 自主记忆**（对齐 Python `AgenticMemoryMiddleware`）：`middleware.AgenticMemoryMiddleware` 文件式自主记忆——agent **自己用已有文件工具**(Write/Read/Edit)管理 Markdown 记忆文件，区别于 ReMe(被动检索)和 LongTermMemoryMiddleware(暴露 search/add 工具)。`LocalMemoryStore`(EnsureLayout/ReadMemoryMD/ListFiles+frontmatter 解析)。OnSystemPrompt 注入记忆指令+有界 MEMORY.md 快照(truncateApproxTokens utf8/4)；OnReply 启动异步检索 goroutine；OnReasoning `chan string`+`select{default:}` 非阻塞轮询注入 HintBlock 仅一次。`FileSelector` 闭包解耦(默认 KeywordSelector 零依赖，LLM 选择器 `WithSelector` 注入)，不硬依赖 model 包。4 类记忆(user/feedback/project/reference)+不该存什么+frontmatter 格式指令
 
 ## 已知代码质量问题（审阅发现，待修复）
 

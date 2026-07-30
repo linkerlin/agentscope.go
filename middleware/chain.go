@@ -14,6 +14,8 @@ type Chain struct {
 	Acting       []ActingInterceptor
 	ModelCall    []ModelCallInterceptor
 	SystemPrompt []SystemPromptTransformer
+	Permission   []PermissionInterceptor
+	Compression  []CompressionInterceptor
 }
 
 // Classify groups middleware by the optional interfaces they implement.
@@ -37,6 +39,12 @@ func Classify(mws []Middleware) *Chain {
 		}
 		if r, ok := mw.(SystemPromptTransformer); ok {
 			c.SystemPrompt = append(c.SystemPrompt, r)
+		}
+		if r, ok := mw.(PermissionInterceptor); ok {
+			c.Permission = append(c.Permission, r)
+		}
+		if r, ok := mw.(CompressionInterceptor); ok {
+			c.Compression = append(c.Compression, r)
 		}
 	}
 	return c
@@ -180,4 +188,66 @@ func ChainModelCall(chain *Chain, agent Agent, input *ModelCallInput, final Mode
 		return final
 	}
 	return chainModelCall(chain.ModelCall, agent, input, final)
+}
+
+func chainPermission(
+	mws []PermissionInterceptor,
+	agent Agent,
+	input *PermissionInput,
+	final PermissionNext,
+) PermissionNext {
+	if len(mws) == 0 {
+		return final
+	}
+	var build func(int) PermissionNext
+	build = func(i int) PermissionNext {
+		if i >= len(mws) {
+			return final
+		}
+		mw := mws[i]
+		next := build(i + 1)
+		return func(ctx context.Context) (PermissionResult, error) {
+			return mw.OnCheckPermission(ctx, agent, input, next)
+		}
+	}
+	return build(0)
+}
+
+// ChainPermission builds an onion chain for on_check_permission middleware.
+func ChainPermission(chain *Chain, agent Agent, input *PermissionInput, final PermissionNext) PermissionNext {
+	if chain == nil {
+		return final
+	}
+	return chainPermission(chain.Permission, agent, input, final)
+}
+
+func chainCompression(
+	mws []CompressionInterceptor,
+	agent Agent,
+	input *CompressionInput,
+	final CompressionNext,
+) CompressionNext {
+	if len(mws) == 0 {
+		return final
+	}
+	var build func(int) CompressionNext
+	build = func(i int) CompressionNext {
+		if i >= len(mws) {
+			return final
+		}
+		mw := mws[i]
+		next := build(i + 1)
+		return func(ctx context.Context) error {
+			return mw.OnCompressContext(ctx, agent, input, next)
+		}
+	}
+	return build(0)
+}
+
+// ChainCompression builds an onion chain for on_compress_context middleware.
+func ChainCompression(chain *Chain, agent Agent, input *CompressionInput, final CompressionNext) CompressionNext {
+	if chain == nil {
+		return final
+	}
+	return chainCompression(chain.Compression, agent, input, final)
 }

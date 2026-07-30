@@ -1,19 +1,28 @@
 # AgentScope.Go 演进实施 TODO
 
-> 来源：`演进方案.md`（2026-07-03 深度修订版，v2）
-> 状态：**Phase 5-8 + 旧 Phase 3 收尾全部实质完成**（v2.4.0）
-> 更新日期：2026-07-04（全量代码审阅后）
+> 来源：`演进方案.md`（2026-07-30 深度修订版，v3）
+> 状态：**Phase 5-8 全部完成**（v2.4.0）；**Phase 9-11 新增**（v3 路线）
+> 更新日期：2026-07-30（Python 最近 5 周 67 commits 深度对比后）
 >
-> **代码规模**（2026-07-04 审阅实测）：~66,500 非测试行 / ~39,900 测试行 / 303 测试文件 / 162 包 / 45 示例 / `go build ./...` + `go vet ./...` 全绿
+> **代码规模**（2026-07-30 审阅实测）：~66,500 非测试行 / ~39,900 测试行 / 303 测试文件 / 162 包 / 45 示例 / `go build ./...` + `go vet ./...` 全绿
 >
-> **本轮（Phase 5-8 + 旧3）已完成**：
+> **Phase 5-8 已完成（v2.4.0）**：
 > - **Phase 5 RAG 托管知识库**：rag/{document,parser(4),chunker,blob,kb,index} + RAGMiddleware + KB HTTP API + examples/rag_kb
 > - **Phase 6 消息总线深化**：CoordBus 四原语(Lock/Registry/Queue/Log) Local+Redis + 跨会话投影
 > - **Phase 7 现代 Web UI**：零构建 SPA 控制台(Chat/KB/System) + go:embed
 > - **Phase 8 Agentic Memory + Tracing**：文件式自主记忆 + Span 语义属性提取 + otelSpan 桥接
-> - **旧 Phase 3 收尾**：MCP 声明式配置(catalog+YAML) + Langfuse 接入 + RBAC 测试 + 审计接线(requireAuth 内置) + slog 规范(logging 包 + RequestLoggingMiddleware)
 >
-> **仅剩 maintainer 执行**：`git tag v2.4.0 && git push --tags && gh release create v2.4.0 -F RELEASE_NOTES`
+> **v3 新增差距（Python 06-25 至 07-30，67 commits）**：
+> - Workspace 沙箱：Python 3→8 后端（新增 K8s/Daytona/Bubblewrap/Apple Container/OpenSandbox）
+> - 存储后端：Python 新增 SQLAlchemy 异步存储（Postgres/MySQL/SQLite）
+> - 中间件钩子：Python 5→7 钩子（新增 on_check_permission/on_compress_context）
+> - 运行时注入：Python 新增 InjectionConfig（自动时间/任务/上下文注入）
+> - RAG 解析器：Python 4→6（新增 Word/Excel）
+> - 向量库：Python 新增 MongoDB/Elasticsearch 完整实现
+> - 工具：Python 新增专用 PowerShell 工具
+> - 资源共享：Python 新增 ResourceAccessPolicy 跨用户共享框架
+>
+> **Phase 9-11 路线**：Workspace 沙箱扩展(P9) → 存储深化+中间件精细化(P10) → RAG 扩展+向量库补全(P11)
 
 ---
 
@@ -194,14 +203,139 @@
 
 ---
 
-## 本轮执行顺序建议
+## Phase 9：Workspace 沙箱扩展（P0，目标 2026-Q4）⚡本轮最高优先级
+
+> 对标 Python 最近 5 周新增的 5 个 Workspace 后端。Go 现有 3 个(Local/Docker/E2B)，需扩到 8 个。
+
+### 9.1 Kubernetes Workspace
+- [x] `workspace/k8s.go`：K8sWorkspace（kubectl CLI 模式，无需 client-go 重依赖）
+- [x] Pod 生命周期管理（kubectl run/wait/delete）
+- [x] 文件操作（kubectl exec cat/tee/ls/stat/mkdir）
+- [x] 命令执行（kubectl exec -- sh -c）
+- [x] 支持自定义 namespace/image/labels
+- [x] 支持包装已存在的 Pod（NewK8sWorkspaceForExistingPod）
+- [x] 测试：文件操作/ListDir/Stat(文件+目录)/Execute/WorkingDir/错误退出码/Close/现有Pod/缺Image/fmtPerm
+
+### 9.2 Bubblewrap Workspace
+- [x] `workspace/bubblewrap.go`：BubblewrapWorkspace（Linux bwrap 用户命名空间沙箱）
+- [x] 文件操作直接在宿主机 BaseDir 上（bind-mount 到沙箱 /workspace）
+- [x] Execute 通过 bwrap --ro-bind/--bind/--proc/--dev/--tmpfs/--unshare-all 构建
+- [x] 支持自定义只读挂载/ShareNet/TmpfsSize
+- [x] buildBwrapArgs 命令构造完全可测（path.Join 保证 Linux 路径格式）
+- [x] 测试：创建/无BaseDir错误/文件操作/bwrap参数构造/WorkingDir/ShareNet/UnshareNet/自定义只读/Close/非Linux执行
+
+### 9.3 Daytona Workspace
+- [x] `workspace/daytona.go`：DaytonaWorkspace（REST API 客户端）
+- [x] 生命周期（POST /workspace 创建 → DELETE /workspace/{id} 销毁）
+- [x] 文件操作（toolbox API：file/dir/mkdir/stat）
+- [x] 命令执行（POST /toolbox/{id}/execute）
+- [x] Bearer token 认证
+- [x] 测试：创建+执行+关闭全生命周期/文件操作/缺配置/创建错误/认证头
+
+### 9.4 OpenSandbox Workspace
+- [x] `workspace/opensandbox.go`：OpenSandboxWorkspace（REST API 客户端）
+- [x] 生命周期（POST /sandboxes 创建 → DELETE /sandboxes/{id} 销毁）
+- [x] 文件操作（files/list/mkdir/stat API）
+- [x] 命令执行（POST /execute）
+- [x] 测试：完整生命周期（创建+执行+文件+列表+mkdir+stat+关闭）/缺配置
+
+### 9.5 Apple Container Workspace
+- [ ] `workspace/applecontainer.go`：macOS Containerization framework 适配（可选，build tag `darwin`）
+
+### 9.6 示例与文档
+- [ ] `examples/workspace_k8s/`：K8s workspace 端到端 demo + README
+- [ ] `docs/WORKSPACE.md`：多后端 Workspace 使用指南
+
+---
+
+## Phase 10：存储深化 + 中间件精细化（P1，目标 2027-Q1）
+
+### 10.1 SQL 存储后端
+- [x] `service/sql_storage.go`：实现 `Storage` 接口，基于 `database/sql` + `modernc.org/sqlite`
+- [x] 表结构声明（users/sessions/agents/credentials/messages/snapshots/schedules/teams）
+- [x] SQLite 后端（`modernc.org/sqlite` 纯 Go，零 CGO）
+- [x] 原子 upsert（`ON CONFLICT DO UPDATE`，支持自定义冲突列如 session_id）
+- [x] 级联删除（删除 user → 级联删 sessions/messages/snapshots/agents/credentials/schedules/teams）
+- [x] WAL 模式提升并发
+- [x] 测试：User CRUD/upsert、Session/AgentConfig/Credential/Message/Snapshot/Schedule/Team CRUD、级联删除、接口断言
+
+### 10.2 中间件钩子扩展
+- [x] `middleware/middleware.go` 新增 `PermissionInterceptor`：`OnCheckPermission(ctx, agent, toolCall, tool, input, next) (PermissionResult, error)`（使用本地 `PermissionResult` 类型避免循环依赖）
+- [x] `middleware/middleware.go` 新增 `CompressionInterceptor`：`OnCompressContext(ctx, agent, messages, next) error`
+- [x] `middleware/chain.go` 更新：自动分类新钩子类型 + `ChainPermission` + `ChainCompression`
+- [x] 向后兼容验证（不实现新接口则跳过）
+- [x] 测试：权限拦截替换决策/绕过/nil chain / 压缩拦截/skip/error / Classify 新钩子
+
+### 10.3 运行时状态注入
+- [x] `middleware/injection.go`：`InjectionConfig`（timezone/time_format/time_interval/context_buffer_ratio/extra_fields/template）
+- [x] `InjectionMiddleware`：SystemPromptTransformer + ReasoningInterceptor
+  - [x] 自动注入当前时间（`<system-reminder>` 标签，间隔触发）
+  - [x] extra_fields 用户自定义键值对
+  - [x] 模板包裹 `{runtime_state}` 占位符
+- [x] 测试：系统提示词/禁用/时间注入/间隔控制/extra_fields/模板/时区/Reasoning 追加消息
+
+### 10.4 PowerShell 专用工具
+- [x] `tool/shell/powershell.go`：`PowerShellTool`（自动探测 pwsh/powershell.exe）
+- [x] Base64 UTF-16-LE 编码命令（`-EncodedCommand`）
+- [x] `-NoLogo -NoProfile -NonInteractive` 标志
+- [x] 输出上限 30,000 字符 + 超时上限 600s
+- [x] 权限模型：所有命令强制 ASK（由 permission engine 控制）
+- [x] 测试：编码/名称/Spec/空命令/截断/BaseDir/Timeout/IsReadOnly
+
+### 10.5 资源跨用户共享
+- [x] `service/access/policy.go`：`ResourceKind`(Credential/Agent/KB) + `ResourcePermission`(READ/EDIT) + `ResourceRef` + `Policy` 接口
+- [x] `DenyAllPolicy`：默认拒绝跨用户访问（owner 总是能编辑自己的资源）
+- [x] `StaticPolicy`：内存策略（测试/小部署用）
+- [x] 测试：DenyAll list/canEdit owner/crossUser + Static list/canEdit read/edit/no-ref
+
+---
+
+## Phase 11：RAG 扩展 + 向量库补全（P2，目标 2027-Q1）
+
+### 11.1 Word 解析器
+- [x] `rag/parser/word.go`：`WordParser`，`.docx` 解析（纯 Go `archive/zip` + `encoding/xml`）
+- [x] 段落提取（`<w:p>` + `<w:r>` + `<w:t>`）
+- [x] 表格提取（`<w:tbl>`），Markdown pipe-table 渲染
+- [x] 单测（端到端 .docx zip + 表格提取 + Markdown 渲染）
+
+### 11.2 Excel 解析器
+- [x] `rag/parser/excel.go`：`ExcelParser`，`.xlsx` 解析（纯 Go `archive/zip` + `encoding/xml`）
+- [x] 逐 sheet 表格提取，Markdown pipe-table 渲染
+- [x] SharedStrings 解析（`t="s"` 类型 cell → 索引解析）
+- [x] 单测（数字 cell/共享字符串/多行/SharedStrings zip/Markdown 渲染）
+
+### 11.3 Elasticsearch 向量库实现
+- [ ] `memory/vector/elasticsearch_store.go`：替换占位，实现完整 `VectorStore` 接口
+- [ ] 基于 `elastic/go-elasticsearch` 或 `olivere/elastic`
+- [ ] `dense_vector` 索引映射 + cosine kNN 搜索
+- [ ] SHA-256 确定性 ID + metadata filter
+- [ ] 集成测试（`//go:build integration`）
+
+### 11.4 MongoDB 向量库
+- [ ] `memory/vector/mongodb_store.go`：新增 MongoDB 后端
+- [ ] `$vectorSearch` 聚合 + Atlas/自托管支持
+- [ ] 索引就绪轮询
+- [ ] 集成测试
+
+### 11.5 S3 BlobStore
+- [ ] `rag/blob/s3.go`：基于 `aws/aws-sdk-go-v2`，实现 `BlobStore` 接口
+- [ ] 集成测试
+
+---
+
+## v3 执行顺序建议
 
 ```
-P0 立即   Phase 5.1-5.2  document + parser + chunker（纯 Go 库，无外部依赖，可独立验证）
-          Phase 5.3-5.5  blob + KBManager + IndexWorker（管道打通）
-          Phase 5.6-5.7  RAGMiddleware + KB Router（服务暴露）
-P1 次优   Phase 6        消息总线 + 服务编排（Phase 5 IndexWorker 依赖）
-P2        Phase 7        现代 Web UI
-P3        Phase 8        记忆/可观测/存储/工具
+✅ 已完成  Phase 9.1-9.4  Workspace 沙箱扩展 (K8s/Bubblewrap/Daytona/OpenSandbox, 3→7 后端)
+✅ 已完成  Phase 10.1    SQL 存储后端 (SQLite, 纯 Go, 零 CGO, 级联删除)
+✅ 已完成  Phase 10.2    中间件 7 钩子扩展 (PermissionInterceptor + CompressionInterceptor)
+✅ 已完成  Phase 10.3    运行时状态注入 (InjectionMiddleware: 时间/extra_fields)
+✅ 已完成  Phase 10.4    PowerShell 专用工具 (pwsh/powershell.exe + EncodedCommand)
+✅ 已完成  Phase 10.5    资源跨用户共享 (Policy/DenyAllPolicy/StaticPolicy)
+✅ 已完成  Phase 11.1    Word 解析器 (.docx 段落+表格→Markdown)
+✅ 已完成  Phase 11.2    Excel 解析器 (.xlsx sharedStrings+sheet→Markdown)
+
+可选待做  Phase 9.5     Apple Container workspace (macOS only)
+可选待做  Phase 11.3-5  ES/MongoDB 向量库 + S3 BlobStore
 并行始终  守护任务       放大 A2A/ReMe/evolver/Plugin/ONNX
 ```

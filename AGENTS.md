@@ -12,7 +12,7 @@
 ```
 网关层     gateway/       HTTP/SSE/WebSocket/流式 HTTP + AG-UI Protocol + 多租户认证 + Tool Offload
           a2a/           Agent-to-Agent 协议 (Go 领先 PyV2)
-服务层     service/       Storage 抽象 + CRUD + AES-GCM 加密 + Cipher
+服务层               service/       Storage 抽象 + CRUD + AES-GCM 加密 + Cipher + **Access Policy (跨用户资源共享)**
           schedule/      Cron 调度器 + 定时任务引擎
           runcontext/    运行时上下文注入 (Session/Tools/Agent)
 状态层     state/         AgentState 可序列化存储 (JSONFile + Redis + 加密)
@@ -25,7 +25,7 @@
           msghub/        消息中心广播
           reflection/    反思机制 (Writer+Critic)
 Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 状态机 + 结构化输出)
-          middleware/     Agent 生命周期中间件链 (洋葱模型: Reply/Reasoning/Acting/ModelCall/SystemPrompt) + RAG/AgenticMemory/LongTermMemory/TTS/Budget
+          middleware/     Agent 生命周期中间件链 (洋葱模型: Reply/Reasoning/**CheckPermission**/Acting/ModelCall/**CompressContext**/SystemPrompt 7钩子) + RAG/AgenticMemory/LongTermMemory/TTS/Budget/**Injection**
           subagent/      元工具: Agent 作为 Tool 递归委托
 事件系统   event/         20+ 事件类型 + Bus + MetricsHandler
           hook/          经典 Hook (12 HookPoint) + StreamHook (9 事件) + JSONL Trace Exporter
@@ -69,18 +69,18 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 | `tool/a2a/` | 198 | 208 | 1 | A2A 分布式 ReAct: A2ATool 委托子任务 + Registry 多 Agent 管理 |
 | `agent/` | 3,610 | 3,146 | 18 | V1/V2 接口 + Base + ReActAgent + ReplyStream + StructuredOutput |
 | `model/` | 2,642 | 2,467 | 20 | 10+ 后端 + Responses API + 35 ModelCard + TTS/Audio + Router |
-| `workspace/` | 1,911 | 1,223 | 9 | Local/Docker/E2B + MCP Gateway |
+| `workspace/` | 5,200 | 3,800 | 16 | Local/Docker/E2B/**K8s**/**Bubblewrap**/**Daytona**/**OpenSandbox** + MCP Gateway + Offloader (7 后端) |
 | `toolkit/` | 1,492 | 1,187 | 12 | 工具注册/执行 + MCP 适配 + MCP Prompts/Resources/Sampling |
-| `service/` | 1,336 | 1,177 | 6 | Storage/Auth/Cipher |
+| `service/` | 3,300 | 2,000 | 9 | Storage(Auth/Cipher) + **SQLStorage (SQLite)** + MemoryStorage + RedisStorage + Access Policy |
 | `permission/` | 1,205 | 661 | 8 | 规则引擎 + Bash AST |
 | `formatter/` | 946 | 1,203 | 7 | 3 独立 Formatter (OpenAI/Anthropic/Gemini) + 2 别名 + 11 MultiAgent 变体 |
 | `rag/document/` | 85 | 60 | 2 | Section/Chunk 数据模型 (对齐 Python rag._document) |
-| `rag/parser/` | 380 | 420 | 5 | Parser 接口 + Registry + Text/PDF/PPTX/Image 解析器 |
+| `rag/parser/` | 1,100 | 600 | 8 | Parser 接口 + Registry + Text/PDF/PPTX/Image/**Word/Excel** 解析器 (6 parser) |
 | `rag/chunker/` | 165 | 195 | 2 | Chunker 接口 + ApproxTokenChunker (近似 token, rune 边界) |
 | `rag/blob/` | 90 | 110 | 2 | BlobStore 接口 + LocalBlobStore |
 | `rag/kb/` | 330 | 300 | 2 | KnowledgeBase 句柄 + KBManager + InMemoryVectorStore (多租户) |
 | `rag/index/` | 145 | 210 | 2 | Worker 全管道编排 + Queue channel 调度 |
-| `middleware/`(含RAG/Agentic) | 1,521 | 1,142 | 7 | 洋葱链 + Budget/TTS/LongTermMemory/RAG/AgenticMemory |
+| `middleware/`(含RAG/Agentic/Injection) | 2,000 | 1,400 | 9 | 洋葱链 7 钩子 + Budget/TTS/LongTermMemory/RAG/AgenticMemory/**Injection** |
 | `logging/` | 115 | 120 | 1 | 结构化日志规范 (slog 封装 + 环境配置 + FromContext 请求级) |
 | `skill/` | 1,038 | 393 | 4 | SkillBox + SkillViewer + load_skill |
 | `evolver/` | 928 | 94 | 1 | GEP Gene/Capsule + Evolver 接口(16方法) + Mock/MCP/Recording 客户端 |
@@ -193,6 +193,13 @@ make test   # 或 make ci
 37. **跨会话投影**（对齐 Python session_projection）：`gateway.SessionProjection` 基于 CoordBus registry，一个会话可向另一会话投影 UI 卡片（如 worker HITL 请求投影到 leader）。无 CoordBus 时优雅降级 no-op。HTTP `GET/DELETE /api/v1/sessions/{id}/projections`
 38. **零构建现代 Web UI 控制台**（对齐 Python React Web UI，用 Go 地道方式）：`examples/web_ui/static/` 零 npm/Node 构建依赖——原生 vanilla JS + SSE + `go:embed`，单二进制部署。侧边栏导航三视图（Chat AG-UI SSE 流式 / Knowledge Bases CRUD+上传+检索 / System health+models）。GitHub 风深色主题（CSS 变量+响应式卡片网格）。前端直连 gateway HTTP API 无代理层。AG-UI 协议与 Python React 前端兼容
 39. **Agentic Memory 自主记忆**（对齐 Python `AgenticMemoryMiddleware`）：`middleware.AgenticMemoryMiddleware` 文件式自主记忆——agent **自己用已有文件工具**(Write/Read/Edit)管理 Markdown 记忆文件，区别于 ReMe(被动检索)和 LongTermMemoryMiddleware(暴露 search/add 工具)。`LocalMemoryStore`(EnsureLayout/ReadMemoryMD/ListFiles+frontmatter 解析)。OnSystemPrompt 注入记忆指令+有界 MEMORY.md 快照(truncateApproxTokens utf8/4)；OnReply 启动异步检索 goroutine；OnReasoning `chan string`+`select{default:}` 非阻塞轮询注入 HintBlock 仅一次。`FileSelector` 闭包解耦(默认 KeywordSelector 零依赖，LLM 选择器 `WithSelector` 注入)，不硬依赖 model 包。4 类记忆(user/feedback/project/reference)+不该存什么+frontmatter 格式指令
+40. **中间件 7 钩子扩展**（对齐 Python `on_check_permission`+`on_compress_context`，#c613a860）：`middleware.PermissionInterceptor`+`CompressionInterceptor` 新增两个洋葱模型拦截点。`PermissionResult` 本地类型（避免循环依赖：middleware→permission→test→skill→toolkit→agent→middleware）。`Chain.Classify` 自动分类新接口；`ChainPermission`/`ChainCompression` 构建洋葱链。中间件可拦截/替换/绕过权限决策，可控制/跳过上下文压缩。向后兼容（不实现新接口则跳过）
+41. **运行时状态注入**（对齐 Python `InjectionConfig`，#29792cd9）：`middleware.InjectionMiddleware` 实现自动时间感知——`InjectionConfig`(timezone/time_format/time_interval/context_buffer_ratio/extra_fields/template)。OnSystemPrompt 追加 Runtime Awareness 指令；OnReasoning 按 TimeInterval 间隔注入 `<system-reminder>` HintBlock（含当前时间+extra_fields XML 标签）。sync.Mutex 保护 lastInjectAt。Go `time.LoadLocation` 支持任意时区。默认 30 分钟间隔，模板 `{runtime_state}` 占位符
+42. **PowerShell 专用工具**（对齐 Python `PowerShell`，#798bc181）：`tool/shell/powershell.go` 自动探测 `pwsh`（优先）或 `powershell.exe`（`exec.LookPath`+`sync.Once` 缓存）。命令经 UTF-16-LE Base64 编码（`unicode/utf16.Encode`+`encoding/base64`）传给 `-EncodedCommand`，避免转义问题。`-NoLogo -NoProfile -NonInteractive` 标志。输出上限 30,000 字符（`truncOutput`+截断标记）、超时上限 600s（默认 120s）。所有命令非 ReadOnly。Windows 优先，非 Windows 优雅报错
+43. **资源跨用户共享策略**（对齐 Python `ResourceAccessPolicy`，#1aeb03d0）：`service/access/policy.go` 定义 `ResourceKind`(Credential/Agent/KB)+`ResourcePermission`(READ/EDIT)+`ResourceRef`+`Policy` 接口（`ListAccessible`/`CanEdit`）。`DenyAllPolicy` 默认拒绝所有跨用户访问（owner 总能编辑自己的资源）。`StaticPolicy` 内存策略用于测试/小部署。策略不管理用户/组/成员关系，只映射 viewer→资源引用；应用子类化以从 config/IAM/LDAP 读取规则
+44. **Word/Excel 解析器**（对齐 Python `WordParser`/`ExcelParser`，#811425c0/#e67e54f5）：纯 Go `archive/zip`+`encoding/xml` 解析 OOXML。WordParser：`word/document.xml` 状态机遍历 `<w:p>`/`<w:r>`/`<w:t>` 段落+`<w:tbl>`/`<w:tr>`/`<w:tc>` 表格（Markdown pipe-table 渲染+`|` 转义）。ExcelParser：`xl/sharedStrings.xml` 共享字符串解析+`xl/worksheets/sheetN.xml` cell 解析（`t="s"` 类型索引解析+数字直接取值）+workbook.xml sheet 名映射+Markdown table 渲染+等宽 padding。Registry 已注册 6 个 parser（Text/PDF/PPTX/Image/Word/Excel）
+45. **SQL 存储后端**（对齐 Python `AsyncSQLAlchemyStorage`，#b49a26b9）：`service.SQLStorage` 基于 `database/sql`+`modernc.org/sqlite`（纯 Go 零 CGO）实现完整 `Storage` 接口。8 张表（users/sessions/agents/credentials/messages/snapshots/schedules/teams）各有索引列+JSON payload 列。原子 upsert 使用 SQLite `ON CONFLICT(conflictCol) DO UPDATE SET`（支持自定义冲突列如 snapshots 的 session_id）。级联删除事务（删除 user → 级联 sessions→messages/snapshots + agents + credentials + schedules + teams）。WAL 模式提升并发。泛型 `scanRows[T]` 消除重复代码。`:memory:` 模式零配置测试
+46. **Workspace 7 后端扩展**（对齐 Python Workspace 多元化，#81538d35/#7af58b11/#dd71a372/#15b5243e）：从 3 个后端扩展到 7 个。**K8sWorkspace** 使用 kubectl CLI（非 client-go，保持二进制轻量）——`kubectl run` 创建 Pod+`kubectl wait` 等 Ready+`kubectl exec` 执行命令/文件操作+`kubectl delete --force` 清理。支持包装已存在 Pod（`NewK8sWorkspaceForExistingPod`）。**BubblewrapWorkspace** Linux 用户命名空间沙箱——文件操作直接在宿主机 BaseDir（bind-mount 到 /workspace）+Execute 每次生成新鲜 bwrap 进程（`--ro-bind` 系统目录+`--bind` 工作目录+`--unshare-all/net`+`--die-with-parent`）。**DaytonaWorkspace/OpenSandboxWorkspace** REST API 客户端——POST 创建+toolbox/files API 文件操作+execute API 命令执行+Bearer 认证+httptest mock 测试。全部复用 `cmdRunner` 抽象（K8s）或 `http.Client`（REST），保持可测性
 
 ## 已知代码质量问题（审阅发现，待修复）
 

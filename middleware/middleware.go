@@ -1,6 +1,6 @@
 // Package middleware provides Agent-level lifecycle interceptors aligned with
-// Python v2 MiddlewareBase (on_reply / on_reasoning / on_acting / on_model_call /
-// on_system_prompt).
+// Python v2 MiddlewareBase (on_reply / on_reasoning / on_check_permission /
+// on_acting / on_model_call / on_compress_context / on_system_prompt).
 package middleware
 
 import (
@@ -91,4 +91,46 @@ type ModelCallInterceptor interface {
 type SystemPromptTransformer interface {
 	Middleware
 	OnSystemPrompt(ctx context.Context, agent Agent, currentPrompt string) (string, error)
+}
+
+// PermissionResult is the outcome of a permission check, mirroring
+// permission.Result. A local type avoids a circular import
+// (permission tests → skill → toolkit → agent → middleware → permission).
+type PermissionResult struct {
+	ToolCallID string
+	ToolName   string
+	Decision   string // "allow" | "deny" | "ask" | "passthrough"
+	Message    string
+	Reason     string
+}
+
+// PermissionInput carries inputs for on_check_permission middleware.
+type PermissionInput struct {
+	ToolCallID string
+	ToolName   string
+	ToolInput  map[string]any
+}
+
+// PermissionNext executes the next middleware or the core permission engine check.
+type PermissionNext func(ctx context.Context) (PermissionResult, error)
+
+// PermissionInterceptor wraps the permission check for a tool call (on_check_permission).
+// A middleware can inspect, audit, replace, or bypass the permission decision.
+type PermissionInterceptor interface {
+	Middleware
+	OnCheckPermission(ctx context.Context, agent Agent, input *PermissionInput, next PermissionNext) (PermissionResult, error)
+}
+
+// CompressionInput carries inputs for on_compress_context middleware.
+type CompressionInput struct {
+	Messages []*message.Msg
+}
+
+// CompressionNext executes the next middleware or the core context compression.
+type CompressionNext func(ctx context.Context) error
+
+// CompressionInterceptor wraps context compression (on_compress_context).
+type CompressionInterceptor interface {
+	Middleware
+	OnCompressContext(ctx context.Context, agent Agent, input *CompressionInput, next CompressionNext) error
 }

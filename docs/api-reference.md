@@ -193,6 +193,19 @@ type ChatModel interface {
 }
 ```
 
+### StreamChunk
+
+`ChatStream` 输出的流式事件块。`Done=true` 的块标记流结束;`Error` 非 nil 表示流中途失败(如 Anthropic SSE error 事件、OpenAI 流读取错误),消费端应检查并停止,而非把空响应当正常回复。工具调用经 `Content` 中的 `*message.ToolUseBlock` 在 done 块上按序交付。
+
+| 字段 | 说明 |
+|------|------|
+| `Delta` | 增量文本(若为推理内容见 `IsThinking`) |
+| `IsThinking` | 该增量是否为模型推理内容 |
+| `Content` | 结构化内容块(文本/工具调用/thinking),工具调用在流结束时随 done 块交付 |
+| `Done` | 流结束标记 |
+| `Usage` | 最终 token 用量(可选) |
+| `Error` | 流中途错误,非 nil 表示流失败 |
+
 ### 模型后端
 
 | 后端 | 包路径 | Builder |

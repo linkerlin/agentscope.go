@@ -84,6 +84,10 @@ func (r *StructuredRunner) RunStream(ctx context.Context, userText string, schem
 				continue
 			}
 			if chunk.Done {
+				if chunk.Error != nil {
+					out <- StreamResult{Done: true, Err: fmt.Errorf("output: model stream failed: %w", chunk.Error)}
+					return
+				}
 				break
 			}
 			if chunk.Delta == "" {

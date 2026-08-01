@@ -427,6 +427,11 @@ func (a *ReActAgent) runModelStream(
 			continue
 		}
 		if chunk.Done {
+			if chunk.Error != nil {
+				out <- event.NewError(replyID, chunk.Error)
+				out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
+				return nil, chunk.Error
+			}
 			if chunk.Usage != nil {
 				streamUsage = chunk.Usage
 			}

@@ -144,8 +144,9 @@ func TestSelfCorrectingParser_ParseWithCorrection_ModelError(t *testing.T) {
 }
 
 type mockStreamModel struct {
-	chunks []string
-	name   string
+	chunks    []string
+	name      string
+	streamErr error
 }
 
 func (m *mockStreamModel) ModelName() string { return m.name }
@@ -164,6 +165,10 @@ func (m *mockStreamModel) ChatStream(ctx context.Context, msgs []*message.Msg, o
 		defer close(ch)
 		for _, delta := range m.chunks {
 			ch <- &model.StreamChunk{Delta: delta}
+		}
+		if m.streamErr != nil {
+			ch <- &model.StreamChunk{Done: true, Error: m.streamErr}
+			return
 		}
 		ch <- &model.StreamChunk{Done: true}
 	}()
@@ -252,5 +257,32 @@ func TestRunStream_NilModel(t *testing.T) {
 	_, err := runner.RunStream(context.Background(), "test", schema, &out)
 	if err == nil || err.Error() != "output: nil model" {
 		t.Fatalf("expected nil model error, got %v", err)
+	}
+}
+
+// TestRunStream_ModelError 验证流中途模型错误经 StreamResult.Err 传播,而非报误导性 JSON 解析错误。
+func TestRunStream_ModelError(t *testing.T) {
+	modelErr := errors.New("stream failed")
+	m := &mockStreamModel{chunks: []string{`{"na`}, streamErr: modelErr}
+	runner := &StructuredRunner{Model: m}
+	schema := &JSONSchema{Type: "object"}
+	var out struct {
+		Name string `json:"name"`
+	}
+	results, err := runner.RunStream(context.Background(), "describe", schema, &out)
+	if err != nil {
+		t.Fatalf("RunStream failed: %v", err)
+	}
+	var gotErr error
+	for r := range results {
+		if r.Err != nil {
+			gotErr = r.Err
+		}
+	}
+	if gotErr == nil {
+		t.Fatal("expected stream error in results")
+	}
+	if !errors.Is(gotErr, modelErr) {
+		t.Fatalf("expected %v, got %v", modelErr, gotErr)
 	}
 }

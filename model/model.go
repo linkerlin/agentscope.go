@@ -93,4 +93,5 @@ type StreamChunk struct {
 	Content    []message.ContentBlock
 	Done       bool
 	Usage      *ChatUsage // optional final usage for the stream
+	Error      error      // mid-stream failure; set on the final chunk when the stream failed
 }

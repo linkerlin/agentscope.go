@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-08-01 — 模型层健壮性:Anthropic 流式工具调用 + 流中途错误传播
+
+### Added
+- **`model/anthropic/` 流式 tool_use 支持**：SSE `content_block_start`(tool_use)+ `content_block_delta`(`input_json_delta`)累积,按 content_block index 排序输出,流结束时(done chunk)携带 `ToolUseBlock` 列表(含 RawInput)。此前流式模式工具调用被静默丢弃,仅非流式可用。
+- **`model/anthropic/` `message_stop` 终止信号**：Anthropic 标准流终止事件(而非 OpenAI 风格 `[DONE]`),`[DONE]` 分支保留作代理/网关兼容。
+- **`model/anthropic/` `WithMaxTokens` 覆盖**：`ChatOptions.MaxTokens > 0` 时覆盖 Builder 默认值,与 OpenAI/Gemini/openai_response 后端对齐(此前被忽略)。
+
+### Changed
+- **`model.StreamChunk` 新增 `Error` 字段**(公共类型,向后兼容,零值 nil)：流中途错误可透传到消费端,不再静默产出空响应。
+  - 后端填充：Anthropic SSE `{"type":"error"}` 事件、OpenAI `ChatCompletionStream.Recv()` 中途错误。
+  - 消费端：`agent/react` V1 主循环(`runModel`,fire ErrorEvent + 返回错误)、middleware 包装流、V2 `runModelStream`(发 `event.NewError` + `ModelCallEnd`)、`output.StructuredRunner.RunStream`(经 `StreamResult.Err`,不再误报 "JSON parse failed")。
+
+### Tests
+- `model/anthropic`：错误事件透传 / message_stop 终止 / 多 tool_use index 乱序排序 / text+tool 混合 / 空 `{}` input / 分片+转义 JSON / `MaxTokens` 覆盖 / 真实 API 集成测试(`ANTHROPIC_API_KEY` 驱动,未设置自动 skip)。
+- `agent/react`：V1 `runModel` 与 V2 `ReplyStream` 流中途错误传播。
+- `output`：流中途模型错误经 `StreamResult.Err` 传播。
+
+---
+
 ## [Unreleased] - 2026-07-04 — Phase 5-8.1：托管服务化补齐 + Agentic Memory
 
 ### Added — Phase 5：RAG 托管知识库服务（对齐 Python `rag/`+`app/rag/`+`middleware/_rag.py`）

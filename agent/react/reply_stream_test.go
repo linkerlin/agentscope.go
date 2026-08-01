@@ -2,6 +2,8 @@ package react
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -468,3 +470,54 @@ func (d *dummyTool) Execute(ctx context.Context, input map[string]any) (*tool.Re
 }
 
 var _ tool.Tool = (*dummyTool)(nil)
+
+// errStreamChatModel 发一个流中途错误 chunk 的 mock 模型。
+type errStreamChatModel struct {
+	err error
+}
+
+func (m *errStreamChatModel) ModelName() string { return "err" }
+func (m *errStreamChatModel) Chat(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
+	return nil, m.err
+}
+func (m *errStreamChatModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+	ch := make(chan *model.StreamChunk, 2)
+	ch <- &model.StreamChunk{Delta: "partial"}
+	ch <- &model.StreamChunk{Done: true, Error: m.err}
+	close(ch)
+	return ch, nil
+}
+
+// TestReActAgent_ReplyStream_MidStreamError 验证 V2 流中途错误以 ErrorEvent 暴露,
+// 而不是静默产出空回复。
+func TestReActAgent_ReplyStream_MidStreamError(t *testing.T) {
+	streamErr := errors.New("mid stream boom")
+	m := &errStreamChatModel{err: streamErr}
+	mem := memory.NewInMemoryMemory()
+	agent, err := Builder().
+		Name("test").
+		Model(m).
+		Memory(mem).
+		MaxIterations(3).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evCh, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotErr string
+	for ev := range evCh {
+		if e, ok := ev.(*event.ErrorEvent); ok && e.Err != "" {
+			gotErr = e.Err
+		}
+	}
+	if gotErr == "" {
+		t.Fatal("expected error event in stream")
+	}
+	if !strings.Contains(gotErr, "mid stream boom") {
+		t.Fatalf("expected error message to propagate, got %q", gotErr)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -209,6 +210,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 		defer resp.Body.Close()
 		scanner := bufio.NewScanner(resp.Body)
 		var usage model.ChatUsage
+		toolUses := map[int]*toolUseAccum{}
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data: ") {
@@ -219,7 +221,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 				if usage.TotalTokens == 0 {
 					usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 				}
-				ch <- &model.StreamChunk{Done: true, Usage: &usage}
+				ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses)}
 				return
 			}
 			var ev map[string]any
@@ -242,25 +244,57 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 					}
 				}
 			}
-			if ev["type"] != "content_block_delta" {
-				continue
-			}
-			delta, ok := ev["delta"].(map[string]any)
-			if !ok {
-				continue
-			}
-			text, _ := delta["text"].(string)
-			if text != "" {
-				ch <- &model.StreamChunk{Delta: text}
-			}
-			if thinking, ok := delta["thinking"].(string); ok && thinking != "" {
-				ch <- &model.StreamChunk{Content: []message.ContentBlock{message.NewThinkingBlock(thinking, "")}}
+			switch ev["type"] {
+			case "content_block_start":
+				if cb, _ := ev["content_block"].(map[string]any); cb != nil && cb["type"] == "tool_use" {
+					idx := intAny(ev["index"])
+					id, _ := cb["id"].(string)
+					name, _ := cb["name"].(string)
+					toolUses[idx] = &toolUseAccum{id: id, name: name}
+				}
+			case "content_block_delta":
+				delta, ok := ev["delta"].(map[string]any)
+				if !ok {
+					continue
+				}
+				if dj, _ := delta["type"].(string); dj == "input_json_delta" {
+					if acc := toolUses[intAny(ev["index"])]; acc != nil {
+						if pj, _ := delta["partial_json"].(string); pj != "" {
+							acc.args.WriteString(pj)
+						}
+					}
+					continue
+				}
+				text, _ := delta["text"].(string)
+				if text != "" {
+					ch <- &model.StreamChunk{Delta: text}
+				}
+				if thinking, ok := delta["thinking"].(string); ok && thinking != "" {
+					ch <- &model.StreamChunk{Content: []message.ContentBlock{message.NewThinkingBlock(thinking, "")}}
+				}
+			case "message_stop":
+				// Anthropic 标准终止信号;[DONE] 分支保留作代理/网关兼容。
+				if usage.TotalTokens == 0 {
+					usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+				}
+				ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses)}
+				return
+			case "error":
+				// 流中途错误(超限/内容审核等),透传而不是静默空响应。
+				msg := "anthropic stream error"
+				if e, ok := ev["error"].(map[string]any); ok {
+					if m, _ := e["message"].(string); m != "" {
+						msg = m
+					}
+				}
+				ch <- &model.StreamChunk{Done: true, Error: fmt.Errorf("anthropic stream: %s", msg)}
+				return
 			}
 		}
 		if usage.TotalTokens == 0 {
 			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 		}
-		ch <- &model.StreamChunk{Done: true, Usage: &usage}
+		ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses)}
 	}()
 	return ch, nil
 }
@@ -272,9 +306,13 @@ func (m *ChatModel) buildRequestBody(messages []*message.Msg, stream bool, optio
 	}
 	amsgs, system := m.extractMessages(messages)
 
+	maxTokens := m.maxTokens
+	if opts.MaxTokens > 0 {
+		maxTokens = opts.MaxTokens
+	}
 	req := map[string]any{
 		"model":      m.modelName,
-		"max_tokens": m.maxTokens,
+		"max_tokens": maxTokens,
 		"messages":   amsgs,
 		"stream":     stream,
 	}
@@ -318,6 +356,46 @@ func intAny(v any) int {
 		return int(n)
 	}
 	return 0
+}
+
+// toolUseAccum aggregates streaming tool_use content for a single content_block index.
+type toolUseAccum struct {
+	id   string
+	name string
+	args strings.Builder
+}
+
+func (a *toolUseAccum) toBlock() *message.ToolUseBlock {
+	if a == nil || a.name == "" {
+		return nil
+	}
+	args := a.args.String()
+	var input map[string]any
+	if args != "" {
+		_ = json.Unmarshal([]byte(args), &input)
+	}
+	b := message.NewToolUseBlock(a.id, a.name, input)
+	b.RawInput = args
+	return b
+}
+
+// finishToolBlocks assembles accumulated tool_use blocks in index order.
+func finishToolBlocks(m map[int]*toolUseAccum) []message.ContentBlock {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]int, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	var blocks []message.ContentBlock
+	for _, k := range keys {
+		if b := m[k].toBlock(); b != nil {
+			blocks = append(blocks, b)
+		}
+	}
+	return blocks
 }
 
 var _ model.ChatModel = (*ChatModel)(nil)

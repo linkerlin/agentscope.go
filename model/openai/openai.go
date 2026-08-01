@@ -249,7 +249,7 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 				return
 			}
 			if err != nil {
-				ch <- &model.StreamChunk{Done: true, Usage: &usage}
+				ch <- &model.StreamChunk{Done: true, Usage: &usage, Error: err}
 				return
 			}
 			if len(resp.Choices) == 0 {

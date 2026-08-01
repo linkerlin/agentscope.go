@@ -104,6 +104,13 @@ func (a *ReActAgent) runModelInner(
 			continue
 		}
 		if chunk.Done {
+			if chunk.Error != nil {
+				_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
+					BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
+					Err:       chunk.Error,
+				})
+				return nil, fmt.Errorf("react agent model stream: %w", chunk.Error)
+			}
 			if chunk.Usage != nil {
 				streamUsage = chunk.Usage
 			}
@@ -190,6 +197,9 @@ func (a *ReActAgent) invokeModelChatStream(
 				continue
 			}
 			if chunk.Done {
+				if chunk.Error != nil {
+					return nil, chunk.Error
+				}
 				break
 			}
 			if chunk.Delta != "" {

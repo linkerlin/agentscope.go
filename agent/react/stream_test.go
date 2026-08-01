@@ -84,6 +84,42 @@ func TestRunModelChatStreamError(t *testing.T) {
 	}
 }
 
+func TestRunModelMidStreamError(t *testing.T) {
+	streamErr := errors.New("mid stream boom")
+	ch := make(chan *model.StreamChunk, 2)
+	ch <- &model.StreamChunk{Delta: "a"}
+	ch <- &model.StreamChunk{Done: true, Error: streamErr}
+	close(ch)
+	a := &ReActAgent{
+		Base:      agent.NewBase("", "t", "", "", nil, nil, []hook.StreamHook{hook.StreamHookFunc(func(ctx context.Context, ev hook.Event) (*hook.StreamHookResult, error) { return nil, nil })}),
+		chatModel: &mockModel{name: "m", ch: ch},
+		memory:    memory.NewInMemoryMemory(),
+	}
+	_, err := a.runModel(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false)
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("expected stream error to propagate, got %v", err)
+	}
+}
+
+// TestInvokeModelChatStream_MidStreamError 验证带 ModelCall 中间件时,
+// middleware 包装闭包(stream.go wrapped closure)传播流中途错误。
+func TestInvokeModelChatStream_MidStreamError(t *testing.T) {
+	streamErr := errors.New("mid stream boom")
+	ch := make(chan *model.StreamChunk, 2)
+	ch <- &model.StreamChunk{Delta: "a"}
+	ch <- &model.StreamChunk{Done: true, Error: streamErr}
+	close(ch)
+	a := &ReActAgent{
+		Base:      agent.NewBase("", "t", "", "", nil, nil, nil, &overrideFormatModelMW{}),
+		chatModel: &mockModel{name: "m", ch: ch},
+		memory:    memory.NewInMemoryMemory(),
+	}
+	_, err := a.invokeModelChatStream(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0)
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("expected stream error to propagate through middleware, got %v", err)
+	}
+}
+
 func TestRunModelChatError(t *testing.T) {
 	a := &ReActAgent{
 		Base:      agent.NewBase("", "t", "", "", nil, nil, nil),

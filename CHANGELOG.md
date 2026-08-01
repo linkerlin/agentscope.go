@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-08-01 — 模型层健壮性:Anthropic 流式工具调用 + 流中途错误传播
+## [2.4.3] - 2026-08-01 — 模型层健壮性:Anthropic 流式工具调用 + 流中途错误传播
 
 ### Added
 - **`model/anthropic/` 流式 tool_use 支持**：SSE `content_block_start`(tool_use)+ `content_block_delta`(`input_json_delta`)累积,按 content_block index 排序输出,流结束时(done chunk)携带 `ToolUseBlock` 列表(含 RawInput)。此前流式模式工具调用被静默丢弃,仅非流式可用。

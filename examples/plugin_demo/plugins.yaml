@@ -1,0 +1,9 @@
+# 插件配置示例
+# 加载: plugin.LoadConfigFile("plugins.yaml") → mgr.LoadConfig(cfg)
+plugins:
+  - name: echo-plugin      # 必须匹配 Plugin.Name()
+    type: echo-plugin      # factory 注册的类型名
+    enabled: true
+    priority: 10
+    params:
+      prefix: "[echo] "    # 插件自定义参数（经 Init 传入 PluginConfig.Params）

@@ -96,9 +96,9 @@ type AgentConfig struct {
 	// Source is "user" (default, visible in global agent lists) or "team"
 	// (a worker spawned by a leader — hidden from global lists). Aligns with
 	// Python agentscope's agent source field for team workers.
-	Source            string             `json:"source,omitempty"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	Source    string    `json:"source,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Credential stores an encrypted API key for a model provider.

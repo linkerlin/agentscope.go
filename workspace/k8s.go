@@ -35,9 +35,9 @@ type K8sConfig struct {
 //
 // Aligned with Python agentscope's K8sWorkspace (#81538d35).
 type K8sWorkspace struct {
-	cfg    K8sConfig
+	cfg     K8sConfig
 	podName string
-	runner cmdRunner
+	runner  cmdRunner
 }
 
 // NewK8sWorkspace creates a K8sWorkspace and provisions a Pod.

@@ -47,13 +47,13 @@ type InjectionConfig struct {
 // DefaultInjectionConfig returns a production-ready default config.
 func DefaultInjectionConfig() InjectionConfig {
 	return InjectionConfig{
-		InjectRuntimeState:  true,
-		Timezone:            "UTC",
-		TimeFormat:          DefaultTimeFormat,
-		TimeInterval:        DefaultTimeInterval,
-		ContextBufferRatio:  0.2,
-		Template:            "<system-reminder>\n{runtime_state}\n</system-reminder>",
-		Instructions:        DefaultInjectionInstructions,
+		InjectRuntimeState: true,
+		Timezone:           "UTC",
+		TimeFormat:         DefaultTimeFormat,
+		TimeInterval:       DefaultTimeInterval,
+		ContextBufferRatio: 0.2,
+		Template:           "<system-reminder>\n{runtime_state}\n</system-reminder>",
+		Instructions:       DefaultInjectionInstructions,
 	}
 }
 

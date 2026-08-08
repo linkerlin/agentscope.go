@@ -32,7 +32,7 @@ func (f *fakeV2Agent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan
 	close(ch)
 	return ch, nil
 }
-func (f *fakeV2Agent) LoadState(s *agent.AgentState) error  { return nil }
+func (f *fakeV2Agent) LoadState(s *agent.AgentState) error   { return nil }
 func (f *fakeV2Agent) SaveState() (*agent.AgentState, error) { return &agent.AgentState{}, nil }
 func (f *fakeV2Agent) InjectEvent(ctx context.Context, ev event.AgentEvent) error {
 	return nil

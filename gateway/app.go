@@ -217,4 +217,6 @@ func (s *Server) RegisterAppRoutes(jwtAuth *service.JWTAuthenticator) {
 	s.RegisterKBRoutes()
 	s.RegisterProjectionRoutes()
 	s.RegisterAuditRoutes()
+	s.RegisterChannelRoutes()
+	s.RegisterHubRoutes()
 }

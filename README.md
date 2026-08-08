@@ -16,6 +16,8 @@ AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推�
 - **`Tracing 语义属性`**：Span 五钩点提取（model/tool/iteration/usage）+ otelSpan 桥接。
 - **`MCP 声明式配置`**：ServerSpec YAML + 6-server 目录 + 弹性连接。
 - **`Langfuse`** 接入 + **`RBAC`** 测试 + **审计接线** + **`slog`** 结构化日志规范。
+- **`Channel` 多平台集成**：Webhook 通道开箱即用（Discord/飞书适配器预留），chat→agent 路由 + 异步运行 + 回复回发。
+- **`Hub` 市场**：浏览 + 安装 MCP/Skill 卡片（FSHub 目录即市场，zip-slip 防护）。
 <!-- END NEWS -->
 
 ## 快速开始
@@ -123,6 +125,8 @@ go run .
 | `async` | 异步任务执行池 |
 | `loader` | 文档加载器（TextLoader / DirLoader） |
 | `observability` | OpenTelemetry + LangSmith + **Langfuse** + Tracing 语义属性提取 + otelbridge |
+| `channel` | **多平台集成**：ChannelEvent/Channel 接口/Gateway/Dispatcher/Routing + Webhook 通道（Discord/飞书预留） |
+| `hub` | **Hub 市场**：MCP/Skill 卡片浏览+安装（FSHub + zip-slip 防护） |
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
@@ -543,6 +547,9 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/agentic_memory`](examples/agentic_memory/main.go) —— **Agentic Memory**（agent 自主管理 Markdown 记忆）
 - [`examples/mcp_servers`](examples/mcp_servers/main.go) —— **MCP 声明式配置**（YAML 加载 + 弹性连接多 server）
 - [`examples/web_ui`](examples/web_ui/main.go) —— **Web UI 控制台**（Chat/KB/System，零构建 SPA）
+- [`examples/channel_webhook`](examples/channel_webhook/main.go) —— **Channel 多平台**（Webhook 收发 + chat→agent 路由 + 回复回发）
+- [`examples/hub_demo`](examples/hub_demo/main.go) —— **Hub 市场**（浏览 MCP/Skill 卡片 + 下载安装）
+- [`examples/plugin_demo`](examples/plugin_demo/main.go) —— **Plugin 系统**（三阶段生命周期 + YAML 配置 + 工具注册）
 - [`examples/observability`](examples/observability/main.go) —— OpenTelemetry + LangSmith 追踪
 - [`examples/state`](examples/state/main.go) —— AgentState 持久化（JSONFile/Redis）
 - [`examples/a2a_secure`](examples/a2a_secure/main.go) —— A2A 认证 + 限流 + WebSocket

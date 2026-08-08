@@ -24,6 +24,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] - 2026-08-08 — Phase 12-13：Channel 多平台集成 + Hub 市场（对齐 Python 2026-07→08 新进展）
+
+### Added — Phase 12：Channel 多平台集成（对齐 Python `app/channel/` #1997）
+- **`channel/` 核心抽象**：`ChannelEvent`（归一化入站：ChannelID/UserID/ChatID/Text/MediaURLs）+ `Channel` 接口（Start/SendText/Close）+ `Gateway`（路由→运行，错误不杀 listener）+ `Registry` + `Dispatcher`（goroutine 生命周期）+ `RouteTable`/`Binding`/`ChatRouter`（exact>prefix>default 路由，session 派生 `<prefix><chat_id>`）。
+- **`channel/webhook.go`**：`WebhookChannel` 零依赖 HTTP 通道（POST → ChannelEvent → emit，405/400/503 错误路径）——完整闭环实测。
+- **`gateway/channel_runner.go`**：`ChannelRunner`（AgentRegistry+SessionManager 适配，异步运行 + 收集事件流文本 → SendText 回发 + inflight 会话去重）。
+- **`gateway/channel_handlers.go`**：`WithChannelGateway` + `RegisterChannelRoutes`（GET /api/v1/channels + POST /{id}/webhook）+ `Server.Start` 自动拉起 Dispatcher。
+- **`examples/channel_webhook/`**：零依赖 e2e demo。
+- 测试：channel 16 + gateway 集成 7（Runner 运行回复/inflight 去重/缺 agent/nil 降级 + Webhook 全链路/列表/404）。
+
+### Added — Phase 13：Hub 市场（对齐 Python Hub #2197）
+- **`hub/hub.go`**：`Card`/`MCPCard`/`SkillCard` + `Hub` 接口（ListMCPCards/ListSkillCards + 游标分页）+ 泛型 `Page`/`FilterCards`。
+- **`hub/install.go`**：`InstallMCPs`（复用 ConnectServers 弹性连接）+ `InstallSkill`（HTTP 下载 + zip/tar/tar.gz 解压 + **zip-slip/tar-slip 跨平台防护** + 64MiB 下载/解压双上限）。
+- **`hub/builtin/fs_hub.go`**：`FSHub`（mcps.json + skills.json 目录即市场）。
+- **`gateway/hub_handlers.go`**：`WithHubs` + 5 路由（浏览 hubs/MCP/Skill 分页 + 安装）。
+- **`examples/hub_demo/`**：可运行 demo（浏览 + 下载解压安装）。
+- 测试：hub 12 + builtin 5 + gateway 6。
+
+### Tests
+- Channel：Gateway/Registry/Dispatcher/Routing（exact/prefix/default/fallback）+ Webhook（FullLoop + 4 错误路径）+ gateway 集成 7。
+- Discord：`channel/discord/`（`discordgo v0.29.0`）——消息归一化/自消息过滤/nil 安全/token 规范化/未连接错误/Close 幂等（5 测试）。
+- Feishu：`channel/feishu/`（纯 HTTP 零依赖）——token 缓存刷新/文本发送/challenge URL 验证/消息归一化/图片元数据/agent 工具 send_message+list_chats/错误路径（10 测试）。
+- Hub：分页边界/过滤/safeJoin 跨平台（Windows 反斜杠 + POSIX 正斜杠）/zip-slip/tar-slip/HTTP 下载/大小上限/MCP 弹性/FSHub。
+- 编译验证：gateway 依赖链因网络无法下载 `modernc.org/sqlite v1.48.2`，临时以缓存 v1.48.0 替换验证后还原 go.mod。
+
+### Added — Phase 12.2 平台适配器补全
+- **`channel/feishu/`**：FeishuChannel（纯 HTTP：`POST /auth/v3/tenant_access_token/internal` token 获取 + 2h 缓存；事件订阅 webhook 含 `url_verification` challenge 回显；`im.message.receive_v1` 归一化 → ChannelEvent（文本/图片 image_key 元数据）；`POST /im/v1/messages` REST 发送）。agent 工具：`SendMessageTool`（feishu_send_message）+ `ListChatsTool`（feishu_list_chats，GET /im/v1/chats）。`examples/channel_feishu/` 事件订阅 webhook demo。
+
+### Dependencies
+- 新增 `github.com/bwmarrin/discordgo v0.29.0`（Discord Channel 适配器）；`golang.org/x/crypto v0.54.0` + `golang.org/x/net v0.57.0` 升级（discordgo 传递依赖，MVS 取项目版本）。飞书适配器零新依赖。
+
+### Added — 守护任务：Plugin 生态示例
+- **`examples/plugin_demo/`**：`echoplugin` 包（Plugin 三阶段生命周期示例：Init 读 YAML params → Register 注册 echo 工具 → Shutdown）+ `main.go`（Manager + RegisterFactory + LoadConfig + InitAll/RegisterAll/ShutdownAll 全流程）+ `plugins.yaml`（name/type/enabled/priority/params 配置示例）+ README。实测：YAML 装配 → 注册工具 → 执行输出 → 优雅关闭。
+- **`docs/PLUGIN.md`**：插件接口/配置/Manager 生命周期/Registrar 注册点/.so 动态加载说明。
+
+---
+
 ## [Unreleased] - 2026-07-04 — Phase 5-8.1：托管服务化补齐 + Agentic Memory
 
 ### Added — Phase 5：RAG 托管知识库服务（对齐 Python `rag/`+`app/rag/`+`middleware/_rag.py`）

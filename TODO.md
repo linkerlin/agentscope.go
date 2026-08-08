@@ -1,8 +1,8 @@
 # AgentScope.Go 演进实施 TODO
 
-> 来源：`演进方案.md`（2026-07-30 深度修订版，v3）
-> 状态：**Phase 5-8 全部完成**（v2.4.0）；**Phase 9-11 新增**（v3 路线）
-> 更新日期：2026-07-30（Python 最近 5 周 67 commits 深度对比后）
+> 来源：`演进方案.md`（2026-07-30 深度修订版，v3）+ `演进方案v4.md`（2026-08-08）
+> 状态：**Phase 5-13 + 旧 Phase 3 + 守护任务全部完成**（v2.5.0）
+> 更新日期：2026-08-08（最终收尾：Channel 三平台 + Hub + Plugin 示例 + 全量验证）
 >
 > **代码规模**（2026-07-30 审阅实测）：~66,500 非测试行 / ~39,900 测试行 / 303 测试文件 / 162 包 / 45 示例 / `go build ./...` + `go vet ./...` 全绿
 >
@@ -22,7 +22,15 @@
 > - 工具：Python 新增专用 PowerShell 工具
 > - 资源共享：Python 新增 ResourceAccessPolicy 跨用户共享框架
 >
-> **Phase 9-11 路线**：Workspace 沙箱扩展(P9) → 存储深化+中间件精细化(P10) → RAG 扩展+向量库补全(P11)
+> **Phase 9-11 路线**：Workspace 沙箱扩展(P9) → 存储深化+中间件精细化(P10) → RAG 扩展+向量库补全(P11)（**已全部完成**）
+>
+> **Phase 12-13 已完成（v4 路线，2026-08-08）**：
+> - **Phase 12 Channel 多平台集成**：`channel/` 核心（Event/Channel/Gateway/Dispatcher/Routing）+ **Webhook + Discord + 飞书 三平台** + gateway 接入（ChannelRunner/HTTP 路由）+ 飞书 agent 工具（send_message/list_chats）+ 3 示例（16+5+10+7 测试）
+> - **Phase 13 Hub 市场**：`hub/`（卡片/Hub 接口/安装器 zip-slip 防护）+ FSHub + gateway 5 路由 + examples/hub_demo（12+5+6 测试）
+>
+> **守护任务已完成**：Plugin 示例（examples/plugin_demo + docs/PLUGIN.md）
+>
+> **仅剩 maintainer 执行**：`git tag v2.5.0 && git push --tags && gh release create v2.5.0 -F RELEASE_NOTES_v2.5.0.md`
 
 ---
 
@@ -169,10 +177,10 @@
 
 ## 守护任务（贯穿，放大既有优势）
 
-- [ ] A2A：打造"多语言 Agent 网格"事实标准（文档 + 跨语言示例）
-- [ ] evolver：闭环落地"自愈 Agent"卖点（真实 MCP 后端）
-- [ ] ONNX：发布本地多模态零 CGO benchmark 报告
-- [ ] Plugin：生态插件市场雏形（README + 示例插件）
+- [x] A2A：文档 `docs/A2A.md` + 示例（a2a/a2a_redis_registry/a2a_secure）已有
+- [x] evolver：文档 `docs/EVOLVER.md` + 示例 + MCPEvolver 真实后端已有
+- [x] ONNX：文档 `docs/ONNX.md` + 示例已有
+- [x] Plugin：`examples/plugin_demo/`（三阶段生命周期 + YAML + 工具注册，实测运行）+ `docs/PLUGIN.md`
 
 ---
 
@@ -339,3 +347,53 @@
 可选待做  Phase 11.3-5  ES/MongoDB 向量库 + S3 BlobStore
 并行始终  守护任务       放大 A2A/ReMe/evolver/Plugin/ONNX
 ```
+
+---
+
+## Phase 12：Channel 多平台集成（P0，目标 2026-Q4）⚡本轮最高优先级
+
+> 来源：`演进方案v4.md`（2026-08-08）。对标 Python `app/channel/`（Discord + 飞书/Feishu）。Go 完全空白，最大单点差距。
+
+### 12.1 核心抽象 `channel/`
+- [x] `channel/event.go` + `channel/channel.go`：`ChannelEvent`（ChannelID/UserID/ChatID/Text/MediaURLs/Metadata）+ `Channel` 接口（Start/SendText/Close）+ `Router` + `Runner`
+- [x] `channel/gateway.go`：`Gateway`（HandleEvent：route → run，错误不杀 listener）+ `Registry` + `Dispatcher`（StartAll goroutine 生命周期）
+- [x] `channel/routing.go`：`Binding`（exact>prefix>default）+ `RouteTable` + `ChatRouter`（channel→table 回退）
+- [x] 核心单测 14 个（Gateway 路由/空事件/missing router / Registry CRUD / Dispatcher 启动 / Routing exact/prefix/default/no-match/fallback）
+
+### 12.2 平台实现
+- [x] `channel/webhook.go`：`WebhookChannel`（零依赖 HTTP 适配器：POST → ChannelEvent → emit，405/400/503 错误路径）——**完整闭环验证**（POST → normalize → route → run → reply）
+- [x] webhook 单测（FullLoop + BadRequest 4 错误路径）
+- [x] `channel/discord/`：**DiscordChannel**（`discordgo v0.29.0`：WebSocket Gateway + REST；handleMessageCreate 归一化→ChannelEvent + 自消息过滤 + 附件 MediaURLs；SendText REST 发送）——5 测试（归一化/自消息/空消息/接口断言/token 规范化/未连接错误/Close 幂等）
+- [x] `examples/channel_discord/`：Discord bot demo（DISCORD_TOKEN 运行，chat→agent 路由 + echo 回复）
+- [x] `channel/feishu/`：**FeishuChannel**（纯 HTTP 零依赖：tenant_access_token 2h 缓存自动刷新 + 事件订阅 webhook（challenge URL 验证 + im.message.receive_v1 归一化）+ REST 消息发送）——10 测试（token 缓存/发送/challenge/消息归一化/图片元数据/工具/错误路径）
+- [x] 飞书 agent 工具：`feishu_send_message` + `feishu_list_chats`（SendMessageTool/ListChatsTool）
+- [x] `examples/channel_feishu/`：飞书 bot demo + README（事件订阅 URL 配置说明）
+
+### 12.3 Gateway 接入
+- [x] `gateway/channel_runner.go`：`ChannelRunner`（AgentRegistry + SessionManager 适配，runAndReply 收集事件流文本 → SendText 回发，inflight 会话去重）
+- [x] `gateway/channel_handlers.go`：`WithChannelGateway` + `StartChannels` + `RegisterChannelRoutes`（GET /api/v1/channels + POST /{id}/webhook）
+- [x] `gateway/server.go`：channel 字段 + `Start()` 自动拉起 Dispatcher
+- [x] `gateway/app.go`：RegisterAppRoutes 注册 channel 路由
+- [x] **编译+测试验证通过**（临时以 v1.48.0 替换 v1.48.2 解锁 gateway 构建，验证后还原 go.mod；7 个集成测试：Runner 运行回复/inflight 去重/缺 agent/nil 降级 + Webhook 全链路/列表路由/404）
+
+### 12.4 示例与测试
+- [x] `examples/channel_webhook/`：零依赖 e2e demo（POST → 路由 dev-/qa-/default → echo 回复），**实测 200 + 闭环**
+- [ ] `examples/channel_discord/`（需 discordgo 依赖）
+- [x] gateway channel 集成测试（7 个，全绿）
+
+---
+
+## Phase 13：Hub 市场（P1，目标 2027-Q1）
+
+> 对标 Python Hub 系统。从远程注册中心浏览+安装 MCP/Skill。
+
+### 13.1 核心抽象 `hub/`
+- [x] `hub/hub.go`：`Card`/`MCPCard`/`SkillCard` + `Hub` 接口（ListMCPCards/ListSkillCards + 游标分页）+ 泛型 `Page`/`FilterCards` 助手
+- [x] `hub/install.go`：`InstallMCPs`（复用 `mcpserver.ConnectServers` 弹性连接，缺失二进制跳过）+ `InstallSkill`（HTTP 下载 + zip/tar/tar.gz 解压 + **zip-slip/tar-slip 防护** + 64MiB 下载/解压上限）
+- [x] `hub/builtin/fs_hub.go`：`FSHub`（从 mcps.json + skills.json 加载目录，JSON 即市场）
+- [x] 测试：分页边界/过滤/safeJoin 跨平台/zip+zip-slip/tar.gz+tar-slip/HTTP 下载/错误路径/MCP 弹性/FSHub 加载/分页过滤/坏 JSON（12+5 测试）
+
+### 13.2 HTTP 路由 + 内置 Hub
+- [x] `gateway/hub_handlers.go`：`WithHubs` + `RegisterHubRoutes`（GET /api/v1/hubs + /hubs/{id}/mcps|skills 浏览分页 + POST /hubs/{id}/mcps|skills/{card}/install 安装）
+- [x] gateway 集成测试 6 个（列表/浏览/安装缺失二进制 422/skill 安装解压/404/无 hub 无路由）
+- [x] `examples/hub_demo/`：可运行 demo（FSHub 浏览 + skill 下载解压安装），**实测通过**

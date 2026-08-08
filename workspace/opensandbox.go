@@ -22,10 +22,10 @@ type OpenSandboxConfig struct {
 // OpenSandboxWorkspace runs commands and file ops via an OpenSandbox remote sandbox.
 // Aligned with Python agentscope's OpenSandboxWorkspace (#15b5243e).
 type OpenSandboxWorkspace struct {
-	cfg        OpenSandboxConfig
-	client     *http.Client
-	sandboxID  string
-	apiBase    string // per-sandbox API base URL
+	cfg       OpenSandboxConfig
+	client    *http.Client
+	sandboxID string
+	apiBase   string // per-sandbox API base URL
 }
 
 // NewOpenSandboxWorkspace creates and provisions an OpenSandbox remote sandbox.

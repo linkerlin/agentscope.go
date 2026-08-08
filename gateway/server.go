@@ -13,6 +13,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/channel"
+	"github.com/linkerlin/agentscope.go/hub"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
@@ -97,6 +99,15 @@ type Server struct {
 	// auditLogger records authenticated requests (who/method/path/status).
 	// nil disables auditing. Attach via WithAuditLogger.
 	auditLogger service.AuditLogger
+
+	// channel subsystem (multi-platform messaging). nil = disabled.
+	channelRegistry   *channel.Registry
+	channelGateway    *channel.Gateway
+	channelDispatcher *channel.Dispatcher
+	channelsStarted   bool
+
+	// hubs are marketplace registries for MCP/skill install. empty = disabled.
+	hubs []hub.Hub
 
 	// defaultSessionDeps holds auto-assembled defaults for per-session agents
 	// (populated by NewApp when AutoStandardTools etc. are enabled).
@@ -195,6 +206,7 @@ func (s *Server) Start() {
 		s.backgroundTaskMgr.Start()
 	}
 	s.startWakeupDispatcher()
+	s.StartChannels()
 }
 
 // startWakeupDispatcher launches the team-collaboration wakeup loop when the

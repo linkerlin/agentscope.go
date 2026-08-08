@@ -56,16 +56,16 @@ func parseWordBody(r io.Reader, source string) []document.Section {
 
 	// State machine for walking the XML tree.
 	depth := 0
-	inTbl := 0   // inside <w:tbl>
-	inRow := 0   // inside <w:tr>
-	inCell := 0  // inside <w:tc>
-	inPara := 0  // inside <w:p>
+	inTbl := 0      // inside <w:tbl>
+	inRow := 0      // inside <w:tr>
+	inCell := 0     // inside <w:tc>
+	inPara := 0     // inside <w:p>
 	inText := false // inside <w:t>
 
-	var paraBuf strings.Builder  // current paragraph text
-	var cellBuf strings.Builder  // current cell text
-	var rowCells []string        // current row's cells
-	var tableRows [][]string     // all rows in current table
+	var paraBuf strings.Builder // current paragraph text
+	var cellBuf strings.Builder // current cell text
+	var rowCells []string       // current row's cells
+	var tableRows [][]string    // all rows in current table
 
 	for {
 		tok, err := dec.Token()

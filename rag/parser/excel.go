@@ -120,7 +120,10 @@ func readSheetNames(zr *zip.Reader) ([]sheetRef, error) {
 	}
 	// Fallback: if workbook.xml didn't give us rIDs, scan the zip.
 	if len(sheets) == 0 {
-		type sf struct{ num int; name string }
+		type sf struct {
+			num  int
+			name string
+		}
 		var found []sf
 		for _, f := range zr.File {
 			var num int

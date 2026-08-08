@@ -30,10 +30,10 @@ type DaytonaConfig struct {
 // DaytonaWorkspace runs commands and file ops via a Daytona remote dev environment.
 // Aligned with Python agentscope's DaytonaWorkspace (#dd71a372).
 type DaytonaWorkspace struct {
-	cfg        DaytonaConfig
-	client     *http.Client
+	cfg         DaytonaConfig
+	client      *http.Client
 	workspaceID string
-	nodeURL    string // per-workspace API endpoint
+	nodeURL     string // per-workspace API endpoint
 }
 
 // NewDaytonaWorkspace creates a DaytonaWorkspace and provisions a remote environment.

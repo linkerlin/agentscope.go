@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-08-08 — 文档：双语 README
+
+### Added
+- **`README_EN.md`**：完整英文 README（584 行，28 section 与中文版 1:1 对齐），覆盖 v2.5.0 全部能力（Channel 3 平台 / Hub 市场 / Plugin 生态 / 核心包 / 40+ 示例 / Evolver 等）。
+- **`README.md`**：顶部加语言切换链接（English ↔ Simplified Chinese 互链）。
+
+### Changed
+- 无代码变更（docs-only patch）。
+
+---
+
+## [2.5.0] - 2026-08-08 — Channel 多平台集成 + Hub 市场
+
+> 原 [Unreleased]（Phase 12-13）条目正式定版为 [2.5.0]。（见下）
+
+---
+
 ## [2.4.3] - 2026-08-01 — 模型层健壮性:Anthropic 流式工具调用 + 流中途错误传播
 
 ### Added
@@ -24,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] - 2026-08-08 — Phase 12-13：Channel 多平台集成 + Hub 市场（对齐 Python 2026-07→08 新进展）
+## [2.5.0]（续）— Phase 12-13：Channel 多平台集成 + Hub 市场（对齐 Python 2026-07→08 新进展）
 
 ### Added — Phase 12：Channel 多平台集成（对齐 Python `app/channel/` #1997）
 - **`channel/` 核心抽象**：`ChannelEvent`（归一化入站：ChannelID/UserID/ChatID/Text/MediaURLs）+ `Channel` 接口（Start/SendText/Close）+ `Gateway`（路由→运行，错误不杀 listener）+ `Registry` + `Dispatcher`（goroutine 生命周期）+ `RouteTable`/`Binding`/`ChatRouter`（exact>prefix>default 路由，session 派生 `<prefix><chat_id>`）。

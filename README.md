@@ -4,11 +4,14 @@ AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 
 
 ## 概述
 
-AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
+AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作、**多平台聊天机器人（Webhook/Discord/飞书）**、**生态市场（MCP/Skill）** 等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
-## 新增能力（v2.4.0）
+## 新增能力（v2.5.0）
 
 <!-- BEGIN NEWS -->
+- **`Channel` 多平台集成**：**3 个平台适配器开箱即用**——Webhook（零依赖 HTTP）、Discord（discordgo）、飞书（纯 HTTP，含 send_message/list_chats agent 工具）；chat→agent 路由 + 异步运行 + 回复回发。
+- **`Hub` 市场**：浏览 + 安装 MCP/Skill 卡片（FSHub 目录即市场，zip-slip 防护）。
+- **`Plugin` 生态示例**：三阶段生命周期 + YAML 配置 + 工具注册（examples/plugin_demo）。
 - **`RAG` 托管知识库**：document→parser(Text/PDF/PPTX/Image)→chunker→blob→kb→index 全管道 + RAGMiddleware + KB HTTP API。对齐 Python rag/ 托管服务。
 - **`消息总线 CoordBus`**：Lock/Registry/Queue/Log 四原语（Local+Redis 双后端）+ 跨会话投影。
 - **`Web UI 控制台`**：零构建 SPA（Chat/KB/System，go:embed 单二进制）。
@@ -16,8 +19,6 @@ AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推�
 - **`Tracing 语义属性`**：Span 五钩点提取（model/tool/iteration/usage）+ otelSpan 桥接。
 - **`MCP 声明式配置`**：ServerSpec YAML + 6-server 目录 + 弹性连接。
 - **`Langfuse`** 接入 + **`RBAC`** 测试 + **审计接线** + **`slog`** 结构化日志规范。
-- **`Channel` 多平台集成**：Webhook 通道开箱即用（Discord/飞书适配器预留），chat→agent 路由 + 异步运行 + 回复回发。
-- **`Hub` 市场**：浏览 + 安装 MCP/Skill 卡片（FSHub 目录即市场，zip-slip 防护）。
 <!-- END NEWS -->
 
 ## 快速开始
@@ -125,7 +126,7 @@ go run .
 | `async` | 异步任务执行池 |
 | `loader` | 文档加载器（TextLoader / DirLoader） |
 | `observability` | OpenTelemetry + LangSmith + **Langfuse** + Tracing 语义属性提取 + otelbridge |
-| `channel` | **多平台集成**：ChannelEvent/Channel 接口/Gateway/Dispatcher/Routing + Webhook 通道（Discord/飞书预留） |
+| `channel` | **多平台集成**：ChannelEvent/Channel 接口/Gateway/Dispatcher/Routing + **Webhook/Discord/飞书 3 适配器** + 飞书 agent 工具 |
 | `hub` | **Hub 市场**：MCP/Skill 卡片浏览+安装（FSHub + zip-slip 防护） |
 | `session` | 会话管理 |
 | `hook` | 钩子系统，支持人机协作 |
@@ -133,6 +134,46 @@ go run .
 | `embedding` | 独立 Embedding 包：OpenAI / Ollama / Gemini / DashScope / DashScope多模态 + FileCache，可直接用于 gateway / memory / RAG |
 | `evolver` | GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill→Gene 蒸馏（Phase 6 对齐 evolver 优势） |
 | `embedding/onnx` | ONNX 本地推理：CLIP 图像嵌入 + Whisper 音频嵌入 + 模型管理器（HTTP 代理方案，零 CGO 依赖） |
+
+## Channel 多平台集成
+
+Agent 接入 Webhook / Discord / 飞书，一条管道收发消息：
+
+```go
+// 1. 构建 channel 子系统
+wh := channel.NewWebhookChannel("webhook-1")
+router := channel.NewChatRouter(channel.RouteTable{
+    ChannelID: "webhook-1",
+    Bindings:  []channel.Binding{{ChatIDPrefix: "dev-", AgentID: "dev-agent", SessionPrefix: "dev-"}},
+})
+gateway := channel.NewGateway(router, runner)   // runner 适配 SessionManager
+dispatcher := channel.NewDispatcher(gateway, channel.NewRegistry())
+
+// 2. 平台适配器（3 选 1）
+// dc := discord.New("discord-1", os.Getenv("DISCORD_TOKEN"))          // Discord
+// fc := feishu.New("feishu-1", appID, appSecret)                      // 飞书（纯 HTTP）
+
+// 3. 启动 + 服务 webhook 端点
+dispatcher.StartAll(ctx)
+mux.Handle("/webhook", wh)   // 或 fc（飞书事件订阅 URL）
+```
+
+飞书 agent 工具：`feishu_send_message` / `feishu_list_chats`（agent 主动操作飞书）。
+详见 [`docs/CHANNEL.md`](docs/CHANNEL.md)。
+
+## Hub 市场
+
+从注册中心浏览 + 安装 MCP/Skill：
+
+```go
+h, _ := builtin.NewFSHub("./catalog", "demo", "Demo Hub", "")
+mcps, next, _ := h.ListMCPCards(ctx, "", 0, 20)   // 浏览（游标分页）
+hub.InstallSkill(ctx, skillCard, "./skills")      // 下载+解压（zip-slip 防护）
+mgr, _ := hub.InstallMCPs(ctx, mcps)              // 弹性连接（缺失二进制跳过）
+```
+
+Gateway 接入：`srv.WithHubs(h)` + `srv.RegisterHubRoutes()`（浏览/安装 5 路由）。
+详见 [`docs/HUB.md`](docs/HUB.md)。
 
 ## ONNX 生产化（多模态本地推理）
 
@@ -548,6 +589,8 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/mcp_servers`](examples/mcp_servers/main.go) —— **MCP 声明式配置**（YAML 加载 + 弹性连接多 server）
 - [`examples/web_ui`](examples/web_ui/main.go) —— **Web UI 控制台**（Chat/KB/System，零构建 SPA）
 - [`examples/channel_webhook`](examples/channel_webhook/main.go) —— **Channel 多平台**（Webhook 收发 + chat→agent 路由 + 回复回发）
+- [`examples/channel_discord`](examples/channel_discord/main.go) —— **Discord bot**（WebSocket Gateway 收消息 + REST 回发）
+- [`examples/channel_feishu`](examples/channel_feishu/main.go) —— **飞书 bot**（事件订阅 webhook + 发送，纯 HTTP）
 - [`examples/hub_demo`](examples/hub_demo/main.go) —— **Hub 市场**（浏览 MCP/Skill 卡片 + 下载安装）
 - [`examples/plugin_demo`](examples/plugin_demo/main.go) —— **Plugin 系统**（三阶段生命周期 + YAML 配置 + 工具注册）
 - [`examples/observability`](examples/observability/main.go) —— OpenTelemetry + LangSmith 追踪

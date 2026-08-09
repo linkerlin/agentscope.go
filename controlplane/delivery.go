@@ -131,6 +131,22 @@ type SQLDeliveryStore struct {
 // NewSQLDeliveryStore returns a DeliveryStore over db (assumes InitSchema ran).
 func NewSQLDeliveryStore(db *sql.DB) *SQLDeliveryStore { return &SQLDeliveryStore{db: db} }
 
+// ex returns the execer to use for this ctx: a tx if one is attached, else db.
+func (s *SQLDeliveryStore) ex(ctx context.Context) execer {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx
+	}
+	return s.db
+}
+
+// qr returns the queryer (tx or db) for tx-aware reads.
+func (s *SQLDeliveryStore) qr(ctx context.Context) queryer {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx
+	}
+	return s.db
+}
+
 // Record inserts the delivery; idempotent via ON CONFLICT DO NOTHING.
 func (s *SQLDeliveryStore) Record(ctx context.Context, d Delivery) error {
 	if d.GoalID == "" || d.TurnID == "" {
@@ -142,7 +158,7 @@ func (s *SQLDeliveryStore) Record(ctx context.Context, d Delivery) error {
 	if d.Slots <= 0 {
 		d.Slots = 1
 	}
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.ex(ctx).ExecContext(ctx,
 		`INSERT INTO cp_deliveries (goal_id, turn_id, todo_id, outcome, slots, spent, created_at)
 		 VALUES (?, ?, ?, ?, ?, 0, ?)
 		 ON CONFLICT(goal_id, turn_id) DO NOTHING`,
@@ -155,7 +171,7 @@ func (s *SQLDeliveryStore) Get(ctx context.Context, goalID, turnID string) (*Del
 	var d Delivery
 	var outcome, created string
 	var spent int
-	err := s.db.QueryRowContext(ctx,
+	err := s.qr(ctx).QueryRowContext(ctx,
 		`SELECT goal_id, turn_id, todo_id, outcome, slots, spent, created_at
 		 FROM cp_deliveries WHERE goal_id = ? AND turn_id = ?`, goalID, turnID).
 		Scan(&d.GoalID, &d.TurnID, &d.TodoID, &outcome, &d.Slots, &spent, &created)
@@ -173,7 +189,7 @@ func (s *SQLDeliveryStore) Get(ctx context.Context, goalID, turnID string) (*Del
 
 // MarkSpent atomically flips spent via a CAS UPDATE; false if already spent.
 func (s *SQLDeliveryStore) MarkSpent(ctx context.Context, goalID, turnID string) (bool, error) {
-	res, err := s.db.ExecContext(ctx,
+	res, err := s.ex(ctx).ExecContext(ctx,
 		`UPDATE cp_deliveries SET spent = 1 WHERE goal_id = ? AND turn_id = ? AND spent = 0`,
 		goalID, turnID)
 	if err != nil {
@@ -193,7 +209,7 @@ func (s *SQLDeliveryStore) MarkSpent(ctx context.Context, goalID, turnID string)
 // Reap removes spent deliveries older than olderThan.
 func (s *SQLDeliveryStore) Reap(ctx context.Context, olderThan time.Duration) error {
 	cutoff := ts(time.Now().UTC().Add(-olderThan))
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.ex(ctx).ExecContext(ctx,
 		`DELETE FROM cp_deliveries WHERE spent = 1 AND created_at < ?`, cutoff)
 	return err
 }

@@ -51,12 +51,13 @@ type SpendEvent struct {
 // keeps an in-process slice; P2 upgrades to messagebus.LogAppend / Redis LIST
 // for cross-process accounting.
 //
-// ponytail: in-memory spend log; no persistence. Upgrade path: replace this
-// store with a RedisBus-backed LogAppend so multi-process workers share the
-// same rolling-window budget.
+// Window contract (#4 round-6): Append returns the ALL-TIME total — windowed
+// counting is the Kernel's job (it knows the goal's WindowHours) via
+// SpentInWindow. Both backends must agree on this; earlier versions hardcoded
+// a 1h window inside Append, so dry-run vs execute reported different numbers
+// for non-1h goals.
 type SpendLog interface {
-	// Append records a spend event and returns the new rolling-window spend
-	// total for the goal.
+	// Append records a spend event and returns the all-time total for the goal.
 	Append(ctx context.Context, e SpendEvent) (int, error)
 	// SpentInWindow returns the count of spend events for the goal within the
 	// rolling window ending at now.
@@ -74,25 +75,18 @@ func NewMemorySpendLog() *MemorySpendLog {
 	return &MemorySpendLog{logs: make(map[string][]SpendEvent)}
 }
 
-// Append records the event (UTC) and returns the rolling-window spend total
-// (default 1h). This matches SQLSpendLog.Append so both backends report the
-// same windowed semantics (#4); ShouldRun and the gateway handler both rely on
-// this being a windowed count, not an all-time count.
+// Append records the event (UTC) and returns the ALL-TIME total (#4 round-6).
+// Windowed counting is the Kernel's job (it knows the goal's WindowHours); this
+// stays backend-independent.
 func (s *MemorySpendLog) Append(_ context.Context, e SpendEvent) (int, error) {
 	if e.SpentAt.IsZero() {
 		e.SpentAt = time.Now().UTC()
 	}
 	s.mu.Lock()
 	s.logs[e.GoalID] = append(s.logs[e.GoalID], e)
-	cutoff := time.Now().UTC().Add(-time.Hour)
-	n := 0
-	for _, ev := range s.logs[e.GoalID] {
-		if !ev.SpentAt.Before(cutoff) {
-			n++
-		}
-	}
+	total := len(s.logs[e.GoalID])
 	s.mu.Unlock()
-	return n, nil
+	return total, nil
 }
 
 // SpentInWindow counts events for the goal within [now-window, now].

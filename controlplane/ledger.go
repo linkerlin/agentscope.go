@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 )
@@ -31,6 +32,40 @@ type Event struct {
 	Outcome string         `json:"outcome,omitempty"`
 	Detail  map[string]any `json:"detail,omitempty"`
 	At      time.Time      `json:"at"`
+}
+
+// DetailInt reads an integer-valued Detail key with backend-independent typing
+// (#4 round-5): the Memory backend stores native ints while the SQL backend
+// round-trips Detail through JSON, yielding float64. Consumers must use these
+// accessors instead of reading Detail directly.
+func (e Event) DetailInt(key string) (int, bool) {
+	v, ok := e.Detail[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	default:
+		return 0, false
+	}
+}
+
+// DetailStr reads a string-valued Detail key ("" if absent or non-string).
+func (e Event) DetailStr(key string) string {
+	if v, ok := e.Detail[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 // Ledger is the append-only decision-lineage store, scoped per goal. P0/P1

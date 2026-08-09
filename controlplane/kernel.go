@@ -311,6 +311,34 @@ func (k *Kernel) CompactHistory(ctx context.Context, goalID string, keepLastN in
 	return k.ledger.Compact(ctx, goalID, keepLastN)
 }
 
+// ReapAll is the unified maintenance entry point (#2 round-5): it reaps
+// consumed tickets, spent deliveries, and inactive reward records older than
+// olderThan, then compacts every goal's ledger to its last keepLastN events.
+// Previously ReapTickets/CompactHistory existed but had NO caller — growth was
+// bounded in capability but never in operation. Call this from a background
+// sweeper or the gateway maintenance endpoint.
+func (k *Kernel) ReapAll(ctx context.Context, olderThan time.Duration, keepLastN int) error {
+	if err := k.tickets.Reap(ctx, olderThan); err != nil {
+		return err
+	}
+	if err := k.deliveries.Reap(ctx, olderThan); err != nil {
+		return err
+	}
+	if k.rewards != nil {
+		if err := k.rewards.Reap(ctx, olderThan); err != nil {
+			return err
+		}
+	}
+	if k.ledger != nil {
+		if goals, err := k.goals.List(ctx); err == nil {
+			for _, g := range goals {
+				_ = k.ledger.Compact(ctx, g.ID, keepLastN)
+			}
+		}
+	}
+	return nil
+}
+
 // CapabilityRegistry exposes the catalog of built-in + extension capabilities
 // (LoopX BUILTIN_CAPABILITIES). Integrations can Register more or read the list
 // to render an operator catalog.
@@ -581,6 +609,16 @@ func (k *Kernel) Writeback(ctx context.Context, wb ValidatedWriteback) (delivery
 	if err := wb.Validate(); err != nil {
 		return "", err
 	}
+	// True idempotency (#3 round-6): if an accountable writeback for this turn
+	// was already recorded, short-circuit BEFORE reloading the todo — the old
+	// behavior only deduped the delivery while re-appending evidence and a
+	// second lineage event on retry (network retries / crash recovery would
+	// silently pollute both).
+	if wb.Outcome.Status.IsAccountable() && wb.TurnID != "" {
+		if _, gerr := k.deliveries.Get(ctx, wb.GoalID, wb.TurnID); gerr == nil {
+			return wb.TurnID, nil
+		}
+	}
 	t, err := k.todos.Get(ctx, wb.GoalID, wb.TodoID)
 	if err != nil {
 		return "", err
@@ -591,11 +629,6 @@ func (k *Kernel) Writeback(ctx context.Context, wb ValidatedWriteback) (delivery
 	if t.ClaimedBy != "" && wb.AgentID != "" && t.ClaimedBy != wb.AgentID {
 		return "", ErrClaimOwnerMismatch
 	}
-	evIDs := make([]string, 0, len(wb.Evidence))
-	for _, e := range wb.Evidence {
-		evIDs = append(evIDs, e.ID)
-	}
-	t.EvidenceIDs = append(t.EvidenceIDs, evIDs...)
 	t.Evidence = append(t.Evidence, wb.Evidence...)
 
 	if wb.Outcome.Status == OutcomeCompletion {
@@ -613,44 +646,61 @@ func (k *Kernel) Writeback(ctx context.Context, wb ValidatedWriteback) (delivery
 		}
 		t.State = TodoDone
 	}
-	if err := k.todos.Upsert(ctx, t); err != nil {
-		return "", err
-	}
-	k.record(ctx, Event{
-		Kind: EventWork, Type: "validated_writeback",
-		GoalID: wb.GoalID, TodoID: wb.TodoID, TurnID: wb.TurnID,
-		Outcome: string(wb.Outcome.Status),
-		Detail: map[string]any{
-			"decision_source": wb.DecisionSource,
-			"primary_cause":   wb.PrimaryCause,
-			"evidence_count":  len(wb.Evidence),
-		},
-	})
-	// #3b: auto-record a run_bound_reward (evidence about this one outcome). It
-	// is the weakest authority class — used as evidence, never as policy — and
-	// seeds the reward memory without an explicit RecordReward call.
-	if k.rewards != nil {
-		_ = k.rewards.Add(ctx, wb.GoalID, RewardRecord{
-			Class: AuthorityRunBoundReward, Lifecycle: LifecycleActive,
-			Source:  wb.TurnID,
-			Scope:   DecisionScope{Kind: ScopeOther, Granularity: GranularityAction, ScopeKey: wb.TodoID},
-			Content: wb.PrimaryCause,
-		})
-	}
-
-	if !wb.Outcome.Status.IsAccountable() {
-		return "", nil
-	}
+	// All durable writes in ONE transaction (#1 round-5): todo state, ledger
+	// event, reward record, and delivery. A crash mid-way can no longer leave a
+	// todo marked done without its delivery (unspendable work), or a delivery
+	// without its lineage. With a Memory backend (no txStarter) this is a
+	// no-op wrapper.
 	if wb.TurnID == "" {
 		wb.TurnID = uuid.NewString()
 	}
-	// Record the delivery via the shared DeliveryStore (#4 round-4): idempotent
-	// per turn and — with a SQL backend — visible to SpendSlot in any process.
-	if err := k.deliveries.Record(ctx, Delivery{
-		GoalID: wb.GoalID, TurnID: wb.TurnID, TodoID: wb.TodoID,
-		Outcome: wb.Outcome.Status, Slots: 1,
-	}); err != nil {
+	accountable := wb.Outcome.Status.IsAccountable()
+	err = k.runTx(ctx, func(tctx context.Context) error {
+		if err := k.todos.Upsert(tctx, t); err != nil {
+			return err
+		}
+		// Strict ledger append inside the tx: an append failure rolls back the
+		// whole writeback instead of silently dropping lineage (record() is
+		// best-effort and is NOT used here).
+		if _, err := k.ledger.Append(tctx, Event{
+			Kind: EventWork, Type: "validated_writeback",
+			GoalID: wb.GoalID, TodoID: wb.TodoID, TurnID: wb.TurnID,
+			Outcome: string(wb.Outcome.Status),
+			Detail: map[string]any{
+				"decision_source": wb.DecisionSource,
+				"primary_cause":   wb.PrimaryCause,
+				"evidence_count":  len(wb.Evidence),
+			},
+		}); err != nil {
+			return err
+		}
+		// #3b: auto-record a run_bound_reward (evidence about this one outcome).
+		if k.rewards != nil {
+			if err := k.rewards.Add(tctx, wb.GoalID, RewardRecord{
+				Class: AuthorityRunBoundReward, Lifecycle: LifecycleActive,
+				Source:  wb.TurnID,
+				Scope:   DecisionScope{Kind: ScopeOther, Granularity: GranularityAction, ScopeKey: wb.TodoID},
+				Content: wb.PrimaryCause,
+			}); err != nil {
+				return err
+			}
+		}
+		if !accountable {
+			return nil
+		}
+		// Record the delivery via the shared DeliveryStore (#4 round-4):
+		// idempotent per turn and — with a SQL backend — visible to SpendSlot
+		// in any process.
+		return k.deliveries.Record(tctx, Delivery{
+			GoalID: wb.GoalID, TurnID: wb.TurnID, TodoID: wb.TodoID,
+			Outcome: wb.Outcome.Status, Slots: 1,
+		})
+	})
+	if err != nil {
 		return "", err
+	}
+	if !accountable {
+		return "", nil
 	}
 	return wb.TurnID, nil
 }
@@ -690,53 +740,66 @@ func (k *Kernel) SpendSlot(ctx context.Context, goalID, turnID string, opts Spen
 		return spent + del.Slots, nil
 	}
 
-	// 3. Ticket consume (DB CAS) — serializes same-turn spends when on.
-	//    #3 round-3: a ticket is an eligibility SNAPSHOT from ShouldRunTurn. A
-	//    gate may have opened, the goal may have paused, or quota may have been
-	//    drained since mint time. Re-probe eligibility; reject if it changed.
-	if k.enforceTicket {
-		if opts.Token == "" {
-			return 0, ErrTicketTokenMismatch // token required when enforcement is on
-		}
-		// Read-only eligibility probe (turnID="" so it does NOT mint/re-mint a
-		// ticket — the spend must rely on the ticket minted by ShouldRunTurn,
-		// not mint its own). shouldRun with empty turnID mints nothing.
-		probe, err := k.shouldRun(ctx, goalID, "", "")
-		if err != nil {
-			return 0, err
-		}
-		if !probe.ShouldRun {
-			return 0, fmt.Errorf("%w: state=%s", ErrStaleTicket, probe.State)
-		}
-		if err := k.tickets.Consume(ctx, goalID, turnID, opts.Token); err != nil {
-			return 0, err
-		}
-	}
-
-	// 4. Atomically mark the delivery spent (CAS in the shared store).
-	marked, err := k.deliveries.MarkSpent(ctx, goalID, turnID)
-	if err != nil {
-		return 0, err
-	}
-	if !marked {
-		return 0, ErrAlreadySpent
-	}
-
-	// 5. Append the spend event + record lineage.
+	// 3+4+5. All execute-path durable writes in ONE transaction (#1 round-5):
+	// ticket consume + delivery mark + spend event + accounting lineage. A
+	// failure of ANY step rolls back all of them — a transient error can no
+	// longer leave a delivery marked spent with no spend event (unrecoverable
+	// quota loss) or a spent slot with no lineage. The ticket CAS and delivery
+	// CAS still serialize concurrent spends; the tx makes them atomic together.
 	ev := SpendEvent{
 		GoalID: goalID, TurnID: turnID, Slots: del.Slots,
 		Reason: opts.Reason, SpentAt: time.Now().UTC(),
 	}
-	total, err := k.spend.Append(ctx, ev)
+	err = k.runTx(ctx, func(tctx context.Context) error {
+		// #3 round-3: a ticket is an eligibility SNAPSHOT from ShouldRunTurn. A
+		// gate may have opened, the goal may have paused, or quota may have been
+		// drained since mint time. Re-probe eligibility; reject if it changed.
+		if k.enforceTicket {
+			if opts.Token == "" {
+				return ErrTicketTokenMismatch // token required when enforcement is on
+			}
+			// Read-only eligibility probe (turnID="" so it does NOT mint/re-mint
+			// a ticket — the spend must rely on the ticket minted by
+			// ShouldRunTurn, not mint its own).
+			probe, perr := k.shouldRun(tctx, goalID, "", "")
+			if perr != nil {
+				return perr
+			}
+			if !probe.ShouldRun {
+				return fmt.Errorf("%w: state=%s", ErrStaleTicket, probe.State)
+			}
+			if cerr := k.tickets.Consume(tctx, goalID, turnID, opts.Token); cerr != nil {
+				return cerr
+			}
+		}
+		// Atomically mark the delivery spent (CAS in the shared store).
+		marked, merr := k.deliveries.MarkSpent(tctx, goalID, turnID)
+		if merr != nil {
+			return merr
+		}
+		if !marked {
+			return ErrAlreadySpent
+		}
+		// Strict spend + lineage appends inside the tx (errors roll back the
+		// mark — record() is best-effort and NOT used here).
+		if _, aerr := k.spend.Append(tctx, ev); aerr != nil {
+			return aerr
+		}
+		_, lerr := k.ledger.Append(tctx, Event{
+			Kind: EventAccounting, Type: "quota_slot_spent",
+			GoalID: goalID, TurnID: turnID,
+			Detail: map[string]any{"slots": del.Slots, "reason": opts.Reason},
+		})
+		return lerr
+	})
 	if err != nil {
 		return 0, err
 	}
-	k.record(ctx, Event{
-		Kind: EventAccounting, Type: "quota_slot_spent",
-		GoalID: goalID, TurnID: turnID,
-		Detail: map[string]any{"slots": del.Slots, "reason": opts.Reason},
-	})
-	return total, nil
+	// Report the same goal-window count as the dry-run path (#4 round-6): the
+	// window computation lives in the Kernel (goal WindowHours), not inside
+	// SpendLog.Append (which is backend-agnostic, all-time only).
+	spent, _ := k.spend.SpentInWindow(ctx, goalID, window)
+	return spent, nil
 }
 
 // SpendOpts controls SpendSlot behavior. Execute=false is a dry-run that

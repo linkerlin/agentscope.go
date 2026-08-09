@@ -45,7 +45,7 @@ func TestSQLStoresDurabilityAcrossRestart(t *testing.T) {
 	require.NoError(t, k.TodoStore().Upsert(ctx, &Todo{
 		ID: "t1", GoalID: "g-restart", OwnerUserID: "alice",
 		Description: "implement", TaskClass: TaskAdvancement, State: TodoOpen,
-		EvidenceIDs: []string{"e1", "e2"},
+		Evidence: []Evidence{{ID: "e1"}, {ID: "e2"}},
 	}))
 	g, _ := k.GoalStore().Get(ctx, "g-restart")
 	g.CurrentTodoID = "t1"
@@ -68,7 +68,7 @@ func TestSQLStoresDurabilityAcrossRestart(t *testing.T) {
 	todo, err := k2.TodoStore().Get(ctx, "g-restart", "t1")
 	require.NoError(t, err)
 	assert.Equal(t, "implement", todo.Description)
-	assert.Equal(t, []string{"e1", "e2"}, todo.EvidenceIDs, "slice field survived (deep, not aliased)")
+	assert.Equal(t, []string{"e1", "e2"}, todo.EvidenceIDs(), "derived evidence ids survived restart (#5)")
 }
 
 func TestSQLCrossProcessWritebackSpend(t *testing.T) {
@@ -237,8 +237,12 @@ func TestSQLLedgerLenAndReadRecent(t *testing.T) {
 	recent := k.readRecent(ctx, "g1", 3)
 	require.Len(t, recent, 3)
 	// readRecent returns chronological within the window: recent[0]=i2 ... recent[2]=i4.
-	assert.Equal(t, float64(2), recent[0].Detail["i"])
-	assert.Equal(t, float64(4), recent[2].Detail["i"], "must return the LAST n, not the oldest")
+	// Use the backend-agnostic accessor (#4): Detail values are int on Memory but
+	// float64 after the SQL JSON round-trip.
+	first, _ := recent[0].DetailInt("i")
+	last, _ := recent[2].DetailInt("i")
+	assert.Equal(t, 2, first)
+	assert.Equal(t, 4, last, "must return the LAST n, not the oldest")
 }
 
 func TestSQLSpendRollingWindow(t *testing.T) {

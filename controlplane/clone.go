@@ -16,15 +16,13 @@ func cloneGoal(g *Goal) *Goal {
 	return &cp
 }
 
-// cloneTodo returns a deep copy of t (EvidenceIDs slice isolated).
+// cloneTodo returns a deep copy of t (Evidence slice isolated; EvidenceIDs is
+// derived, no separate copy needed — #5 round-5).
 func cloneTodo(t *Todo) *Todo {
 	if t == nil {
 		return nil
 	}
 	cp := *t
-	if t.EvidenceIDs != nil {
-		cp.EvidenceIDs = append([]string(nil), t.EvidenceIDs...)
-	}
 	if t.Evidence != nil {
 		cp.Evidence = append([]Evidence(nil), t.Evidence...)
 	}

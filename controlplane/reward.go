@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"sort"
+	"time"
 )
 
 // AuthorityClass is the five-class reward-memory authority model (LoopX
@@ -73,6 +74,8 @@ type RewardRecord struct {
 	Confidence Confidence     `json:"confidence"`
 	Lifecycle  LifecycleState `json:"lifecycle"`
 	Content    string         `json:"content"`
+	// CreatedAt enables age-based reaping of inactive records (#2 round-5).
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }
 
 // IsActive reports whether the record may currently exert its (class-bounded) authority.
@@ -92,15 +95,29 @@ func (r RewardRecord) PrecedenceOrder() int {
 // soft_preference > run_bound_reward). This is the selector an agent uses when
 // more than one record applies: the strongest class wins, but ALL active
 // records remain visible as evidence — none is silently dropped.
+//
+// Scope matching (#3 round-5): for an ACTION-level scope, a record applies only
+// if its Kind AND ScopeKey both match (Covers). For a GOAL-level scope (used by
+// ShouldRun's policy check), Kind is NOT compared — an operator recording "no
+// prod writes" with Kind=ScopeProduction must veto the goal even though the
+// goal-level query has no single action kind. Only the ScopeKey is matched (and
+// an empty record ScopeKey means "global, applies everywhere").
 func SelectByPrecedence(records []RewardRecord, scope DecisionScope) []RewardRecord {
 	out := make([]RewardRecord, 0, len(records))
 	for _, r := range records {
 		if !r.IsActive() {
 			continue
 		}
-		// A record applies to a scope only if its scope covers the action scope.
-		if r.Scope.ScopeKey != "" && !r.Scope.Covers(scope) {
-			continue
+		if r.Scope.ScopeKey != "" {
+			if scope.Granularity == GranularityGoal {
+				// Goal-level: match ScopeKey only (kind-agnostic).
+				if r.Scope.ScopeKey != scope.ScopeKey {
+					continue
+				}
+			} else if !r.Scope.Covers(scope) {
+				// Action-level: Kind AND ScopeKey must match.
+				continue
+			}
 		}
 		out = append(out, r)
 	}

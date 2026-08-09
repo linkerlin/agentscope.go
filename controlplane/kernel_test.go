@@ -226,7 +226,7 @@ func TestWritebackCompletionTransitionsTodo(t *testing.T) {
 	todo, err := k.todos.Get(ctxBG(), "g1", "t1")
 	require.NoError(t, err)
 	assert.Equal(t, TodoDone, todo.State)
-	assert.Contains(t, todo.EvidenceIDs, "e1")
+	assert.Contains(t, todo.EvidenceIDs(), "e1")
 }
 
 func TestSpendSlotRequiresValidatedWriteback(t *testing.T) {
@@ -343,10 +343,26 @@ func TestWritebackIdempotentSameTurn(t *testing.T) {
 	}
 	id1, err := k.Writeback(ctxBG(), wb)
 	require.NoError(t, err)
-	// Same turn writeback again is a no-op (returns same id, no duplicate delivery).
+	// Same turn writeback again is a true no-op (#3 round-6): the delivery is
+	// deduped AND the evidence / lineage are NOT re-appended.
 	id2, err := k.Writeback(ctxBG(), wb)
 	require.NoError(t, err)
 	assert.Equal(t, id1, id2)
+
+	todo, err := k.todos.Get(ctxBG(), "g1", "t1")
+	require.NoError(t, err)
+	assert.Len(t, todo.Evidence, 1, "evidence must not duplicate on retry")
+	assert.Equal(t, []string{"e1"}, todo.EvidenceIDs())
+
+	// Ledger has exactly ONE validated_writeback event.
+	evs, _, _ := k.Ledger().Read(ctxBG(), "g1", 0, 0)
+	n := 0
+	for _, e := range evs {
+		if e.Type == "validated_writeback" {
+			n++
+		}
+	}
+	assert.Equal(t, 1, n, "lineage must not duplicate on retry")
 
 	// Only one spend possible.
 	_, err = k.SpendSlot(ctxBG(), "g1", id1, SpendOpts{Execute: true})
@@ -940,11 +956,12 @@ func TestStoreSliceIsolation(t *testing.T) {
 
 	// Todo evidence ids likewise.
 	ts := NewMemoryTodoStore()
-	require.NoError(t, ts.Upsert(ctxBG(), &Todo{ID: "t", GoalID: "g", State: TodoOpen, EvidenceIDs: []string{"e1"}}))
+	require.NoError(t, ts.Upsert(ctxBG(), &Todo{ID: "t", GoalID: "g", State: TodoOpen, Evidence: []Evidence{{ID: "e1"}}}))
 	td, _ := ts.Get(ctxBG(), "g", "t")
-	td.EvidenceIDs[0] = "hack"
+	td.Evidence[0].ID = "hack" // mutate the returned slice; store must be isolated
 	td2, _ := ts.Get(ctxBG(), "g", "t")
-	assert.Equal(t, "e1", td2.EvidenceIDs[0], "todo evidence slice isolated (#4)")
+	assert.Equal(t, "e1", td2.Evidence[0].ID, "todo evidence slice isolated (#4)")
+	assert.Equal(t, []string{"e1"}, td2.EvidenceIDs(), "derived EvidenceIDs matches (#5)")
 }
 
 func TestGateStoreSliceIsolation(t *testing.T) {
@@ -974,6 +991,28 @@ func TestRewardHardPolicyVetoesShouldRun(t *testing.T) {
 	assert.Equal(t, ComputePolicyBlocked, dec.State)
 	assert.Equal(t, ModePolicyBlocked, dec.Mode)
 	assert.Contains(t, dec.Reason, "no deploys until audit clears")
+}
+
+func TestRewardHardPolicyNaturalKindAlsoVetoes(t *testing.T) {
+	// #3 round-5: a policy recorded with a natural Kind (e.g. ScopeProduction
+	// for "no prod writes") must ALSO veto the goal — the goal-level check is
+	// ScopeKey-based, not Kind-exact (the old Covers matching silently ignored
+	// any Kind other than ScopeDirection).
+	k, _, g, _ := seedKernel(t, DefaultQuota())
+	require.NoError(t, k.RecordReward(ctxBG(), g.ID, RewardRecord{
+		Class: AuthorityHardPolicy, Lifecycle: LifecycleActive,
+		Scope:   DecisionScope{Kind: ScopeProduction, Granularity: GranularityGoal, ScopeKey: g.ID},
+		Content: "no prod writes for this goal",
+	}))
+	dec, err := k.ShouldRun(ctxBG(), g.ID, "a1")
+	require.NoError(t, err)
+	assert.False(t, dec.ShouldRun, "natural-Kind hard_policy must veto the goal")
+	assert.Equal(t, ComputePolicyBlocked, dec.State)
+	// A different goal with its own scope key is NOT vetoed.
+	require.NoError(t, k.GoalStore().Upsert(ctxBG(), &Goal{ID: "g-other", Objective: "o", State: GoalActive, Quota: DefaultQuota()}))
+	dec2, err := k.ShouldRun(ctxBG(), "g-other", "a1")
+	require.NoError(t, err)
+	assert.True(t, dec2.ShouldRun, "hard_policy scoped to g must not veto g-other")
 }
 
 func TestWritebackAutoRecordsRunBoundReward(t *testing.T) {

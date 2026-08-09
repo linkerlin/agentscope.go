@@ -27,10 +27,9 @@ type Todo struct {
 	ClaimedBy    string             `json:"claimed_by,omitempty"`
 	Continuation ContinuationPolicy `json:"continuation,omitempty"`
 	Order        int                `json:"order,omitempty"`
-	EvidenceIDs  []string           `json:"evidence_ids,omitempty"`
 	// Evidence holds the full evidence artifacts (id/kind/summary/source_ref)
-	// backing this todo, so an operator can review WHAT backed a completion —
-	// and so projections can redact private source refs (#3a round-4).
+	// backing this todo — the single source of truth (#5 round-5). EvidenceIDs
+	// is DERIVED from it; the old parallel field was removed to prevent drift.
 	Evidence []Evidence `json:"evidence,omitempty"`
 	// Supersedes is the predecessor todo id this todo replaced (if any).
 	Supersedes string `json:"supersedes,omitempty"`
@@ -62,6 +61,16 @@ func LegalTodoTransition(from, to TodoState) bool {
 		return true
 	}
 	return todoTransitions[from][to]
+}
+
+// EvidenceIDs derives the evidence id list from Evidence (#5 round-5). The old
+// parallel field could drift; Evidence is the single source of truth.
+func (t *Todo) EvidenceIDs() []string {
+	ids := make([]string, 0, len(t.Evidence))
+	for _, e := range t.Evidence {
+		ids = append(ids, e.ID)
+	}
+	return ids
 }
 
 // ErrTodoNotFound is returned by TodoStore lookups for a missing todo.

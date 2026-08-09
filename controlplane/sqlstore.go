@@ -444,7 +444,7 @@ func (s *SQLTodoStore) Upsert(ctx context.Context, t *Todo) error {
 		   state=excluded.state, claimed_by=excluded.claimed_by, continuation=excluded.continuation, "order"=excluded."order",
 		   evidence_ids=excluded.evidence_ids, evidence=excluded.evidence, supersedes=excluded.supersedes, superseded_by=excluded.superseded_by, updated_at=excluded.updated_at`,
 		t.ID, t.GoalID, t.OwnerUserID, t.Description, string(t.TaskClass), t.StageID, string(t.State), t.ClaimedBy,
-		string(t.Continuation), t.Order, encJSON(t.EvidenceIDs), encJSON(t.Evidence), t.Supersedes, t.SupersededBy, ts(t.CreatedAt), ts(t.UpdatedAt))
+		string(t.Continuation), t.Order, encJSON(t.EvidenceIDs()), encJSON(t.Evidence), t.Supersedes, t.SupersededBy, ts(t.CreatedAt), ts(t.UpdatedAt))
 	return err
 }
 
@@ -464,7 +464,8 @@ func scanTodo(sc scanner) (*Todo, error) {
 	t.TaskClass = TaskClass(taskClass)
 	t.State = TodoState(state)
 	t.Continuation = ContinuationPolicy(cont)
-	decJSONInto(evIDs, &t.EvidenceIDs)
+	// Evidence is the single source of truth; the stored evidence_ids column is
+	// legacy/derived and not re-populated (#5 round-5).
 	decJSONInto(evidence, &t.Evidence)
 	t.CreatedAt = parseTS(created)
 	t.UpdatedAt = parseTS(updated)
@@ -775,7 +776,8 @@ func (s *SQLSpendLog) qr(ctx context.Context) queryer {
 // NewSQLSpendLog returns a SpendLog over db.
 func NewSQLSpendLog(db *sql.DB) *SQLSpendLog { return &SQLSpendLog{db: db} }
 
-// Append records the spend and returns the rolling-window total (1h default).
+// Append records the spend and returns the ALL-TIME total (#4 round-6).
+// Windowed counting is the Kernel's job via SpentInWindow.
 func (s *SQLSpendLog) Append(ctx context.Context, e SpendEvent) (int, error) {
 	if e.SpentAt.IsZero() {
 		e.SpentAt = time.Now().UTC()
@@ -785,7 +787,10 @@ func (s *SQLSpendLog) Append(ctx context.Context, e SpendEvent) (int, error) {
 		e.GoalID, e.TurnID, e.Slots, e.Reason, ts(e.SpentAt)); err != nil {
 		return 0, err
 	}
-	return s.SpentInWindow(ctx, e.GoalID, time.Hour)
+	var total int
+	err := s.qr(ctx).QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM cp_spend WHERE goal_id = ?`, e.GoalID).Scan(&total)
+	return total, err
 }
 
 // SpentInWindow counts spend rows for the goal within [now-window, now].

@@ -124,13 +124,29 @@ type SQLTicketStore struct {
 // NewSQLTicketStore returns a TicketStore over db (assumes InitSchema ran).
 func NewSQLTicketStore(db *sql.DB) *SQLTicketStore { return &SQLTicketStore{db: db} }
 
+// ex returns the execer to use for this ctx: a tx if one is attached, else db.
+func (s *SQLTicketStore) ex(ctx context.Context) execer {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx
+	}
+	return s.db
+}
+
+// qr returns the queryer (tx or db) for tx-aware reads.
+func (s *SQLTicketStore) qr(ctx context.Context) queryer {
+	if tx, ok := txFromContext(ctx); ok {
+		return tx
+	}
+	return s.db
+}
+
 // Mint is idempotent: insert-on-conflict-ignore then read back the token.
 func (s *SQLTicketStore) Mint(ctx context.Context, goalID, turnID string) (string, error) {
 	if turnID == "" {
 		return "", nil
 	}
 	tok := uuid.NewString()
-	if _, err := s.db.ExecContext(ctx,
+	if _, err := s.ex(ctx).ExecContext(ctx,
 		`INSERT INTO cp_tickets (goal_id, turn_id, token, consumed, minted_at)
 		 VALUES (?, ?, ?, 0, ?)
 		 ON CONFLICT(goal_id, turn_id) DO NOTHING`,
@@ -138,7 +154,7 @@ func (s *SQLTicketStore) Mint(ctx context.Context, goalID, turnID string) (strin
 		return "", err
 	}
 	var stored string
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.qr(ctx).QueryRowContext(ctx,
 		`SELECT token FROM cp_tickets WHERE goal_id = ? AND turn_id = ?`, goalID, turnID).Scan(&stored); err != nil {
 		return "", err
 	}
@@ -155,7 +171,7 @@ func (s *SQLTicketStore) Consume(ctx context.Context, goalID, turnID, token stri
 		q += ` AND token = ?`
 		args = append(args, token)
 	}
-	res, err := s.db.ExecContext(ctx, q, args...)
+	res, err := s.ex(ctx).ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -166,7 +182,7 @@ func (s *SQLTicketStore) Consume(ctx context.Context, goalID, turnID, token stri
 	// Distinguish "never minted" from "already consumed" / "token mismatch".
 	var consumed int
 	var dbTok string
-	err = s.db.QueryRowContext(ctx,
+	err = s.qr(ctx).QueryRowContext(ctx,
 		`SELECT consumed, token FROM cp_tickets WHERE goal_id = ? AND turn_id = ?`, goalID, turnID).
 		Scan(&consumed, &dbTok)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -187,7 +203,7 @@ func (s *SQLTicketStore) Consume(ctx context.Context, goalID, turnID, token stri
 // Reap deletes consumed tickets older than olderThan.
 func (s *SQLTicketStore) Reap(ctx context.Context, olderThan time.Duration) error {
 	cutoff := ts(time.Now().UTC().Add(-olderThan))
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.ex(ctx).ExecContext(ctx,
 		`DELETE FROM cp_tickets WHERE consumed = 1 AND minted_at < ?`, cutoff)
 	return err
 }

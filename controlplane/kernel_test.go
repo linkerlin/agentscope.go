@@ -1082,3 +1082,31 @@ func TestLaneGateIgnoredForNonGatedStage(t *testing.T) {
 	})
 	require.NoError(t, err, "non-gated stage completes without a gate")
 }
+
+func TestRevokeRewardUnblocksGoal(t *testing.T) {
+	// A hard_policy veto must be reversible: RevokeReward deactivates it and
+	// ShouldRun returns to eligible (the one-way-policy trap fix).
+	k, _, g, _ := seedKernel(t, DefaultQuota())
+	require.NoError(t, k.RecordReward(ctxBG(), g.ID, RewardRecord{
+		Class: AuthorityHardPolicy, Lifecycle: LifecycleActive,
+		Scope:   DecisionScope{Kind: ScopeProduction, Granularity: GranularityGoal, ScopeKey: g.ID},
+		Content: "block everything",
+	}))
+	recs, err := k.RewardStore().List(ctxBG(), g.ID)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	rid := recs[0].ID
+	require.NotEmpty(t, rid, "recorded policy gets an ID")
+
+	dec, _ := k.ShouldRun(ctxBG(), g.ID, "a1")
+	assert.Equal(t, ComputePolicyBlocked, dec.State)
+
+	require.NoError(t, k.RevokeReward(ctxBG(), g.ID, rid))
+	dec2, err := k.ShouldRun(ctxBG(), g.ID, "a1")
+	require.NoError(t, err)
+	assert.True(t, dec2.ShouldRun, "goal unblocked after policy revoke")
+
+	// Unknown ID -> ErrRewardNotFound.
+	err = k.RevokeReward(ctxBG(), g.ID, "ghost")
+	assert.ErrorIs(t, err, ErrRewardNotFound)
+}

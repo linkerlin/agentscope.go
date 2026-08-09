@@ -289,3 +289,32 @@ func TestCPHTTP_TodosRedactEvidence(t *testing.T) {
 	ev := todos[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
 	assert.Equal(t, "(redacted:local)", ev["source_ref"], "private source ref redacted on /todos")
 }
+
+func TestCPHTTP_RewardRecordAndRevoke(t *testing.T) {
+	srv, k := newCPTestServer(t)
+	ctx := context.Background()
+	require.NoError(t, k.GoalStore().Upsert(ctx, &controlplane.Goal{ID: "g", Objective: "o", State: controlplane.GoalActive, Quota: controlplane.DefaultQuota()}))
+
+	// Record a hard_policy veto over HTTP.
+	rr := doJSON(t, srv, "POST", "/api/v1/controlplane/goals/g/rewards",
+		map[string]any{"class": "hard_policy", "content": "no deploys", "confidence": "high"})
+	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
+	policies := decodeBody(t, rr)["active_policies"].([]any)
+	require.Len(t, policies, 1)
+	rid := policies[0].(map[string]any)["id"].(string)
+	require.NotEmpty(t, rid)
+
+	// should-run is now policy-blocked.
+	rr = doJSON(t, srv, "GET", "/api/v1/controlplane/goals/g/should-run?agent=op", nil)
+	assert.Equal(t, string(controlplane.ComputePolicyBlocked), decodeBody(t, rr)["state"])
+
+	// Revoke over HTTP -> eligible again.
+	rr = doJSON(t, srv, "POST", "/api/v1/controlplane/goals/g/rewards/"+rid+"/revoke", nil)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	rr = doJSON(t, srv, "GET", "/api/v1/controlplane/goals/g/should-run?agent=op", nil)
+	assert.Equal(t, true, decodeBody(t, rr)["should_run"], "goal unblocked after HTTP revoke")
+
+	// Revoking an unknown record -> 404.
+	rr = doJSON(t, srv, "POST", "/api/v1/controlplane/goals/g/rewards/ghost/revoke", nil)
+	require.Equal(t, http.StatusNotFound, rr.Code)
+}

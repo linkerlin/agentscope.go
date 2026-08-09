@@ -467,6 +467,21 @@ async function loadCPDetail(id) {
     b.addEventListener("click", () => cpResolveGate(id, b.dataset.gate, b.dataset.dec));
   });
 
+  // Reward policies with revoke buttons.
+  const policies = pkt.active_policies || [];
+  const rewardsEl = document.getElementById("cp-rewards");
+  rewardsEl.innerHTML = policies.length
+    ? policies.filter(p => p.lifecycle === "active" && p.class === "hard_policy").map(p => `
+        <div class="gate-item" style="border-left-color:var(--red)">
+          <div class="gate-q">⛔ [${escapeHtml(p.class)}] ${escapeHtml(p.content || "(no content)")}</div>
+          <div class="dim mono" style="font-size:11px">id=${escapeHtml(p.id || "—")} scope=${escapeHtml((p.scope && p.scope.scope_key) || "")}</div>
+          <div class="gate-actions"><button class="btn" data-rid="${escapeHtml(p.id)}">Revoke</button></div>
+        </div>`).join("")
+      : `<div class="empty">无活动策略。</div>`;
+  rewardsEl.querySelectorAll("button[data-rid]").forEach(b => {
+    b.addEventListener("click", () => cpRevokeReward(id, b.dataset.rid));
+  });
+
   // Decision lineage.
   const lineage = pkt.decision_lineage || [];
   const linEl = document.getElementById("cp-lineage");
@@ -504,6 +519,26 @@ async function cpResolveGate(goalId, gateId, decision) {
     loadCPDetail(goalId);
   } catch (err) { alert("解门失败：" + err.message); }
 }
+
+async function cpRevokeReward(goalId, recordId) {
+  if (!confirm("Revoke this policy? The veto will stop blocking this goal.")) return;
+  try {
+    await api("POST", `/api/v1/controlplane/goals/${goalId}/rewards/${recordId}/revoke`);
+    loadCPDetail(goalId);
+  } catch (err) { alert("撤销失败：" + err.message); }
+}
+
+// Record a reward policy: prompts for class + content, then POSTs it.
+document.getElementById("cp-reward-btn").addEventListener("click", () => {
+  if (!currentCPGoal) return;
+  const cls = prompt("策略类别（hard_policy = 否决，soft_preference = 建议）", "hard_policy");
+  if (!cls) return;
+  const content = prompt("策略内容", "no deploys until audit clears");
+  if (!content) return;
+  api("POST", `/api/v1/controlplane/goals/${currentCPGoal}/rewards`, { class: cls, content, confidence: "high" })
+    .then(() => loadCPDetail(currentCPGoal))
+    .catch(err => alert("记录失败：" + err.message));
+});
 
 // Kanban projection + row lineage. Renders columns by TodoState; each card
 // shows its row-lifecycle badge so an operator sees supersession as data.

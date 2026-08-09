@@ -199,6 +199,23 @@ func (k *Kernel) RecordReward(ctx context.Context, goalID string, r RewardRecord
 	return k.rewards.Add(ctx, goalID, r)
 }
 
+// RevokeReward deactivates a policy by record ID (Lifecycle -> revoked), so a
+// misconfigured hard_policy veto can be undone. Returns ErrRewardNotFound for
+// an unknown ID.
+func (k *Kernel) RevokeReward(ctx context.Context, goalID, recordID string) error {
+	if k.rewards == nil {
+		return nil
+	}
+	if err := k.rewards.Revoke(ctx, goalID, recordID); err != nil {
+		return err
+	}
+	k.record(ctx, Event{
+		Kind: EventDecision, Type: "reward_revoked",
+		GoalID: goalID, Detail: map[string]any{"record_id": recordID},
+	})
+	return nil
+}
+
 // laneStageGated reports whether todo t sits at a gated stage of goal's
 // capability lane (e.g. issue-fix "review"/"merge"). Returns false if the goal
 // has no capability, the capability has no such stage, or the stage is not

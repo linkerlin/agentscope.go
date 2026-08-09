@@ -67,6 +67,8 @@ const (
 // class is independent of the policy content: inference may derive a gate
 // policy, but cannot fabricate an operator-gate transition receipt.
 type RewardRecord struct {
+	// ID uniquely identifies the record so operators can revoke/supersede it.
+	ID         string         `json:"id,omitempty"`
 	Class      AuthorityClass `json:"class"`
 	Source     string         `json:"source,omitempty"`
 	Scope      DecisionScope  `json:"scope"`

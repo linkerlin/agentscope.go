@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // RewardStore persists classified reward-memory records per goal (#3b round-4).
@@ -16,6 +18,11 @@ import (
 type RewardStore interface {
 	Add(ctx context.Context, goalID string, r RewardRecord) error
 	List(ctx context.Context, goalID string) ([]RewardRecord, error)
+	// Revoke deactivates one record by ID (Lifecycle -> revoked). Without it a
+	// misconfigured hard_policy veto permanently blocks a goal — the one-way
+	// policy trap. ReapAll only removes INACTIVE records, so revoke is the only
+	// way to stop an active policy.
+	Revoke(ctx context.Context, goalID, recordID string) error
 	// Reap removes inactive (revoked/expired/superseded) records older than
 	// olderThan, bounding cp_rewards growth (#2 round-5). run_bound_reward
 	// records are auto-added on every Writeback, so without reaping the table
@@ -36,10 +43,13 @@ func NewMemoryRewardStore() *MemoryRewardStore {
 	return &MemoryRewardStore{m: make(map[string][]RewardRecord)}
 }
 
-// Add appends a record for the goal (sets CreatedAt).
+// Add appends a record for the goal (assigns an ID if missing, sets CreatedAt).
 func (s *MemoryRewardStore) Add(_ context.Context, goalID string, r RewardRecord) error {
 	if goalID == "" {
 		return errors.New("controlplane: reward goal_id required")
+	}
+	if r.ID == "" {
+		r.ID = uuid.NewString()
 	}
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
@@ -49,6 +59,22 @@ func (s *MemoryRewardStore) Add(_ context.Context, goalID string, r RewardRecord
 	s.m[goalID] = append(s.m[goalID], r)
 	return nil
 }
+
+// Revoke deactivates one record by ID.
+func (s *MemoryRewardStore) Revoke(_ context.Context, goalID, recordID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.m[goalID] {
+		if s.m[goalID][i].ID == recordID {
+			s.m[goalID][i].Lifecycle = LifecycleRevoked
+			return nil
+		}
+	}
+	return ErrRewardNotFound
+}
+
+// ErrRewardNotFound is returned by Revoke for an unknown record ID.
+var ErrRewardNotFound = errors.New("controlplane: reward record not found")
 
 // List returns all records for the goal (caller may filter by IsActive /
 // SelectByPrecedence). Ordered by insertion then class precedence for stability.
@@ -105,21 +131,38 @@ func (s *SQLRewardStore) qr(ctx context.Context) queryer {
 	return s.db
 }
 
-// Add inserts a reward record row (uses its CreatedAt or now).
+// Add inserts a reward record row (assigns an ID if missing, uses its CreatedAt
+// or now).
 func (s *SQLRewardStore) Add(ctx context.Context, goalID string, r RewardRecord) error {
 	if goalID == "" {
 		return errors.New("controlplane: reward goal_id required")
+	}
+	if r.ID == "" {
+		r.ID = uuid.NewString()
 	}
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
 	}
 	scope, _ := json.Marshal(r.Scope)
 	_, err := s.ex(ctx).ExecContext(ctx,
-		`INSERT INTO cp_rewards (goal_id, class, source, scope, authority, confidence, lifecycle, content, at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		goalID, string(r.Class), r.Source, string(scope), r.Authority,
+		`INSERT INTO cp_rewards (id, goal_id, class, source, scope, authority, confidence, lifecycle, content, at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, goalID, string(r.Class), r.Source, string(scope), r.Authority,
 		string(r.Confidence), string(r.Lifecycle), r.Content, ts(r.CreatedAt))
 	return err
+}
+
+// Revoke deactivates one record by ID.
+func (s *SQLRewardStore) Revoke(ctx context.Context, goalID, recordID string) error {
+	res, err := s.ex(ctx).ExecContext(ctx,
+		`UPDATE cp_rewards SET lifecycle = 'revoked' WHERE goal_id = ? AND id = ?`, goalID, recordID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrRewardNotFound
+	}
+	return nil
 }
 
 // Reap removes inactive records older than olderThan.
@@ -134,7 +177,7 @@ func (s *SQLRewardStore) Reap(ctx context.Context, olderThan time.Duration) erro
 // is read back so age-based reaping behaves identically across backends.
 func (s *SQLRewardStore) List(ctx context.Context, goalID string) ([]RewardRecord, error) {
 	rows, err := s.qr(ctx).QueryContext(ctx,
-		`SELECT class, source, scope, authority, confidence, lifecycle, content, at FROM cp_rewards WHERE goal_id = ?`,
+		`SELECT id, class, source, scope, authority, confidence, lifecycle, content, at FROM cp_rewards WHERE goal_id = ?`,
 		goalID)
 	if err != nil {
 		return nil, err
@@ -144,7 +187,7 @@ func (s *SQLRewardStore) List(ctx context.Context, goalID string) ([]RewardRecor
 	for rows.Next() {
 		var r RewardRecord
 		var class, scope, conf, life, at string
-		if err := rows.Scan(&class, &r.Source, &scope, &r.Authority, &conf, &life, &r.Content, &at); err != nil {
+		if err := rows.Scan(&r.ID, &class, &r.Source, &scope, &r.Authority, &conf, &life, &r.Content, &at); err != nil {
 			return nil, err
 		}
 		r.Class = AuthorityClass(class)

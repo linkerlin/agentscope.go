@@ -130,6 +130,7 @@ func InitSchema(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_cp_tickets_reap ON cp_tickets(consumed, minted_at)`,
 		`CREATE TABLE IF NOT EXISTS cp_rewards (
+			id TEXT NOT NULL DEFAULT '',
 			goal_id TEXT NOT NULL,
 			class TEXT NOT NULL,
 			source TEXT NOT NULL DEFAULT '',
@@ -141,6 +142,7 @@ func InitSchema(db *sql.DB) error {
 			at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_cp_rewards_goal ON cp_rewards(goal_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_cp_rewards_id ON cp_rewards(goal_id, id)`,
 		`CREATE TABLE IF NOT EXISTS cp_deliveries (
 			goal_id TEXT NOT NULL,
 			turn_id TEXT NOT NULL,

@@ -47,6 +47,8 @@ func (s *Server) RegisterControlPlaneRoutes() {
 	mux.HandleFunc("GET /api/v1/controlplane/goals/{id}/review", s.requireAuth(s.handleCPReview))
 	mux.HandleFunc("GET /api/v1/controlplane/goals/{id}/kanban", s.requireAuth(s.handleCPKanban))
 	mux.HandleFunc("POST /api/v1/controlplane/goals/{id}/todos/{tid}/supersede", s.requireAuth(s.handleCPSupersedeTodo))
+	mux.HandleFunc("POST /api/v1/controlplane/goals/{id}/rewards", s.requireAuth(s.handleCPRecordReward))
+	mux.HandleFunc("POST /api/v1/controlplane/goals/{id}/rewards/{rid}/revoke", s.requireAuth(s.handleCPRevokeReward))
 	mux.HandleFunc("POST /api/v1/controlplane/maintenance", s.requireAuth(s.handleCPMaintenance))
 }
 
@@ -598,6 +600,59 @@ func (s *Server) handleCPSupersedeTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, succ)
+}
+
+// handleCPRecordReward records a classified reward policy (e.g. a hard_policy
+// veto or a soft_preference advisory) on the goal. This is the operator entry
+// point for the reward-memory feature — previously only the Go API could add
+// policies, and nothing could ever revoke them.
+func (s *Server) handleCPRecordReward(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.cp()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, errCPDisabled())
+		return
+	}
+	gid := r.PathValue("id")
+	if _, ok := cpAuthGoal(w, r, k, gid); !ok {
+		return
+	}
+	var rec controlplane.RewardRecord
+	if err := decodeJSON(r, &rec); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if rec.Class == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "class required (e.g. hard_policy)"})
+		return
+	}
+	rec.Scope.Granularity = controlplane.GranularityGoal
+	rec.Scope.ScopeKey = gid
+	if err := k.RecordReward(r.Context(), gid, rec); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	// Return the record with its assigned ID so the operator can revoke it.
+	recs, _ := k.RewardStore().List(r.Context(), gid)
+	writeJSON(w, http.StatusCreated, map[string]any{"recorded": true, "active_policies": recs})
+}
+
+// handleCPRevokeReward deactivates a policy by record ID — the undo for a
+// misconfigured hard_policy veto.
+func (s *Server) handleCPRevokeReward(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.cp()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, errCPDisabled())
+		return
+	}
+	gid, rid := r.PathValue("id"), r.PathValue("rid")
+	if _, ok := cpAuthGoal(w, r, k, gid); !ok {
+		return
+	}
+	if err := k.RevokeReward(r.Context(), gid, rid); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"revoked": true, "record_id": rid})
 }
 
 // handleCPMaintenance triggers storage housekeeping (#2 round-5): reaps

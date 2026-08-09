@@ -442,12 +442,19 @@ async function loadCPDetail(id) {
     `spent ${q.spent || 0} / allowed ${q.allowed || 0}  (compute=${q.compute || 0}, window=${q.window_hours || 0}h)`;
   document.getElementById("cp-quota-fill").style.width = pct + "%";
 
-  // Open todos.
+  // Open todos (each with a Supersede action: replace with a new approach).
   const todos = pkt.open_todos || [];
   const todosEl = document.getElementById("cp-todos");
   todosEl.innerHTML = todos.length
-    ? todos.map(t => `<div class="doc-item"><span>${escapeHtml(t.description || t.id)} <span class="dim">[${escapeHtml(t.task_class)}] owner=${escapeHtml(t.claimed_by || "—")}</span></span></div>`).join("")
+    ? todos.map(t => `
+        <div class="doc-item">
+          <span>${escapeHtml(t.description || t.id)} <span class="dim">[${escapeHtml(t.task_class)}] owner=${escapeHtml(t.claimed_by || "—")}</span></span>
+          <button class="doc-del" data-sup="${escapeHtml(t.id)}" title="Supersede（替换为新方案）">↻</button>
+        </div>`).join("")
     : `<div class="empty">无开放 todo。</div>`;
+  todosEl.querySelectorAll("button[data-sup]").forEach(b => {
+    b.addEventListener("click", () => cpSupersedeTodo(id, b.dataset.sup));
+  });
 
   // Pending gates with resolve buttons.
   const gates = pkt.pending_gates || [];
@@ -528,8 +535,18 @@ async function cpRevokeReward(goalId, recordId) {
   } catch (err) { alert("撤销失败：" + err.message); }
 }
 
-// Record a reward policy: prompts for class + content, then POSTs it.
-document.getElementById("cp-reward-btn").addEventListener("click", () => {
+async function cpSupersedeTodo(goalId, todoId) {
+  const desc = prompt("Supersede（替换）——新方案描述：", "");
+  if (!desc) return;
+  if (!confirm("旧 todo 将标记 deferred 并链接到新 todo。继续？")) return;
+  try {
+    await api("POST", `/api/v1/controlplane/goals/${goalId}/todos/${todoId}/supersede`,
+      { description: desc, agent: "operator", reason: "replaced via console" });
+    loadCPDetail(goalId);
+  } catch (err) { alert("Supersede 失败：" + err.message); }
+}
+
+// Record a reward policy: prompts for class + content, then POSTs it.document.getElementById("cp-reward-btn").addEventListener("click", () => {
   if (!currentCPGoal) return;
   const cls = prompt("策略类别（hard_policy = 否决，soft_preference = 建议）", "hard_policy");
   if (!cls) return;

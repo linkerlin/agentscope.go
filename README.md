@@ -629,6 +629,9 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/studio`](examples/studio/main.go) —— 纯 Go 轻量 Studio (HTMX) —— 完整 Auth/Agents/Credentials/Schedules/Chat + 实时 SSE + auto tools 结果展示
 - [`examples/evolver`](examples/evolver/main.go) —— GEP 自演化 demo（Gene/Capsule、Run/Reflect/Solidify 闭环、Skill 蒸馏、Recording 调用、演化记忆 recall）
 - [`examples/langsmith`](examples/langsmith/main.go) —— Agent 事件流转发到 LangSmith
+- [`examples/controlplane_demo`](examples/controlplane_demo/main.go) —— 控制平面端到端演示（Goal/ShouldRun/门/租约/看板/谱系，内存 Kernel）
+- [`examples/controlplane_sql`](examples/controlplane_sql/main.go) —— 控制平面进阶演示（SQL 持久化跨重启 + 跨进程 Writeback→Spend + 票据强制 + issue-fix lane 门控 + reward hard_policy 否决 + ReapAll 维护）
+- [`examples/controlplane_http`](examples/controlplane_http/main.go) —— 控制平面 HTTP API 全流程（authorize 拿 token → writeback → spend → 门开/解 → review/kanban → capabilities → maintenance）
 
 ## 可观测性
 

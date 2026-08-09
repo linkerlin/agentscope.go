@@ -252,7 +252,6 @@ func TestCPHTTP_KanbanAndSupersede(t *testing.T) {
 }
 
 // --- #5 round-3: HTTP hardening ---
-
 func TestCPHTTP_CreateGoalIgnoresRequestedState(t *testing.T) {
 	srv, _ := newCPTestServer(t)
 	// Request a terminal state at creation -> must be forced to active.
@@ -271,4 +270,22 @@ func TestCPHTTP_LeaseRejectsPhantomTodo(t *testing.T) {
 	rr = doJSON(t, srv, "POST", "/api/v1/controlplane/goals/"+gid+"/leases",
 		map[string]any{"todo_id": "ghost", "owner": "w"})
 	require.Equal(t, http.StatusNotFound, rr.Code, rr.Body.String())
+}
+
+func TestCPHTTP_TodosRedactEvidence(t *testing.T) {
+	// #2 round-6: /todos must redact private evidence source refs like
+	// ReviewPacket/Kanban do — previously the raw endpoint leaked them.
+	srv, k := newCPTestServer(t)
+	ctx := context.Background()
+	require.NoError(t, k.GoalStore().Upsert(ctx, &controlplane.Goal{ID: "g", Objective: "o", State: controlplane.GoalActive, Quota: controlplane.DefaultQuota()}))
+	require.NoError(t, k.TodoStore().Upsert(ctx, &controlplane.Todo{
+		ID: "t", GoalID: "g", State: controlplane.TodoOpen, TaskClass: controlplane.TaskAdvancement,
+		Evidence: []controlplane.Evidence{{ID: "e1", Kind: "diff", Summary: "ok", SourceRef: "file:///home/alice/.local/run.log"}},
+	}))
+
+	rr := doJSON(t, srv, "GET", "/api/v1/controlplane/goals/g/todos", nil)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	todos := decodeBody(t, rr)["todos"].([]any)
+	ev := todos[0].(map[string]any)["evidence"].([]any)[0].(map[string]any)
+	assert.Equal(t, "(redacted:local)", ev["source_ref"], "private source ref redacted on /todos")
 }

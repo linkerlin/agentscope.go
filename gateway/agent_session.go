@@ -8,7 +8,9 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/messagebus"
+	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
@@ -37,6 +39,14 @@ type SessionAgentDeps struct {
 	// based on agent Source (leader gets all four; worker gets TeamSay only).
 	TeamDeps    *TeamToolDeps
 	TeamContext *TeamToolContext
+
+	// ControlPlane wires the ControlPlaneMiddleware onto session agents (#1
+	// round-6). GoalResolver maps the acting agent id to its lifetime goal; when
+	// it returns ok=false (no goal bound) the middleware passes through, so
+	// unattached sessions are unaffected. Set both to make the runtime reply
+	// loop actually governed by ShouldRun (gate/quota/policy blocking).
+	ControlPlane *controlplane.Kernel
+	GoalResolver func(agentID string) (goalID string, ok bool)
 }
 
 // SessionAgentBuilder builds an agent for a specific session (Py get_agent parity).
@@ -145,7 +155,7 @@ func (f *AgentFactory) BuildSessionAgent(
 		if cfg != nil && cfg.ID != "" {
 			b = b.ID(cfg.ID)
 		}
-		return b.Build()
+		return b.Middlewares(controlPlaneMiddleware(deps)...).Build()
 	}
 
 	offloader := workspace.NewWorkspaceOffloader(sw.Workspace, ".offload")
@@ -164,7 +174,21 @@ func (f *AgentFactory) BuildSessionAgent(
 	if cfg != nil && cfg.ID != "" {
 		b = b.ID(cfg.ID)
 	}
-	return b.Build()
+	return b.Middlewares(controlPlaneMiddleware(deps)...).Build()
+}
+
+// controlPlaneMiddleware returns the ControlPlaneMiddleware when the deps wire
+// both a Kernel and a GoalResolver; empty otherwise (passthrough, no-op).
+func controlPlaneMiddleware(deps SessionAgentDeps) []middleware.Middleware {
+	if deps.ControlPlane == nil || deps.GoalResolver == nil {
+		return nil
+	}
+	return []middleware.Middleware{
+		&middleware.ControlPlaneMiddleware{
+			Kernel:       deps.ControlPlane,
+			GoalResolver: deps.GoalResolver,
+		},
+	}
 }
 
 func (f *AgentFactory) buildModel(cfg *service.AgentConfig, cred *service.Credential) (model.ChatModel, error) {

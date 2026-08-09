@@ -47,6 +47,7 @@ func (s *Server) RegisterControlPlaneRoutes() {
 	mux.HandleFunc("GET /api/v1/controlplane/goals/{id}/review", s.requireAuth(s.handleCPReview))
 	mux.HandleFunc("GET /api/v1/controlplane/goals/{id}/kanban", s.requireAuth(s.handleCPKanban))
 	mux.HandleFunc("POST /api/v1/controlplane/goals/{id}/todos/{tid}/supersede", s.requireAuth(s.handleCPSupersedeTodo))
+	mux.HandleFunc("POST /api/v1/controlplane/maintenance", s.requireAuth(s.handleCPMaintenance))
 }
 
 func (s *Server) cp() (*controlplane.Kernel, bool) {
@@ -228,6 +229,12 @@ func (s *Server) handleListCPTodos(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
+	}
+	// Public/private boundary (#2 round-6): redact evidence source refs here
+	// too — ReviewPacket/Kanban already redact, so the raw /todos endpoint was
+	// leaking what every other projection scrubbed.
+	for _, t := range ts {
+		t.Evidence = controlplane.RedactEvidenceSlice(t.Evidence)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"todos": ts})
 }
@@ -546,7 +553,6 @@ func (s *Server) handleCPReview(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Kanban projection + row lineage ---
-
 func (s *Server) handleCPKanban(w http.ResponseWriter, r *http.Request) {
 	k, ok := s.cp()
 	if !ok {
@@ -592,6 +598,41 @@ func (s *Server) handleCPSupersedeTodo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, succ)
+}
+
+// handleCPMaintenance triggers storage housekeeping (#2 round-5): reaps
+// consumed tickets, spent deliveries, and inactive rewards older than
+// older_days, and compacts each goal's ledger to its last keep_last_n events.
+// Before this endpoint existed, Reap/Compact had no caller — growth was
+// bounded in capability but never in operation. Wrap in an admin-role check
+// for stricter deployments.
+func (s *Server) handleCPMaintenance(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.cp()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, errCPDisabled())
+		return
+	}
+	var req struct {
+		OlderDays int `json:"older_days,omitempty"`
+		KeepLastN int `json:"keep_last_n,omitempty"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	olderThan := time.Duration(req.OlderDays) * 24 * time.Hour
+	if olderThan <= 0 {
+		olderThan = 24 * time.Hour
+	}
+	keepLastN := req.KeepLastN
+	if keepLastN <= 0 {
+		keepLastN = 200
+	}
+	if err := k.ReapAll(r.Context(), olderThan, keepLastN); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reaped": true, "older_than": olderThan.String(), "keep_last_n": keepLastN})
 }
 
 // decodeJSON is the gateway's shared JSON request decoder. It caps the request

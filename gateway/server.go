@@ -14,6 +14,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/channel"
+	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/hub"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
@@ -112,6 +113,11 @@ type Server struct {
 	// defaultSessionDeps holds auto-assembled defaults for per-session agents
 	// (populated by NewApp when AutoStandardTools etc. are enabled).
 	defaultSessionDeps SessionAgentDeps
+
+	// controlPlane is the long-running-agent governance kernel (LoopX-style).
+	// nil = disabled (default); attach via WithControlPlane to enable the
+	// /api/v1/controlplane/* routes and the ControlPlaneMiddleware path.
+	controlPlane *controlplane.Kernel
 }
 
 // NewServer creates a gateway HTTP server for the given agent.

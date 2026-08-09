@@ -39,6 +39,7 @@ document.querySelectorAll(".nav-item").forEach(btn => {
     document.getElementById("view-" + view).classList.add("active");
     if (view === "kb") loadKBList();
     if (view === "system") loadSystem();
+    if (view === "cp") loadCPGoals();
   });
 });
 
@@ -325,4 +326,224 @@ async function loadSystem() {
     if (!models.length) { modelsEl.textContent = "(models API 未配置或为空)"; return; }
     modelsEl.innerHTML = models.map(m => `<div>• ${escapeHtml(m.id || m.name || JSON.stringify(m))}</div>`).join("");
   } catch (e) { modelsEl.textContent = "(" + e.message + ")"; }
+}
+
+// ───────────────────────── control plane ─────────────────────────
+// Long-running agent governance (LoopX-style): lifetime goals, gates,
+// quota-gated ShouldRun, evidence-backed writeback, decision lineage.
+// Talks to /api/v1/controlplane/* registered by gateway.RegisterControlPlaneRoutes.
+
+const cpListEl = document.getElementById("cp-goal-list");
+const cpDetailEl = document.getElementById("cp-detail");
+const cpModal = document.getElementById("cp-modal");
+const STATE_COLOR = { active: "var(--green)", paused: "#d29922", completed: "var(--text-dim)", abandoned: "var(--red)" };
+
+function cpBadge(state) {
+  const c = STATE_COLOR[state] || "var(--text-dim)";
+  return `<span class="badge" style="background:${c}22;color:${c}">${escapeHtml(state)}</span>`;
+}
+
+const CAP_STATUS_COLOR = { stable: "var(--green)", experimental: "#d29922", "compatibility-facade": "var(--text-dim)" };
+
+async function loadCPCapabilities() {
+  const el = document.getElementById("cp-capabilities");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/v1/controlplane/capabilities");
+    const caps = (data && data.capabilities) || [];
+    if (!caps.length) { el.innerHTML = `<div class="empty">无能力。控制平面可能未启用。</div>`; return; }
+    el.innerHTML = caps.map(c => {
+      const color = CAP_STATUS_COLOR[c.status] || "var(--text-dim)";
+      const lane = (c.lane || []).map(s => `<span class="lane-stage${s.gate ? " gated" : ""}" title="${s.gate ? "gated" : ""}">${escapeHtml(s.label)}${s.gate ? "🔒" : ""}</span>`).join(`<span class="lane-arrow">→</span>`);
+      return `<div class="cap-card">
+        <div class="cap-head"><span class="badge" style="background:${color}22;color:${color}">${escapeHtml(c.status)}</span> <strong>${escapeHtml(c.id)}</strong></div>
+        <div class="dim" style="font-size:12px;margin:4px 0">${escapeHtml(c.user_value || "")}</div>
+        <div class="lane">${lane}</div>
+      </div>`;
+    }).join("");
+  } catch (err) { el.innerHTML = `<div class="empty dim">能力 API 不可用：${escapeHtml(err.message)}</div>`; }
+}
+
+async function loadCPGoals() {
+  loadCPCapabilities();
+  try {
+    const data = await api("GET", "/api/v1/controlplane/goals");
+    const goals = (data && data.goals) || [];
+    if (!goals.length) { cpListEl.innerHTML = `<div class="empty">无目标。控制平面可能未启用，或点击「+ New Goal」。</div>`; return; }
+    cpListEl.innerHTML = goals.map(g => `
+      <div class="goal-card" data-id="${escapeHtml(g.id)}">
+        <div class="goal-card-head">
+          ${cpBadge(g.state)}
+          <span class="dim mono" style="font-size:10px">${escapeHtml(g.id.slice(0,8))}…</span>
+        </div>
+        <h3>${escapeHtml(g.objective || "(no objective)")}</h3>
+        <div class="dim" style="font-size:12px;margin-top:6px">current todo: ${escapeHtml(g.current_todo_id || "—")}</div>
+        <div class="dim" style="font-size:12px">quota: compute=${(g.quota && g.quota.compute) || 0}</div>
+      </div>`).join("");
+    cpListEl.querySelectorAll(".goal-card").forEach(card => {
+      card.addEventListener("click", () => openCPGoal(card.dataset.id));
+    });
+  } catch (err) {
+    cpListEl.innerHTML = `<div class="empty">控制平面 API 不可用：${escapeHtml(err.message)}<br><span class="dim">（需 AppConfig.ControlPlane）</span></div>`;
+  }
+}
+
+document.getElementById("cp-new-btn").addEventListener("click", () => cpModal.classList.remove("hidden"));document.getElementById("cp-modal-cancel").addEventListener("click", () => cpModal.classList.add("hidden"));
+document.getElementById("cp-modal-create").addEventListener("click", async () => {
+  const objective = document.getElementById("cp-form-obj").value.trim();
+  if (!objective) return;
+  const scopeRaw = document.getElementById("cp-form-scope").value.trim();
+  const scope = scopeRaw ? scopeRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
+  try {
+    await api("POST", "/api/v1/controlplane/goals", { objective, scope });
+    cpModal.classList.add("hidden");
+    document.getElementById("cp-form-obj").value = "";
+    document.getElementById("cp-form-scope").value = "";
+    loadCPGoals();
+  } catch (err) { alert("创建失败：" + err.message); }
+});
+
+let currentCPGoal = null;
+function openCPGoal(id) {
+  currentCPGoal = id;
+  cpListEl.classList.add("hidden");
+  document.getElementById("cp-list-head").classList.add("hidden");
+  cpDetailEl.classList.remove("hidden");
+  loadCPDetail(id);
+}
+document.getElementById("cp-back-btn").addEventListener("click", () => {
+  cpDetailEl.classList.add("hidden");
+  document.getElementById("cp-list-head").classList.remove("hidden");
+  cpListEl.classList.remove("hidden");
+  currentCPGoal = null;
+});
+
+async function loadCPDetail(id) {
+  const pkt = await api("GET", `/api/v1/controlplane/goals/${id}/review`);
+  const g = pkt.goal || {};
+  document.getElementById("cp-obj").textContent = g.objective || "(no objective)";
+  document.getElementById("cp-meta").innerHTML =
+    `${cpBadge(g.state)} · scope: ${escapeHtml((g.scope || []).join(", ") || "—")}<br>` +
+    `<span class="mono">id=${escapeHtml(g.id)}</span>`;
+
+  // State transition buttons (legal moves only).
+  const actionsEl = document.getElementById("cp-actions");
+  const transitions = { active: ["paused", "completed", "abandoned"], paused: ["active", "abandoned"] };
+  const allowed = transitions[g.state] || [];
+  actionsEl.innerHTML = allowed.map(t => `<button class="btn" data-trans="${t}">${t}</button>`).join("");
+  actionsEl.querySelectorAll("button[data-trans]").forEach(b => {
+    b.addEventListener("click", () => cpTransition(id, b.dataset.trans));
+  });
+
+  // Quota bar.
+  const q = pkt.quota || {};
+  const pct = q.allowed > 0 ? Math.min(100, Math.round((q.spent / q.allowed) * 100)) : 0;
+  document.getElementById("cp-quota").textContent =
+    `spent ${q.spent || 0} / allowed ${q.allowed || 0}  (compute=${q.compute || 0}, window=${q.window_hours || 0}h)`;
+  document.getElementById("cp-quota-fill").style.width = pct + "%";
+
+  // Open todos.
+  const todos = pkt.open_todos || [];
+  const todosEl = document.getElementById("cp-todos");
+  todosEl.innerHTML = todos.length
+    ? todos.map(t => `<div class="doc-item"><span>${escapeHtml(t.description || t.id)} <span class="dim">[${escapeHtml(t.task_class)}] owner=${escapeHtml(t.claimed_by || "—")}</span></span></div>`).join("")
+    : `<div class="empty">无开放 todo。</div>`;
+
+  // Pending gates with resolve buttons.
+  const gates = pkt.pending_gates || [];
+  const gatesEl = document.getElementById("cp-gates");
+  gatesEl.innerHTML = gates.length
+    ? gates.map(gate => `
+        <div class="gate-item">
+          <div class="gate-q">🔒 ${escapeHtml(gate.question || "(no question)")}</div>
+          <div class="dim mono" style="font-size:11px">gate=${escapeHtml(gate.gate_id)} scope=${escapeHtml((gate.scope && gate.scope.kind) || "")}:${escapeHtml((gate.scope && gate.scope.scope_key) || "")}</div>
+          <div class="gate-actions">
+            <button class="btn primary" data-gate="${escapeHtml(gate.gate_id)}" data-dec="approve">Approve</button>
+            <button class="btn" data-gate="${escapeHtml(gate.gate_id)}" data-dec="reject">Reject</button>
+          </div>
+        </div>`).join("")
+    : `<div class="empty">无待决门。</div>`;
+  gatesEl.querySelectorAll("button[data-gate]").forEach(b => {
+    b.addEventListener("click", () => cpResolveGate(id, b.dataset.gate, b.dataset.dec));
+  });
+
+  // Decision lineage.
+  const lineage = pkt.decision_lineage || [];
+  const linEl = document.getElementById("cp-lineage");
+  linEl.innerHTML = lineage.length
+    ? lineage.map(e => `<div class="lineage-item"><span class="lineage-kind" data-kind="${escapeHtml(e.kind)}">${escapeHtml(e.kind)}</span> <span class="mono">${escapeHtml(e.type)}</span>${e.outcome ? ` <span class="dim">(${escapeHtml(e.outcome)})</span>` : ""}</div>`).join("")
+    : `<div class="empty">无谱系记录。</div>`;
+
+  document.getElementById("cp-decision").textContent = "点击「检查」查询…";
+}
+
+document.getElementById("cp-check-btn").addEventListener("click", async () => {
+  if (!currentCPGoal) return;
+  const el = document.getElementById("cp-decision");
+  el.textContent = "查询中…";
+  try {
+    const dec = await api("GET", `/api/v1/controlplane/goals/${currentCPGoal}/should-run?agent=operator`);
+    let s = `should_run=${dec.should_run}\nstate=${dec.state}  route=${dec.route}\nmode=${dec.mode}  notify=${dec.notify}\nscheduler=${dec.scheduler}`;
+    if (dec.question) s += `\n gated by ${dec.gate_id}: ${dec.question}`;
+    if (dec.fallback_authorized) s += `\n fallback authorized: ${dec.fallback && dec.fallback.action}`;
+    if (dec.reason) s += `\n reason: ${dec.reason}`;
+    el.textContent = s;
+  } catch (err) { el.innerHTML = `<span class="error-banner">${escapeHtml(err.message)}</span>`; }
+});
+
+async function cpTransition(id, to) {
+  try {
+    await api("PATCH", `/api/v1/controlplane/goals/${id}`, { state: to });
+    loadCPDetail(id);
+  } catch (err) { alert("状态转移失败：" + err.message); }
+}
+
+async function cpResolveGate(goalId, gateId, decision) {
+  try {
+    await api("POST", `/api/v1/controlplane/goals/${goalId}/gates/${gateId}/resolve`, { decision, by: "operator" });
+    loadCPDetail(goalId);
+  } catch (err) { alert("解门失败：" + err.message); }
+}
+
+// Kanban projection + row lineage. Renders columns by TodoState; each card
+// shows its row-lifecycle badge so an operator sees supersession as data.
+const KANBAN_COLS = [
+  { key: "open", label: "Open" },
+  { key: "blocked", label: "Blocked" },
+  { key: "done", label: "Done" },
+  { key: "deferred", label: "Deferred" },
+];
+const LIFE_BADGE = { current: "var(--green)", superseded: "#d29922", retired: "var(--text-dim)" };
+
+document.getElementById("cp-kanban-btn").addEventListener("click", () => { if (currentCPGoal) loadCPKanban(currentCPGoal); });
+
+async function loadCPKanban(id) {
+  const el = document.getElementById("cp-kanban");
+  el.innerHTML = `<div class="empty">加载看板…</div>`;
+  try {
+    const board = await api("GET", `/api/v1/controlplane/goals/${id}/kanban`);
+    const cols = board.columns || {};
+    const lineage = board.lineage || [];
+    el.innerHTML = `<div class="kanban-cols">${KANBAN_COLS.map(c => {
+      const cards = cols[c.key] || [];
+      return `<div class="kanban-col"><div class="kanban-col-head">${c.label} <span class="dim">(${cards.length})</span></div>${cards.map(card => renderKanbanCard(card)).join("") || `<div class="empty" style="padding:10px">—</div>`}</div>`;
+    }).join("")}</div>`;
+    if (lineage.length) {
+      el.innerHTML += `<div class="dim mono" style="margin-top:10px;font-size:11px">lineage: ${lineage.map(e => `${e.from.slice(0,6)}→${e.to.slice(0,6)}`).join(", ")}</div>`;
+    }
+  } catch (err) { el.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+}
+
+function renderKanbanCard(card) {
+  const t = card.todo || {};
+  const lc = card.lifecycle || "current";
+  const color = LIFE_BADGE[lc] || "var(--text-dim)";
+  const gate = card.has_open_gate ? ` <span title="gated">🔒</span>` : "";
+  const sup = lc === "superseded" && card.superseded_by ? ` <span class="dim" title="replaced by">→${escapeHtml(card.superseded_by.slice(0,6))}</span>` : "";
+  const owner = t.claimed_by ? ` · ${escapeHtml(t.claimed_by)}` : "";
+  return `<div class="kanban-card" data-lifecycle="${escapeHtml(lc)}">
+    <div class="kanban-card-head"><span class="badge" style="background:${color}22;color:${color}">${escapeHtml(lc)}</span>${gate}</div>
+    <div class="kanban-card-desc">${escapeHtml(t.description || t.id)}${sup}</div>
+    <div class="dim" style="font-size:11px">${escapeHtml(t.task_class || "")}${owner}</div>
+  </div>`;
 }

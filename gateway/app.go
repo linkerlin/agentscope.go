@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/embedding"
 	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
@@ -70,6 +71,13 @@ type AppConfig struct {
 	// remember/recall, meetings, ATP tasks) via the existing MCP gateway.
 	// See evolver/ package, examples/evolver, and docs for wiring + MockEvolver for tests.
 	EvolverEnabled bool
+
+	// ControlPlane is the long-running-agent governance kernel (LoopX-style
+	// spine). Optional; nil = control plane disabled (the gateway behaves
+	// exactly as before). When set, the /api/v1/controlplane/* routes are
+	// registered and the ControlPlaneMiddleware path becomes available.
+	// See controlplane/ package and examples/controlplane_demo.
+	ControlPlane *controlplane.Kernel
 }
 
 // NewApp builds a configured gateway Server from AppConfig.
@@ -150,6 +158,9 @@ func NewApp(cfg AppConfig) *Server {
 	if cfg.AudioModel != nil {
 		srv.WithAudioModel(cfg.AudioModel)
 	}
+	if cfg.ControlPlane != nil {
+		srv.WithControlPlane(cfg.ControlPlane)
+	}
 
 	// Auto-assemble default SessionAgentDeps for dynamic per-session agents
 	// (this wires StandardTools, permission, tool-offload etc. automatically).
@@ -219,4 +230,5 @@ func (s *Server) RegisterAppRoutes(jwtAuth *service.JWTAuthenticator) {
 	s.RegisterAuditRoutes()
 	s.RegisterChannelRoutes()
 	s.RegisterHubRoutes()
+	s.RegisterControlPlaneRoutes()
 }

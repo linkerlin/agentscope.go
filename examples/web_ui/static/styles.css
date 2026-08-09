@@ -143,3 +143,56 @@ body {
 .modal-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 360px; display: flex; flex-direction: column; gap: 12px; }
 .modal-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+/* Control Plane */
+.goal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; overflow-y: auto; }
+.goal-card {
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px; cursor: pointer; transition: border-color .15s;
+}
+.goal-card:hover { border-color: var(--accent); }
+.goal-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.goal-card h3 { font-size: 14px; line-height: 1.4; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; text-transform: lowercase; }
+.cp-detail { overflow-y: auto; }
+.cp-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
+.cp-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.quota-bar { height: 6px; background: var(--bg-soft); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.quota-fill { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.gate-list { display: flex; flex-direction: column; gap: 8px; }
+.gate-item {
+  background: var(--bg-elev); border: 1px solid var(--border); border-left: 3px solid #d29922;
+  border-radius: 6px; padding: 10px 12px; font-size: 13px;
+}
+.gate-q { font-weight: 600; margin-bottom: 4px; }
+.gate-actions { display: flex; gap: 6px; margin-top: 8px; }
+.lineage { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.lineage-item { font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--bg-soft); }
+.lineage-kind { display: inline-block; min-width: 70px; font-weight: 600; }
+.lineage-kind[data-kind="work"] { color: var(--accent); }
+.lineage-kind[data-kind="decision"] { color: #d29922; }
+.lineage-kind[data-kind="accounting"] { color: var(--green); }
+.lineage-kind[data-kind="evidence"] { color: var(--text-dim); }
+
+/* Kanban board */
+.kanban-board { overflow-x: auto; }
+.kanban-cols { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 10px; }
+.kanban-col { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; min-height: 60px; }
+.kanban-col-head { font-size: 12px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px; padding: 0 2px; }
+.kanban-card {
+  background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  margin-bottom: 6px; font-size: 12px;
+}
+.kanban-card[data-lifecycle="superseded"] { opacity: .6; border-style: dashed; }
+.kanban-card[data-lifecycle="retired"] { opacity: .5; }
+.kanban-card-head { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+.kanban-card-desc { line-height: 1.35; word-break: break-word; }
+
+/* Capability catalog */
+.cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.cap-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.cap-head { display: flex; align-items: center; gap: 8px; }
+.lane { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.lane-stage { font-size: 11px; padding: 2px 8px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; }
+.lane-stage.gated { border-color: #d29922; }
+.lane-arrow { color: var(--text-dim); font-size: 11px; }

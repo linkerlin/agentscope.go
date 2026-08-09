@@ -23,6 +23,9 @@
         <button class="nav-item" data-view="system">
           <span class="nav-ico">⚙</span> System
         </button>
+        <button class="nav-item" data-view="cp">
+          <span class="nav-ico">◈</span> Control Plane
+        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="session-box">
@@ -89,6 +92,58 @@
           </div>
         </div>
       </section>
+
+      <!-- Control Plane view (long-running agent governance, LoopX-style) -->
+      <section id="view-cp" class="view">
+        <!-- Goal list -->
+        <header class="view-head" id="cp-list-head">
+          <h2>Control Plane · Lifetime Goals</h2>
+          <button class="btn primary" id="cp-new-btn">+ New Goal</button>
+        </header>
+        <div id="cp-goal-list" class="goal-grid"></div>
+
+        <h4 class="mt">能力目录（Capability Catalog）</h4>
+        <div id="cp-capabilities" class="cap-grid"></div>
+
+        <!-- Goal detail -->
+        <div id="cp-detail" class="cp-detail hidden">
+          <button class="btn ghost" id="cp-back-btn">← 返回目标列表</button>
+          <div class="cp-detail-head">
+            <div>
+              <h3 id="cp-obj"></h3>
+              <p id="cp-meta" class="dim"></p>
+            </div>
+            <div id="cp-actions" class="cp-actions"></div>
+          </div>
+
+          <div class="cards">
+            <div class="card">
+              <h3>ShouldRun 决策</h3>
+              <div id="cp-decision" class="mono">点击「检查」查询…</div>
+              <button class="btn" id="cp-check-btn" style="margin-top:8px">检查 ShouldRun</button>
+            </div>
+            <div class="card">
+              <h3>配额（滚动窗口）</h3>
+              <div id="cp-quota" class="mono">—</div>
+              <div class="quota-bar"><div id="cp-quota-fill" class="quota-fill"></div></div>
+            </div>
+          </div>
+
+          <h4 class="mt">开放 Todos</h4>
+          <div id="cp-todos" class="doc-list"></div>
+
+          <h4 class="mt">待决 User Gates</h4>
+          <div id="cp-gates" class="gate-list"></div>
+
+          <h4 class="mt">决策谱系（近 20 条）</h4>
+          <div id="cp-lineage" class="lineage"></div>
+
+          <h4 class="mt">看板（Kanban 投影 + row lineage）
+            <button class="btn" id="cp-kanban-btn" style="margin-left:8px">刷新看板</button>
+          </h4>
+          <div id="cp-kanban" class="kanban-board"></div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -102,6 +157,19 @@
       <div class="modal-actions">
         <button class="btn ghost" id="kb-modal-cancel">取消</button>
         <button class="btn primary" id="kb-modal-create">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Control Plane: new goal modal -->
+  <div id="cp-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>新建生命周期目标</h3>
+      <label>Objective<input type="text" id="cp-form-obj" class="text-input" placeholder="例如：安全交付 feature X" /></label>
+      <label>Scope（逗号分隔的非目标/边界，可选）<input type="text" id="cp-form-scope" class="text-input" placeholder="no direct push to main" /></label>
+      <div class="modal-actions">
+        <button class="btn ghost" id="cp-modal-cancel">取消</button>
+        <button class="btn primary" id="cp-modal-create">创建</button>
       </div>
     </div>
   </div>

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/gateway"
 	"github.com/linkerlin/agentscope.go/rag/blob"
 	"github.com/linkerlin/agentscope.go/rag/chunker"
@@ -51,6 +52,16 @@ func main() {
 	srv.RegisterKBRoutes()
 	srv.RegisterModelRoutes()
 	srv.RegisterProjectionRoutes()
+
+	// Control plane (LoopX-style long-running agent governance). Opt-in via
+	// the CP env var; when enabled the /api/v1/controlplane/* routes are
+	// registered and the ControlPlane console view becomes usable.
+	if os.Getenv("CP") != "" {
+		k := controlplane.NewKernel(nil, nil, nil)
+		srv.WithControlPlane(k)
+		srv.RegisterControlPlaneRoutes()
+		fmt.Printf("  Control Plane:  GET /api/v1/controlplane/goals  (CP env set)\n")
+	}
 
 	staticRoot, err := fs.Sub(staticFiles, "static")
 	if err != nil {

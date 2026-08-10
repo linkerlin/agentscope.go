@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -469,9 +470,15 @@ func TestReActAgent_ToolNotFound(t *testing.T) {
 	).Build()
 	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
 	a, _ := Builder().Name("Test").Model(m).Build()
-	_, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
-	if err == nil {
-		t.Fatal("expected error for missing tool")
+	resp, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	// A missing tool now trips the consecutive-failure breaker: instead of
+	// burning 10 iterations then erroring, the loop stops early with a helpful
+	// assistant message naming the offending tool.
+	if err != nil {
+		t.Fatalf("expected graceful breaker message, got error: %v", err)
+	}
+	if resp == nil || !strings.Contains(resp.GetTextContent(), "missing") {
+		t.Fatalf("expected breaker message naming the missing tool, got: %v", resp)
 	}
 }
 
@@ -487,6 +494,63 @@ func TestReActAgent_MaxIterationsReached(t *testing.T) {
 	_, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
 	if err == nil || err.Error() != "react agent: max iterations reached without final answer" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestReActAgent_ConsecutiveToolFailureBreaker guards against the retry storm:
+// when the same tool fails repeatedly, the loop must stop early with a helpful
+// message instead of burning all maxIterations (issue: "Edge: Too Many Requests"
+// retried ~6x). Reproduces the bug: model keeps re-requesting a failing tool.
+func TestReActAgent_ConsecutiveToolFailureBreaker(t *testing.T) {
+	// Model always asks for the same failing tool — never produces a final answer.
+	toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+		message.NewToolUseBlock("call_1", "flaky", map[string]any{"q": "GLD"}),
+	).Build()
+	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
+	flaky := tool.NewFunctionTool("flaky", "flaky", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return nil, errors.New("Too Many Requests")
+	})
+	a, _ := Builder().Name("Test").Model(m).Tools(flaky).MaxIterations(20).Build()
+	resp, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatalf("breaker should end gracefully, got error: %v", err)
+	}
+	if resp == nil || resp.GetTextContent() == "" {
+		t.Fatalf("breaker should return a helpful message, got: %v", resp)
+	}
+	// Must stop well before maxIterations (20). Default threshold is 3, so the
+	// tool is invoked at most 3 times → model.Chat called at most 3 times.
+	if m.calls > 3 {
+		t.Fatalf("retry storm not stopped: model called %d times (msg=%q)", m.calls, resp.GetTextContent())
+	}
+	// The message should mention the offending tool so the user can act.
+	if !strings.Contains(resp.GetTextContent(), "flaky") {
+		t.Fatalf("breaker message should name the failing tool, got: %q", resp.GetTextContent())
+	}
+}
+
+// TestReActAgent_ToolFailureBreakerDisabled verifies the -1 escape hatch: when
+// the breaker is disabled, a persistently failing tool is retried every
+// iteration up to maxIterations (no early stop). Guards against the builder
+// doc confusion between 0 (use default) and -1 (off).
+func TestReActAgent_ToolFailureBreakerDisabled(t *testing.T) {
+	toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+		message.NewToolUseBlock("call_1", "flaky", map[string]any{"q": "GLD"}),
+	).Build()
+	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
+	flaky := tool.NewFunctionTool("flaky", "flaky", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return nil, errors.New("Too Many Requests")
+	})
+	a, _ := Builder().Name("Test").Model(m).Tools(flaky).
+		MaxIterations(4).MaxConsecutiveToolFailures(-1).Build()
+	_, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	// With the breaker off, the loop must exhaust maxIterations and surface the
+	// usual "max iterations" error rather than stopping early.
+	if err == nil {
+		t.Fatalf("expected max-iterations error with breaker disabled, got nil")
+	}
+	if m.calls != 4 {
+		t.Fatalf("breaker disabled should retry every iteration: model called %d times, want 4", m.calls)
 	}
 }
 

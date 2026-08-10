@@ -32,6 +32,45 @@ import (
 
 const defaultMaxIterations = 10
 
+// defaultMaxConsecutiveToolFailures caps how many times the same tool may fail
+// in a row before the loop gives up with a helpful message. Stops the retry
+// storm where the model re-invokes a failing tool (e.g. HTTP 429) until
+// maxIterations. 0 disables the breaker.
+const defaultMaxConsecutiveToolFailures = 3
+
+// breakerThreshold resolves the configured cap: a non-positive builder value
+// yields the default; -1 explicitly disables (returns 0).
+func breakerThreshold(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n == 0 {
+		return defaultMaxConsecutiveToolFailures
+	}
+	return n
+}
+
+// errTextFromToolErr returns the error string for a tool execution error, or
+// empty string on success. Used by the failure breaker to surface a reason.
+func errTextFromToolErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// errTextFromBlocks extracts the textual content of a tool result's blocks,
+// used to carry the failure reason for external tool results.
+func errTextFromBlocks(blocks []message.ContentBlock) string {
+	var b strings.Builder
+	for _, blk := range blocks {
+		if tb, ok := blk.(*message.TextBlock); ok {
+			b.WriteString(tb.Text)
+		}
+	}
+	return b.String()
+}
+
 // ErrAgentClosed is returned when calling a shut-down agent.
 var ErrAgentClosed = errors.New("react agent: agent is closed")
 
@@ -52,8 +91,12 @@ type ReActAgent struct {
 	memory          memory.Memory
 	maxIterations   int
 	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
-	toolMap         map[string]tool.Tool
-	shutdownConfig  shutdown.GracefulShutdownConfig
+	// maxConsecutiveToolFailures stops the loop after the same tool fails N
+	// times in a row, preventing the model from hammering a broken/rate-limited
+	// tool until maxIterations. 0 = disabled.
+	maxConsecutiveToolFailures int
+	toolMap                    map[string]tool.Tool
+	shutdownConfig             shutdown.GracefulShutdownConfig
 
 	// V2 runtime state (suspend-resume support)
 	runtimeMu    sync.Mutex
@@ -90,23 +133,24 @@ type ToolResultScreener func(ctx context.Context, toolName, text string) bool
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
 type ReActAgentBuilder struct {
-	agentID            string
-	name               string
-	description        string
-	sysPrompt          string
-	chatModel          model.ChatModel
-	tools              []tool.Tool
-	toolkit            *toolkit.Toolkit
-	memory             memory.Memory
-	maxIterations      int
-	maxTurnDuration    time.Duration // Q8: 单回合墙钟上限（0=不限）
-	hooks              []hook.Hook
-	streamHooks        []hook.StreamHook
-	middlewares        []middleware.Middleware
-	meta               map[string]any
-	shutdownConfig     shutdown.GracefulShutdownConfig
-	toolResultLabels   bool               // Q4: 工具结果来源标签（默认关）
-	toolResultScreener ToolResultScreener // Q13: 工具输出审查钩子
+	agentID                    string
+	name                       string
+	description                string
+	sysPrompt                  string
+	chatModel                  model.ChatModel
+	tools                      []tool.Tool
+	toolkit                    *toolkit.Toolkit
+	memory                     memory.Memory
+	maxIterations              int
+	maxTurnDuration            time.Duration // Q8: 单回合墙钟上限（0=不限）
+	maxConsecutiveToolFailures int           // 同一工具连续失败上限（0=沿用默认）
+	hooks                      []hook.Hook
+	streamHooks                []hook.StreamHook
+	middlewares                []middleware.Middleware
+	meta                       map[string]any
+	shutdownConfig             shutdown.GracefulShutdownConfig
+	toolResultLabels           bool               // Q4: 工具结果来源标签（默认关）
+	toolResultScreener         ToolResultScreener // Q13: 工具输出审查钩子
 
 	// V2 fields
 	permissionEngine *permission.Engine
@@ -190,6 +234,15 @@ func (b *ReActAgentBuilder) MaxIterations(n int) *ReActAgentBuilder {
 // When the cap expires the turn is cancelled the same way a context abort is.
 func (b *ReActAgentBuilder) MaxTurnDuration(d time.Duration) *ReActAgentBuilder {
 	b.maxTurnDuration = d
+	return b
+}
+
+// MaxConsecutiveToolFailures caps how many times the same tool may fail in a
+// row before the loop stops with a helpful message. Prevents the model from
+// re-invoking a rate-limited/broken tool up to maxIterations. The zero value
+// (or unset) falls back to the default of 3; pass -1 to disable the breaker.
+func (b *ReActAgentBuilder) MaxConsecutiveToolFailures(n int) *ReActAgentBuilder {
+	b.maxConsecutiveToolFailures = n
 	return b
 }
 
@@ -345,24 +398,25 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 			b.streamHooks,
 			b.middlewares...,
 		),
-		chatModel:          b.chatModel,
-		tools:              b.tools,
-		toolkit:            b.toolkit,
-		memory:             b.memory,
-		maxIterations:      b.maxIterations,
-		maxTurnDuration:    b.maxTurnDuration,
-		toolResultLabels:   b.toolResultLabels,
-		toolResultScreener: b.toolResultScreener,
-		toolMap:            toolMap,
-		shutdownConfig:     b.shutdownConfig,
-		waiters:            make(map[string]chan event.AgentEvent),
-		permissionEngine:   b.permissionEngine,
-		workspace:          b.workspace,
-		eventBus:           b.eventBus,
-		taskStore:          b.taskStore,
-		contextConfig:      b.contextConfig,
-		contextSize:        b.contextSize,
-		offloader:          b.offloader,
+		chatModel:                  b.chatModel,
+		tools:                      b.tools,
+		toolkit:                    b.toolkit,
+		memory:                     b.memory,
+		maxIterations:              b.maxIterations,
+		maxTurnDuration:            b.maxTurnDuration,
+		maxConsecutiveToolFailures: breakerThreshold(b.maxConsecutiveToolFailures),
+		toolResultLabels:           b.toolResultLabels,
+		toolResultScreener:         b.toolResultScreener,
+		toolMap:                    toolMap,
+		shutdownConfig:             b.shutdownConfig,
+		waiters:                    make(map[string]chan event.AgentEvent),
+		permissionEngine:           b.permissionEngine,
+		workspace:                  b.workspace,
+		eventBus:                   b.eventBus,
+		taskStore:                  b.taskStore,
+		contextConfig:              b.contextConfig,
+		contextSize:                b.contextSize,
+		offloader:                  b.offloader,
 	}
 	if a.contextConfig.TriggerRatio <= 0 {
 		a.contextConfig = agent.DefaultContextConfig()
@@ -607,6 +661,11 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 	}()
 
 	calledTools := make(map[string]bool)
+	// consecutiveToolFailures / lastToolErr track per-tool state for the
+	// breaker. Scoped to one turn: a fresh user reply resets it. A success in
+	// the same iteration resets the count for that tool.
+	consecutiveToolFailures := make(map[string]int)
+	lastToolErr := make(map[string]string)
 	var action loopAction
 	for i := 0; i < a.maxIterations; i++ {
 		select {
@@ -712,6 +771,8 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			toolInput       map[string]any
 			hasTcr          bool
 			tcr             memory.ToolCallResult
+			isErr           bool
+			errMsg          string
 		}
 
 		results := make([]toolRunResult, len(toolCalls))
@@ -730,6 +791,8 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 					singleResultMsg: singleResultMsg,
 					toolName:        tc.Name,
 					toolInput:       tc.Input,
+					isErr:           ext.isErr,
+					errMsg:          errTextFromBlocks(blocks),
 				}
 				continue
 			}
@@ -824,6 +887,8 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 					toolInput:       tc.Input,
 					hasTcr:          hasTcr,
 					tcr:             tcr,
+					isErr:           toolErr != nil,
+					errMsg:          errTextFromToolErr(toolErr),
 				}
 				return nil
 			})
@@ -862,6 +927,37 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			toolResultMsg.Content(r.singleResultMsg.Content...)
 		}
 		history = append(history, toolResultMsg.Build())
+
+		// Consecutive-tool-failure breaker: if the same tool keeps failing, stop
+		// the loop with a helpful message instead of letting the model hammer it
+		// until maxIterations (e.g. HTTP 429 "Too Many Requests" retried 6x).
+		if a.maxConsecutiveToolFailures > 0 {
+			for _, r := range results {
+				if r.isErr {
+					consecutiveToolFailures[r.toolName]++
+					lastToolErr[r.toolName] = r.errMsg
+				} else {
+					consecutiveToolFailures[r.toolName] = 0
+				}
+			}
+			for name, count := range consecutiveToolFailures {
+				if count >= a.maxConsecutiveToolFailures {
+					reason := lastToolErr[name]
+					if strings.TrimSpace(reason) == "" {
+						reason = "未知错误"
+					}
+					finalResponse = message.NewMsg().Role(message.RoleAssistant).Name(a.Base.AgentName()).TextContent(
+						fmt.Sprintf(
+							"工具 %s 已连续失败 %d 次（最近错误: %s），已停止重试。请稍后再试、检查该工具配置或换一种方式完成任务。",
+							name, count, reason),
+					).Build()
+					break
+				}
+			}
+			if finalResponse != nil {
+				break
+			}
+		}
 	}
 
 	if finalResponse == nil {

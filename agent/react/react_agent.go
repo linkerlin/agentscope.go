@@ -90,22 +90,22 @@ type ToolResultScreener func(ctx context.Context, toolName, text string) bool
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
 type ReActAgentBuilder struct {
-	agentID          string
-	name             string
-	description      string
-	sysPrompt        string
-	chatModel        model.ChatModel
-	tools            []tool.Tool
-	toolkit          *toolkit.Toolkit
-	memory           memory.Memory
-	maxIterations    int
-	maxTurnDuration  time.Duration // Q8: 单回合墙钟上限（0=不限）
-	hooks            []hook.Hook
-	streamHooks      []hook.StreamHook
-	middlewares      []middleware.Middleware
-	meta             map[string]any
-	shutdownConfig shutdown.GracefulShutdownConfig
-	toolResultLabels bool // Q4: 工具结果来源标签（默认关）
+	agentID            string
+	name               string
+	description        string
+	sysPrompt          string
+	chatModel          model.ChatModel
+	tools              []tool.Tool
+	toolkit            *toolkit.Toolkit
+	memory             memory.Memory
+	maxIterations      int
+	maxTurnDuration    time.Duration // Q8: 单回合墙钟上限（0=不限）
+	hooks              []hook.Hook
+	streamHooks        []hook.StreamHook
+	middlewares        []middleware.Middleware
+	meta               map[string]any
+	shutdownConfig     shutdown.GracefulShutdownConfig
+	toolResultLabels   bool               // Q4: 工具结果来源标签（默认关）
 	toolResultScreener ToolResultScreener // Q13: 工具输出审查钩子
 
 	// V2 fields
@@ -345,24 +345,24 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 			b.streamHooks,
 			b.middlewares...,
 		),
-		chatModel:        b.chatModel,
-		tools:            b.tools,
-		toolkit:          b.toolkit,
-		memory:           b.memory,
-		maxIterations:    b.maxIterations,
-		maxTurnDuration:  b.maxTurnDuration,
-		toolResultLabels: b.toolResultLabels,
+		chatModel:          b.chatModel,
+		tools:              b.tools,
+		toolkit:            b.toolkit,
+		memory:             b.memory,
+		maxIterations:      b.maxIterations,
+		maxTurnDuration:    b.maxTurnDuration,
+		toolResultLabels:   b.toolResultLabels,
 		toolResultScreener: b.toolResultScreener,
-		toolMap:          toolMap,
-		shutdownConfig:   b.shutdownConfig,
-		waiters:          make(map[string]chan event.AgentEvent),
-		permissionEngine: b.permissionEngine,
-		workspace:        b.workspace,
-		eventBus:         b.eventBus,
-		taskStore:        b.taskStore,
-		contextConfig:    b.contextConfig,
-		contextSize:      b.contextSize,
-		offloader:        b.offloader,
+		toolMap:            toolMap,
+		shutdownConfig:     b.shutdownConfig,
+		waiters:            make(map[string]chan event.AgentEvent),
+		permissionEngine:   b.permissionEngine,
+		workspace:          b.workspace,
+		eventBus:           b.eventBus,
+		taskStore:          b.taskStore,
+		contextConfig:      b.contextConfig,
+		contextSize:        b.contextSize,
+		offloader:          b.offloader,
 	}
 	if a.contextConfig.TriggerRatio <= 0 {
 		a.contextConfig = agent.DefaultContextConfig()

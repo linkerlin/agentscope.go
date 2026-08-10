@@ -35,7 +35,8 @@ const defaultMaxIterations = 10
 // defaultMaxConsecutiveToolFailures caps how many times the same tool may fail
 // in a row before the loop gives up with a helpful message. Stops the retry
 // storm where the model re-invokes a failing tool (e.g. HTTP 429) until
-// maxIterations. 0 disables the breaker.
+// maxIterations. The builder's zero value falls back to this default; only -1
+// disables the breaker.
 const defaultMaxConsecutiveToolFailures = 3
 
 // breakerThreshold resolves the configured cap: a non-positive builder value
@@ -71,6 +72,16 @@ func errTextFromBlocks(blocks []message.ContentBlock) string {
 	return b.String()
 }
 
+// truncateRunes shortens s to at most n runes (never splits a multi-byte
+// rune), appending an ellipsis when truncated.
+func truncateRunes(s string, n int) string {
+	rs := []rune(s)
+	if len(rs) <= n {
+		return s
+	}
+	return string(rs[:n]) + "…"
+}
+
 // ErrAgentClosed is returned when calling a shut-down agent.
 var ErrAgentClosed = errors.New("react agent: agent is closed")
 
@@ -93,7 +104,8 @@ type ReActAgent struct {
 	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
 	// maxConsecutiveToolFailures stops the loop after the same tool fails N
 	// times in a row, preventing the model from hammering a broken/rate-limited
-	// tool until maxIterations. 0 = disabled.
+	// tool until maxIterations. 0 = default (set via breakerThreshold); only
+	// -1 from the builder disables the breaker.
 	maxConsecutiveToolFailures int
 	toolMap                    map[string]tool.Tool
 	shutdownConfig             shutdown.GracefulShutdownConfig
@@ -946,6 +958,10 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 					if strings.TrimSpace(reason) == "" {
 						reason = "未知错误"
 					}
+					// The external-tool path may carry an unbounded error dump
+					// in the result text; keep the breaker message compact
+					// (rune-safe truncation so multi-byte text never splits).
+					reason = truncateRunes(reason, 200)
 					finalResponse = message.NewMsg().Role(message.RoleAssistant).Name(a.Base.AgentName()).TextContent(
 						fmt.Sprintf(
 							"工具 %s 已连续失败 %d 次（最近错误: %s），已停止重试。请稍后再试、检查该工具配置或换一种方式完成任务。",

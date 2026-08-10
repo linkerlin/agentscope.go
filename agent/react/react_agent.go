@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,7 +79,14 @@ type ReActAgent struct {
 
 	// Q4: 工具结果来源标签（[tool_result:<name>]），默认关。
 	toolResultLabels bool
+
+	// Q13: 工具输出审查钩子；nil 不过滤。false 返回 → 输出被隔离替换。
+	toolResultScreener ToolResultScreener
 }
+
+// ToolResultScreener 决定一个工具的结果文本是否放行。false → 该结果被
+// 替换为隔离占位文本（注入防御，qm tool_response 钩子对应物）。nil 不审查。
+type ToolResultScreener func(ctx context.Context, toolName, text string) bool
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
 type ReActAgentBuilder struct {
@@ -96,8 +104,9 @@ type ReActAgentBuilder struct {
 	streamHooks      []hook.StreamHook
 	middlewares      []middleware.Middleware
 	meta             map[string]any
-	shutdownConfig   shutdown.GracefulShutdownConfig
+	shutdownConfig shutdown.GracefulShutdownConfig
 	toolResultLabels bool // Q4: 工具结果来源标签（默认关）
+	toolResultScreener ToolResultScreener // Q13: 工具输出审查钩子
 
 	// V2 fields
 	permissionEngine *permission.Engine
@@ -189,6 +198,13 @@ func (b *ReActAgentBuilder) MaxTurnDuration(d time.Duration) *ReActAgentBuilder 
 // external tool outputs attributable to their source enable it.
 func (b *ReActAgentBuilder) WithToolResultLabels(v bool) *ReActAgentBuilder {
 	b.toolResultLabels = v
+	return b
+}
+
+// WithToolResultScreener wires the tool-output screening hook (Q13).
+// Returning false quarantines the result; nil disables screening.
+func (b *ReActAgentBuilder) WithToolResultScreener(fn ToolResultScreener) *ReActAgentBuilder {
+	b.toolResultScreener = fn
 	return b
 }
 
@@ -336,6 +352,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		maxIterations:    b.maxIterations,
 		maxTurnDuration:  b.maxTurnDuration,
 		toolResultLabels: b.toolResultLabels,
+		toolResultScreener: b.toolResultScreener,
 		toolMap:          toolMap,
 		shutdownConfig:   b.shutdownConfig,
 		waiters:          make(map[string]chan event.AgentEvent),
@@ -466,6 +483,31 @@ func (a *ReActAgent) labelToolResultBlocks(toolName string, blocks []message.Con
 	out = append(out, message.NewTextBlock(fmt.Sprintf("[tool_result:%s]", toolName)))
 	out = append(out, blocks...)
 	return out
+}
+
+// QuarantinePlaceholder replaces a tool result rejected by content screening
+// (Q13).
+const QuarantinePlaceholder = "[tool output quarantined by content screening]"
+
+// screenToolResult applies the Q13 tool-output screening hook. A rejected
+// result is replaced with the quarantine placeholder; nil hook passes through.
+func (a *ReActAgent) screenToolResult(ctx context.Context, toolName string, blocks []message.ContentBlock) []message.ContentBlock {
+	if a.toolResultScreener == nil {
+		return blocks
+	}
+	var text strings.Builder
+	for _, b := range blocks {
+		if tb, ok := b.(*message.TextBlock); ok {
+			text.WriteString(tb.Text)
+		}
+	}
+	if text.Len() == 0 {
+		return blocks
+	}
+	if a.toolResultScreener(ctx, toolName, text.String()) {
+		return blocks
+	}
+	return []message.ContentBlock{message.NewTextBlock(QuarantinePlaceholder)}
 }
 
 // Reply consumes the full event stream and returns the final assembled

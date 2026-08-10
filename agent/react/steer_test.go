@@ -222,6 +222,66 @@ func TestReActAgent_ToolResultLabels(t *testing.T) {
 	}
 }
 
+func TestReActAgent_ToolResultScreener(t *testing.T) {
+	// 审查钩子拒绝 mock_tool 的输出 → 历史中工具结果被隔离占位文本替换。
+	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
+	agent, err := Builder().
+		Name("screen-test").
+		Model(m).
+		Memory(memory.NewInMemoryMemory()).
+		Tools(&mockTool{name: "mock_tool", result: "evil-injection"}).
+		MaxIterations(5).
+		WithToolResultScreener(func(ctx context.Context, toolName, text string) bool {
+			return !strings.Contains(text, "evil")
+		}).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evCh, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("go").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-m.firstEntered
+	close(m.release)
+	for ev := range evCh {
+		if e, ok := ev.(*event.ErrorEvent); ok && e.Err != "" {
+			t.Fatalf("turn error: %s", e.Err)
+		}
+	}
+
+	if len(m.histories) < 2 {
+		t.Fatalf("expected >=2 model calls, got %d", len(m.histories))
+	}
+	var quarantined, leaked bool
+	for _, msg := range m.histories[1] {
+		if msg.Role != message.RoleTool {
+			continue
+		}
+		for _, c := range msg.Content {
+			if tr, ok := c.(*message.ToolResultBlock); ok {
+				for _, inner := range tr.Content {
+					if itb, ok := inner.(*message.TextBlock); ok {
+						if strings.Contains(itb.Text, "evil-injection") {
+							leaked = true
+						}
+						if strings.Contains(itb.Text, QuarantinePlaceholder) {
+							quarantined = true
+						}
+					}
+				}
+			}
+		}
+	}
+	if leaked {
+		t.Fatal("rejected tool output must not reach history")
+	}
+	if !quarantined {
+		t.Fatal("rejected tool output must be replaced by the quarantine placeholder")
+	}
+}
+
 func TestReActAgent_TurnWallClockCap(t *testing.T) {
 	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
 	agent, err := Builder().

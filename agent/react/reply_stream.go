@@ -709,6 +709,7 @@ func (a *ReActAgent) executeToolsStream(
 				blocks = []message.ContentBlock{message.NewTextBlock(r.Output)}
 			}
 			blocks = a.compressToolResultBlocks(ctx, tc.ID, blocks, toolErr)
+			blocks = a.screenToolResult(ctx, tc.Name, blocks)
 			var resultText string
 			for _, b := range blocks {
 				if tb, ok := b.(*message.TextBlock); ok {
@@ -771,6 +772,7 @@ func (a *ReActAgent) executeToolsStream(
 				blocks = []message.ContentBlock{message.NewTextBlock("")}
 			}
 			blocks = a.compressToolResultBlocks(ctx, tc.ID, blocks, toolErr != nil)
+			blocks = a.screenToolResult(ctx, tc.Name, blocks)
 
 			// Emit tool result text delta (aggregated for now; future: per-chunk)
 			var resultText string

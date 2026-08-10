@@ -244,11 +244,18 @@ func encJSON(v any) string {
 	return string(b)
 }
 
-func decJSONInto(s string, v any) {
+// decodeJSONInto unmarshals a JSON column into v. It FAILS LOUDLY on corrupt
+// content instead of silently leaving v zeroed — a corrupted hard_policy scope
+// would otherwise default to ScopeKey="" (a GLOBAL veto in SelectByPrecedence),
+// silently over-broadening policy. Empty strings are a no-op.
+func decodeJSONInto(s string, v any) error {
 	if s == "" {
-		return
+		return nil
 	}
-	_ = json.Unmarshal([]byte(s), v)
+	if err := json.Unmarshal([]byte(s), v); err != nil {
+		return fmt.Errorf("controlplane: corrupt JSON column: %w", err)
+	}
+	return nil
 }
 
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -361,10 +368,18 @@ func scanGoal(sc scanner) (*Goal, error) {
 		return nil, err
 	}
 	g.State = GoalState(state)
-	decJSONInto(scope, &g.Scope)
-	decJSONInto(regAgents, &g.RegisteredAgents)
-	decJSONInto(authority, &g.Authority)
-	decJSONInto(quota, &g.Quota)
+	if err := decodeJSONInto(scope, &g.Scope); err != nil {
+		return nil, err
+	}
+	if err := decodeJSONInto(regAgents, &g.RegisteredAgents); err != nil {
+		return nil, err
+	}
+	if err := decodeJSONInto(authority, &g.Authority); err != nil {
+		return nil, err
+	}
+	if err := decodeJSONInto(quota, &g.Quota); err != nil {
+		return nil, err
+	}
 	g.CreatedAt = parseTS(created)
 	g.UpdatedAt = parseTS(updated)
 	return &g, nil
@@ -471,7 +486,9 @@ func scanTodo(sc scanner) (*Todo, error) {
 	t.Continuation = ContinuationPolicy(cont)
 	// Evidence is the single source of truth; the stored evidence_ids column is
 	// legacy/derived and not re-populated (#5 round-5).
-	decJSONInto(evidence, &t.Evidence)
+	if err := decodeJSONInto(evidence, &t.Evidence); err != nil {
+		return nil, err
+	}
 	t.CreatedAt = parseTS(created)
 	t.UpdatedAt = parseTS(updated)
 	return &t, nil
@@ -581,18 +598,26 @@ func scanGate(sc scanner) (UserGate, error) {
 		&outcome, &resolvers, &created, &resolved); err != nil {
 		return UserGate{}, err
 	}
-	decJSONInto(scope, &g.Scope)
+	if err := decodeJSONInto(scope, &g.Scope); err != nil {
+		return UserGate{}, err
+	}
 	if fallback != "" && fallback != "null" {
 		var fb FallbackPolicy
-		decJSONInto(fallback, &fb)
+		if err := decodeJSONInto(fallback, &fb); err != nil {
+			return UserGate{}, err
+		}
 		g.Fallback = &fb
 	}
 	if outcome != "" {
 		var oc GateOutcome
-		decJSONInto(outcome, &oc)
+		if err := decodeJSONInto(outcome, &oc); err != nil {
+			return UserGate{}, err
+		}
 		g.Outcome = &oc
 	}
-	decJSONInto(resolvers, &g.Resolvers)
+	if err := decodeJSONInto(resolvers, &g.Resolvers); err != nil {
+		return UserGate{}, err
+	}
 	g.CreatedAt = parseTS(created)
 	g.ResolvedAt = parseTS(resolved)
 	return g, nil
@@ -659,7 +684,9 @@ func (l *SQLLedger) Read(ctx context.Context, goalID string, cursor int64, limit
 			return nil, cursor, err
 		}
 		e.Kind = EventKind(kind)
-		decJSONInto(detail, &e.Detail)
+		if err := decodeJSONInto(detail, &e.Detail); err != nil {
+			return nil, cursor, err
+		}
 		e.At = parseTS(at)
 		e.Index = seq - 1 // map 1-based seq to 0-based index
 		next = e.Index + 1
@@ -699,7 +726,9 @@ func (l *SQLLedger) Last(ctx context.Context, goalID string, n int) ([]Event, er
 			return nil, err
 		}
 		e.Kind = EventKind(kind)
-		decJSONInto(detail, &e.Detail)
+		if err := decodeJSONInto(detail, &e.Detail); err != nil {
+			return nil, err
+		}
 		e.At = parseTS(at)
 		e.Index = seq - 1
 		desc = append(desc, e)

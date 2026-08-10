@@ -194,7 +194,9 @@ func (s *SQLRewardStore) List(ctx context.Context, goalID string) ([]RewardRecor
 		r.Confidence = Confidence(conf)
 		r.Lifecycle = LifecycleState(life)
 		r.CreatedAt = parseTS(at)
-		decJSONInto(scope, &r.Scope)
+		if err := decodeJSONInto(scope, &r.Scope); err != nil {
+			return nil, err
+		}
 		out = append(out, r)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].PrecedenceOrder() < out[j].PrecedenceOrder() })

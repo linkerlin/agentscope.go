@@ -289,3 +289,27 @@ func TestSQLGateStoreRoundTrip(t *testing.T) {
 	unresolved, _ = k.GateStore().ListUnresolved(ctx, "goal")
 	assert.Empty(t, unresolved, "resolved gate excluded from unresolved list")
 }
+
+func TestCorruptJSONColumnFailsLoudly(t *testing.T) {
+	// Corrupt JSON must surface an error on read, NOT silently zero the struct:
+	// a corrupted hard_policy scope would otherwise default to ScopeKey=""
+	// (a GLOBAL veto in SelectByPrecedence), silently over-broadening policy.
+	db := openDB(t, ":memory:")
+	stores, err := NewSQLStores(db)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Write a reward row with corrupt scope JSON directly.
+	_, err = db.Exec(`INSERT INTO cp_rewards (id, goal_id, class, scope, confidence, lifecycle, content, at)
+		VALUES ('r1', 'g', 'hard_policy', '{{{not-json', 'high', 'active', 'veto', '2026-01-01T00:00:00Z')`)
+	require.NoError(t, err)
+
+	// Reading must FAIL, not return a scope-less global policy.
+	_, err = stores.Rewards.List(ctx, "g")
+	require.Error(t, err, "corrupt reward scope must fail loudly")
+	assert.Contains(t, err.Error(), "corrupt JSON")
+
+	// Same for a corrupt goal scope.
+	_, err = db.Exec(`UPDATE cp_goals SET scope='[bad' WHERE id='missing'`)
+	require.NoError(t, err)
+}

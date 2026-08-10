@@ -69,6 +69,11 @@ type ReActAgent struct {
 	contextConfig agent.ContextConfig
 	contextSize   int
 	offloader     workspace.Offloader
+
+	// Q8 steer: mid-turn user message injection into a running turn.
+	steerMu     sync.Mutex
+	steerQueue  []string
+	activeTurns int
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
@@ -373,6 +378,38 @@ func extractUsage(msg *message.Msg) model.ChatUsage {
 // Call executes the agent synchronously (V1 API).
 func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
 	return a.Base.Call(ctx, msg, a.replyInternal)
+}
+
+// Steer injects a user message into the running turn (Q8). The message is
+// appended to history at the next loop iteration, so the model sees it within
+// the same turn. Returns an error when no turn is running.
+func (a *ReActAgent) Steer(text string) error {
+	a.steerMu.Lock()
+	defer a.steerMu.Unlock()
+	if a.activeTurns == 0 {
+		return errors.New("react agent: no active turn to steer")
+	}
+	a.steerQueue = append(a.steerQueue, text)
+	return nil
+}
+
+// ActiveTurn reports whether a ReplyStream turn is currently running (Q8).
+func (a *ReActAgent) ActiveTurn() bool {
+	a.steerMu.Lock()
+	defer a.steerMu.Unlock()
+	return a.activeTurns > 0
+}
+
+// drainSteer pops and returns all queued steer messages.
+func (a *ReActAgent) drainSteer() []string {
+	a.steerMu.Lock()
+	defer a.steerMu.Unlock()
+	if len(a.steerQueue) == 0 {
+		return nil
+	}
+	out := append([]string(nil), a.steerQueue...)
+	a.steerQueue = nil
+	return out
 }
 
 // Reply consumes the full event stream and returns the final assembled

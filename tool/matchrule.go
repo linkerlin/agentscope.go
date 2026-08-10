@@ -141,6 +141,34 @@ func MatchBashCommand(rulePattern, command string) bool {
 	return matched
 }
 
+// MatchBashCommandOrRegex matches a Bash rule pattern, falling back to regular
+// expression matching when the pattern uses regex syntax (e.g. `\brm\b`).
+// Bash-style patterns ("rm:*", plain substrings) are matched first so PyV2
+// semantics are preserved; regex patterns that would otherwise be treated as
+// literal text are honored on the second pass.
+func MatchBashCommandOrRegex(rulePattern, command string) bool {
+	if MatchBashCommand(rulePattern, command) {
+		return true
+	}
+	if !patternLooksLikeRegex(rulePattern) {
+		return false
+	}
+	matched, err := regexp.MatchString(rulePattern, command)
+	return err == nil && matched
+}
+
+// patternLooksLikeRegex reports whether a rule pattern contains regex syntax
+// (backslash escapes, groups, alternation, anchors or quantifiers).
+func patternLooksLikeRegex(pattern string) bool {
+	for _, c := range pattern {
+		switch c {
+		case '\\', '(', ')', '|', '+', '^', '$', '{', '}':
+			return true
+		}
+	}
+	return false
+}
+
 func bashPatternHasWildcards(pattern string) bool {
 	for i := 0; i < len(pattern); i++ {
 		if pattern[i] == '\\' {

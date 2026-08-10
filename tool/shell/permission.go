@@ -9,7 +9,7 @@ import (
 
 func (s *ShellCommandTool) MatchRule(pattern string, input map[string]any) bool {
 	command, _ := input["command"].(string)
-	return tool.MatchBashCommand(pattern, command)
+	return tool.MatchBashCommandOrRegex(pattern, command)
 }
 
 func (s *ShellCommandTool) GenerateSuggestions(input map[string]any) []tool.SuggestedRule {

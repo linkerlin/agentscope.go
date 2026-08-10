@@ -53,6 +53,16 @@ func (a *ReActAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan 
 func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out chan<- event.AgentEvent) {
 	defer close(out)
 
+	// Q8: register this turn for steer/active-turn tracking.
+	a.steerMu.Lock()
+	a.activeTurns++
+	a.steerMu.Unlock()
+	defer func() {
+		a.steerMu.Lock()
+		a.activeTurns--
+		a.steerMu.Unlock()
+	}()
+
 	a.runtimeMu.Lock()
 	var replyID string
 	var isResume bool
@@ -139,6 +149,14 @@ func (a *ReActAgent) replyStreamInternal(
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
+		}
+
+		// Q8: drain steered mid-turn user messages into history so the next
+		// model call sees them within the same turn.
+		if steered := a.drainSteer(); len(steered) > 0 {
+			for _, text := range steered {
+				history = append(history, message.NewMsg().Role(message.RoleUser).TextContent(text).Build())
+			}
 		}
 
 		if resp, err := a.loopGuard(ctx, msg, nil); err != nil || resp != nil {

@@ -52,6 +52,11 @@ type Result struct {
 	Message        string
 	Reason         string
 	SuggestedRules []Rule
+	// Rule is the rule that produced this decision, when the decision came
+	// from a matched rule (deny/ask/allow). Nil for safety checks, tool
+	// permission deciders and mode defaults. Callers use it as the approval
+	// key to approve a whole rule class at once.
+	Rule *Rule
 }
 
 // Evaluation is an alias for Result for backward compatibility.
@@ -61,6 +66,7 @@ type Evaluation = Result
 type Engine struct {
 	ctx           *Context
 	rules         []Rule
+	approvals     []Rule // Q2: session-approved rule classes, checked after deny, before ask
 	readOnlyTools map[string]bool
 	toolResolver  func(string) tool.Tool
 }
@@ -116,6 +122,20 @@ func (e *Engine) WorkingDirs() []string {
 	return append([]string(nil), e.ctx.WorkingDirs...)
 }
 
+// SetUnattended toggles unattended mode at runtime. In unattended mode every
+// ASK decision fails closed to DENY because no user is present to approve.
+func (e *Engine) SetUnattended(v bool) {
+	if e == nil || e.ctx == nil {
+		return
+	}
+	e.ctx.Unattended = v
+}
+
+// Unattended reports whether the engine fails closed without a user present.
+func (e *Engine) Unattended() bool {
+	return e != nil && e.ctx != nil && e.ctx.Unattended
+}
+
 func defaultReadOnlyTools() map[string]bool {
 	return map[string]bool{
 		"read_file":      true,
@@ -137,6 +157,27 @@ func (e *Engine) AddRule(r Rule) {
 	e.rules = append(e.rules, r)
 }
 
+// ApproveRuleClass registers a session-scoped approval for a rule class (Q2).
+// Approved classes are evaluated after deny rules and before ask rules, so a
+// human approval overrides the matching ask rule for the rest of the agent
+// session. Deny rules keep their priority.
+func (e *Engine) ApproveRuleClass(r Rule) {
+	r.Decision = DecisionAllow
+	e.approvals = append(e.approvals, r)
+}
+
+// matchApprovals applies the rule matching semantics to the session-approved
+// rule classes.
+func (e *Engine) matchApprovals(toolName, filePath, command string, input map[string]any, t tool.Tool) *Rule {
+	for i := range e.approvals {
+		r := &e.approvals[i]
+		if e.ruleMatches(r, toolName, filePath, command, input, t) {
+			return r
+		}
+	}
+	return nil
+}
+
 func (e *Engine) resolveTool(name string) tool.Tool {
 	if e.toolResolver == nil {
 		return nil
@@ -155,6 +196,16 @@ func (e *Engine) Evaluate(toolCalls []*message.ToolUseBlock) ([]Result, error) {
 	results := make([]Result, len(toolCalls))
 	for i, tc := range toolCalls {
 		results[i] = e.evaluateOne(tc, grouped)
+	}
+	if e.ctx.Unattended {
+		for i := range results {
+			if results[i].Decision == DecisionAsk {
+				results[i].Decision = DecisionDeny
+				results[i].Message = fmt.Sprintf("Permission denied for %s (unattended: no user available to approve)", results[i].ToolName)
+				results[i].Reason = "unattended mode fails closed: " + results[i].Reason
+				results[i].SuggestedRules = nil
+			}
+		}
 	}
 	return results, nil
 }
@@ -199,6 +250,20 @@ func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[
 			Decision:   DecisionDeny,
 			Message:    fmt.Sprintf("Permission denied for %s", tc.Name),
 			Reason:     fmt.Sprintf("matched deny rule %q", r.Name),
+			Rule:       r,
+		}
+	}
+
+	// 1b. Session-approved rule classes (Q2): a human approval for the class
+	// overrides the matching ask rule; hard denies still win above.
+	if r := e.matchApprovals(tc.Name, filePath, command, input, t); r != nil {
+		return Result{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Decision:   DecisionAllow,
+			Message:    fmt.Sprintf("Permission granted for %s (session-approved rule class)", tc.Name),
+			Reason:     fmt.Sprintf("session-approved rule %q", r.Name),
+			Rule:       r,
 		}
 	}
 
@@ -211,6 +276,7 @@ func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[
 			Message:        fmt.Sprintf("Permission required for %s", tc.Name),
 			Reason:         fmt.Sprintf("matched ask rule %q", r.Name),
 			SuggestedRules: e.generateSuggestions(tc, filePath, command, t),
+			Rule:           r,
 		}
 	}
 
@@ -250,6 +316,7 @@ func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[
 			Decision:   DecisionAllow,
 			Message:    fmt.Sprintf("Permission granted for %s", tc.Name),
 			Reason:     fmt.Sprintf("matched allow rule %q", r.Name),
+			Rule:       r,
 		}
 	}
 
@@ -308,7 +375,10 @@ func (e *Engine) checkSafety(toolName, filePath, command string, isReadOnly bool
 
 	// Bash-specific safety checks.
 	if isBashTool(toolName) && command != "" {
-		if IsDangerousCommand(command) {
+		// Q1: match against the normalized command so wrappers (sudo, sh -c,
+		// eval, env -S, ...) cannot hide the inner command from safety checks.
+		cmd := NormalizeCommand(command)
+		if IsDangerousCommand(cmd) {
 			return &Result{
 				ToolName: toolName,
 				Decision: DecisionAsk,
@@ -316,7 +386,7 @@ func (e *Engine) checkSafety(toolName, filePath, command string, isReadOnly bool
 				Reason:   "Safety check: dangerous command pattern detected",
 			}
 		}
-		if IsReadOnlyCommand(command) {
+		if IsReadOnlyCommand(cmd) {
 			return &Result{
 				ToolName: toolName,
 				Decision: DecisionAllow,
@@ -324,7 +394,7 @@ func (e *Engine) checkSafety(toolName, filePath, command string, isReadOnly bool
 				Reason:   "Read-only command is allowed",
 			}
 		}
-		if IsDangerousRemoval(command) {
+		if IsDangerousRemoval(cmd) {
 			return &Result{
 				ToolName: toolName,
 				Decision: DecisionAsk,

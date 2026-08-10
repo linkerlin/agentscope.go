@@ -8,6 +8,7 @@ type Context struct {
 	WorkingDirs    []string // Additional directories allowed in ACCEPT_EDITS mode
 	DangerousFiles []string // Sensitive files protected from auto-editing
 	DangerousDirs  []string // Sensitive directories protected from auto-editing
+	Unattended     bool     // No user available: every ASK decision fails closed to DENY
 }
 
 // NewContext creates a permission context with sensible defaults.
@@ -37,5 +38,13 @@ func (c *Context) WithDangerousFiles(files ...string) *Context {
 // WithDangerousDirs overrides the list of sensitive directories.
 func (c *Context) WithDangerousDirs(dirs ...string) *Context {
 	c.DangerousDirs = dirs
+	return c
+}
+
+// WithUnattended marks the context as running without a user present.
+// In unattended mode every ASK decision is converted to DENY (fail closed)
+// so background triggers never hang waiting for approval.
+func (c *Context) WithUnattended() *Context {
+	c.Unattended = true
 	return c
 }

@@ -569,6 +569,39 @@ func (a *ReActAgent) executeToolsStream(
 			if len(toolCalls) == 0 {
 				return message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build(), nil
 			}
+			// Q2: session/always-scoped approvals register the matched rule
+			// class as an allow rule so same-class commands stop interrupting
+			// for this agent session.
+			if a.permissionEngine != nil {
+				evalByID := make(map[string]*permission.Result, len(evals))
+				for i := range evals {
+					evalByID[evals[i].ToolCallID] = &evals[i]
+				}
+				for _, d := range confirm.Decisions {
+					if d.Decision != "allow" && d.Decision != "always_allow" {
+						continue
+					}
+					scope := d.Scope
+					if scope == "" {
+						if d.Decision == "always_allow" {
+							scope = "always"
+						} else {
+							scope = "once"
+						}
+					}
+					if scope == "once" {
+						continue
+					}
+					ev, ok := evalByID[d.ToolCallID]
+					if !ok || ev.Rule == nil {
+						continue
+					}
+					allow := *ev.Rule
+					allow.Decision = permission.DecisionAllow
+					allow.Name = "session-approved:" + ev.Rule.Name
+					a.permissionEngine.ApproveRuleClass(allow)
+				}
+			}
 		}
 	}
 
@@ -864,7 +897,7 @@ func applyConfirmDecisions(calls []*message.ToolUseBlock, decisions []event.Conf
 			continue
 		}
 		switch d.Decision {
-		case "allow", "always_allow":
+		case "allow", "always_allow", "approve":
 			result = append(result, c)
 		case "modify":
 			if len(d.ModifiedArgs) > 0 {

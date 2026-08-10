@@ -546,6 +546,36 @@ func TestReActAgent_ConsecutiveToolFailure_NormalContentResetsCount(t *testing.T
 	}
 }
 
+// TestReActAgent_ReplyStream_ToolErrorBreaker covers kopaw's real execution
+// path (Reply -> ReplyStream -> executeToolsStream). A tool returning a Go
+// error (here web_fetch's HTTP 429) must NOT abort the turn as a raw
+// chat:error — instead the error is fed to the model and the consecutive-
+// failure breaker stops the loop with a graceful message. Regression for the
+// "LLM API 错误：web_fetch: HTTP 429" symptom caused by executeToolsStream
+// treating tool errors as turn-fatal.
+func TestReActAgent_ReplyStream_ToolErrorBreaker(t *testing.T) {
+	toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+		message.NewToolUseBlock("call_1", "web_fetch", map[string]any{"url": "https://example.com/gld"}),
+	).Build()
+	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
+	failing := tool.NewFunctionTool("web_fetch", "web_fetch", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return nil, errors.New("web_fetch: HTTP 429")
+	})
+	a, _ := Builder().Name("test").Model(m).Tools(failing).MaxIterations(20).Build()
+
+	// Reply() exercises ReplyStream internally (kopaw's path), not Call().
+	resp, err := a.Reply(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("fetch GLD").Build())
+	if err != nil {
+		t.Fatalf("tool error must NOT abort the turn as a raw error: %v", err)
+	}
+	if resp == nil || !strings.Contains(resp.GetTextContent(), "web_fetch") {
+		t.Fatalf("expected graceful breaker message naming web_fetch, got: %v", resp)
+	}
+	if m.calls > 3 {
+		t.Fatalf("retry storm not stopped: model called %d times", m.calls)
+	}
+}
+
 // TestReActAgent_ConsecutiveToolFailureBreaker guards against the retry storm:
 // when the same tool fails repeatedly, the loop must stop early with a helpful
 // message instead of burning all maxIterations (issue: "Edge: Too Many Requests"

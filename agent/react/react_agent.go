@@ -108,6 +108,80 @@ func toolResultLooksLikeError(blocks []message.ContentBlock) (bool, string) {
 	return true, t
 }
 
+// failureSignal is one tool call's outcome for breaker accounting.
+type failureSignal struct {
+	ToolName string
+	IsError  bool // explicit failure (Go error or external IsError)
+	ErrText  string
+	Blocks   []message.ContentBlock // used for text-smuggled-error detection
+}
+
+// consecutiveFailureBreaker stops the ReAct loop after the same tool fails N
+// times in a row, preventing the model from hammering a broken/rate-limited
+// tool until maxIterations. Shared by replyInternal (Call) and the ReplyStream
+// loop so both paths behave identically.
+type consecutiveFailureBreaker struct {
+	threshold   int
+	consecutive map[string]int
+	lastErr     map[string]string
+}
+
+func newConsecutiveFailureBreaker(threshold int) *consecutiveFailureBreaker {
+	return &consecutiveFailureBreaker{
+		threshold:   threshold,
+		consecutive: make(map[string]int),
+		lastErr:     make(map[string]string),
+	}
+}
+
+// update records one iteration's per-tool outcomes. A failure is either an
+// explicit error (IsError) or a result whose text smuggles an "error: ..."
+// marker. A success resets that tool's count. Returns the tripped tool name,
+// its consecutive count, and the last error reason when the threshold is met.
+func (b *consecutiveFailureBreaker) update(sigs []failureSignal) (tripped string, count int, reason string) {
+	if b == nil || b.threshold <= 0 {
+		return "", 0, ""
+	}
+	for _, s := range sigs {
+		failed, why := s.IsError, s.ErrText
+		if !failed {
+			if isErr, txt := toolResultLooksLikeError(s.Blocks); isErr {
+				failed, why = true, txt
+			}
+		}
+		if failed {
+			b.consecutive[s.ToolName]++
+			if why != "" {
+				b.lastErr[s.ToolName] = why
+			}
+		} else {
+			b.consecutive[s.ToolName] = 0
+		}
+	}
+	for name, c := range b.consecutive {
+		if c >= b.threshold {
+			return name, c, b.lastErr[name]
+		}
+	}
+	return "", 0, ""
+}
+
+// breakerFinalMessage builds the graceful assistant message shown when the
+// breaker trips, so the turn ends with actionable text instead of either an
+// opaque "max iterations reached" error or a raw tool error surfacing as a
+// turn-level error.
+func breakerFinalMessage(agentName, toolName string, count int, reason string) *message.Msg {
+	if strings.TrimSpace(reason) == "" {
+		reason = "未知错误"
+	}
+	reason = truncateRunes(reason, 200)
+	return message.NewMsg().Role(message.RoleAssistant).Name(agentName).TextContent(
+		fmt.Sprintf(
+			"工具 %s 已连续失败 %d 次（最近错误: %s），已停止重试。请稍后再试、检查该工具配置或换一种方式完成任务。",
+			toolName, count, reason),
+	).Build()
+}
+
 // ErrAgentClosed is returned when calling a shut-down agent.
 var ErrAgentClosed = errors.New("react agent: agent is closed")
 
@@ -699,11 +773,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 	}()
 
 	calledTools := make(map[string]bool)
-	// consecutiveToolFailures / lastToolErr track per-tool state for the
-	// breaker. Scoped to one turn: a fresh user reply resets it. A success in
-	// the same iteration resets the count for that tool.
-	consecutiveToolFailures := make(map[string]int)
-	lastToolErr := make(map[string]string)
+	breaker := newConsecutiveFailureBreaker(a.maxConsecutiveToolFailures)
 	var action loopAction
 	for i := 0; i < a.maxIterations; i++ {
 		select {
@@ -969,45 +1039,18 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 		// Consecutive-tool-failure breaker: if the same tool keeps failing, stop
 		// the loop with a helpful message instead of letting the model hammer it
 		// until maxIterations (e.g. HTTP 429 "Too Many Requests" retried 6x).
-		if a.maxConsecutiveToolFailures > 0 {
+		if breaker != nil {
+			sigs := make([]failureSignal, 0, len(results))
 			for _, r := range results {
-				failed, reason := r.isErr, r.errMsg
-				if !failed {
-					// Defense-in-depth: a tool that smuggles its error into the
-					// success channel as "error: ..." text still counts as a
-					// failure (covers MCP/extension tools outside our control).
-					if isErrText, txt := toolResultLooksLikeError(r.contentBlocks); isErrText {
-						failed, reason = true, txt
-					}
-				}
-				if failed {
-					consecutiveToolFailures[r.toolName]++
-					if reason != "" {
-						lastToolErr[r.toolName] = reason
-					}
-				} else {
-					consecutiveToolFailures[r.toolName] = 0
-				}
+				sigs = append(sigs, failureSignal{
+					ToolName: r.toolName,
+					IsError:  r.isErr,
+					ErrText:  r.errMsg,
+					Blocks:   r.contentBlocks,
+				})
 			}
-			for name, count := range consecutiveToolFailures {
-				if count >= a.maxConsecutiveToolFailures {
-					reason := lastToolErr[name]
-					if strings.TrimSpace(reason) == "" {
-						reason = "未知错误"
-					}
-					// The external-tool path may carry an unbounded error dump
-					// in the result text; keep the breaker message compact
-					// (rune-safe truncation so multi-byte text never splits).
-					reason = truncateRunes(reason, 200)
-					finalResponse = message.NewMsg().Role(message.RoleAssistant).Name(a.Base.AgentName()).TextContent(
-						fmt.Sprintf(
-							"工具 %s 已连续失败 %d 次（最近错误: %s），已停止重试。请稍后再试、检查该工具配置或换一种方式完成任务。",
-							name, count, reason),
-					).Build()
-					break
-				}
-			}
-			if finalResponse != nil {
+			if name, count, reason := breaker.update(sigs); name != "" {
+				finalResponse = breakerFinalMessage(a.Base.AgentName(), name, count, reason)
 				break
 			}
 		}

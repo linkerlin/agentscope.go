@@ -151,6 +151,7 @@ func (a *ReActAgent) replyStreamInternal(
 	// PreCall stream event (no-op for now; pre-reasoning events are emitted inside runModelStream)
 
 	var finalResponse *message.Msg
+	breaker := newConsecutiveFailureBreaker(a.maxConsecutiveToolFailures)
 	var action loopAction
 	for i := 0; i < a.maxIterations; i++ {
 		select {
@@ -262,11 +263,30 @@ func (a *ReActAgent) replyStreamInternal(
 			return resp, err
 		}
 
-		toolResultMsg, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, i)
+		toolResultMsg, sigs, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, i)
 		if err != nil {
 			return nil, err
 		}
 		history = append(history, toolResultMsg)
+
+		// Consecutive-tool-failure breaker (shared with the Call path): stop the
+		// loop with a helpful message instead of letting the model hammer a
+		// failing tool until maxIterations, and instead of surfacing the raw
+		// tool error as a turn-level error.
+		if name, count, reason := breaker.update(sigs); name != "" {
+			finalResponse = breakerFinalMessage(a.Base.AgentName(), name, count, reason)
+			// Surface the breaker message like a normal final answer: append to
+			// history + runtime state so Reply()/reconnect-resume and the UI see
+			// it instead of the model's last (tool-call) assistant message.
+			history = append(history, finalResponse)
+			a.runtimeMu.Lock()
+			if a.runtimeState != nil {
+				a.runtimeState.Messages = append([]*message.Msg(nil), history...)
+				a.runtimeState.UpdatedAt = time.Now()
+			}
+			a.runtimeMu.Unlock()
+			break
+		}
 	}
 
 	if finalResponse == nil {
@@ -353,7 +373,7 @@ func (a *ReActAgent) resumeReplyStreamInternal(
 	// Bypass permission check because it was already performed before suspension.
 	oldPerm := a.permissionEngine
 	a.permissionEngine = nil
-	toolResultMsg, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, startIter)
+	toolResultMsg, _, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, startIter)
 	a.permissionEngine = oldPerm
 	if err != nil {
 		return nil, err
@@ -537,17 +557,17 @@ func (a *ReActAgent) executeToolsStream(
 	out chan<- event.AgentEvent,
 	replyID string,
 	iter int,
-) (*message.Msg, error) {
+) (*message.Msg, []failureSignal, error) {
 	// V2: permission check before executing tools
 	if a.permissionEngine != nil {
 		evals, err := a.permissionEngine.Evaluate(toolCalls)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var asking []event.ToolCallSummary
 		for _, ev := range evals {
 			if ev.Decision == permission.DecisionDeny {
-				return nil, fmt.Errorf("permission denied for %s: %s", ev.ToolName, ev.Message)
+				return nil, nil, fmt.Errorf("permission denied for %s: %s", ev.ToolName, ev.Message)
 			}
 			if ev.Decision == permission.DecisionAsk {
 				asking = append(asking, event.ToolCallSummary{
@@ -574,11 +594,11 @@ func (a *ReActAgent) executeToolsStream(
 			// Suspend: wait for external UserConfirmResultEvent
 			ev, err := a.waitForExternalEvent(ctx, confirmID)
 			if err != nil {
-				return nil, fmt.Errorf("permission confirmation wait: %w", err)
+				return nil, nil, fmt.Errorf("permission confirmation wait: %w", err)
 			}
 			confirm, ok := ev.(*event.UserConfirmResultEvent)
 			if !ok {
-				return nil, fmt.Errorf("expected UserConfirmResultEvent, got %T", ev)
+				return nil, nil, fmt.Errorf("expected UserConfirmResultEvent, got %T", ev)
 			}
 
 			// Clear suspend state after resume
@@ -593,7 +613,7 @@ func (a *ReActAgent) executeToolsStream(
 			// Apply decisions: filter out denied tool calls, apply modifications
 			toolCalls = applyConfirmDecisions(toolCalls, confirm.Decisions)
 			if len(toolCalls) == 0 {
-				return message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build(), nil
+				return message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build(), nil, nil
 			}
 			// Q2: session/always-scoped approvals register the matched rule
 			// class as an allow rule so same-class commands stop interrupting
@@ -644,7 +664,9 @@ func (a *ReActAgent) executeToolsStream(
 		tcr        memory.ToolCallResult
 		hasTcr     bool
 		elapsed    float64
-		err        error
+		err        error // hook / infrastructure error only; tool errors live in blocks + isErr
+		isErr      bool  // tool returned an error (fed to model, NOT turn-fatal)
+		errText    string
 	}
 
 	results := make([]result, len(toolCalls))
@@ -675,7 +697,7 @@ func (a *ReActAgent) executeToolsStream(
 
 		ev, err := a.waitForExternalEvent(ctx, confirmID)
 		if err != nil {
-			return nil, fmt.Errorf("external execution wait: %w", err)
+			return nil, nil, fmt.Errorf("external execution wait: %w", err)
 		}
 		a.runtimeMu.Lock()
 		if a.runtimeState != nil {
@@ -687,7 +709,7 @@ func (a *ReActAgent) executeToolsStream(
 
 		ext, ok := ev.(*event.ExternalExecutionResultEvent)
 		if !ok {
-			return nil, fmt.Errorf("expected ExternalExecutionResultEvent, got %T", ev)
+			return nil, nil, fmt.Errorf("expected ExternalExecutionResultEvent, got %T", ev)
 		}
 		byID := map[string]event.ExternalExecutionResult{}
 		for _, r := range ext.Results {
@@ -730,6 +752,8 @@ func (a *ReActAgent) executeToolsStream(
 				toolName:   tc.Name,
 				toolInput:  tc.Input,
 				toolCallID: tc.ID,
+				isErr:      toolErr,
+				errText:    errTextFromBlocks(blocks),
 			}
 			externalDone[idx] = true
 		}
@@ -864,26 +888,36 @@ func (a *ReActAgent) executeToolsStream(
 				tcr:        tcr,
 				hasTcr:     hasTcr,
 				elapsed:    elapsed,
-				err:        toolErr,
+				isErr:      toolErr != nil,
+				errText:    errTextFromToolErr(toolErr),
 			}
 		}()
 	}
 
 	g.Wait()
 
-	// Check for any interrupt errors
+	// Check for any interrupt / hook errors. Tool execution errors are NOT
+	// turn-fatal: they are already encoded in each result's blocks (fed back
+	// to the model) and tracked via isErr for the consecutive-failure breaker.
 	for _, r := range results {
 		if r.err != nil {
 			if hi, ok := r.err.(*hookInterruptError); ok {
-				return hi.override, nil
+				return hi.override, nil, nil
 			}
-			return nil, r.err
+			return nil, nil, r.err
 		}
 	}
 
 	toolResultMsg := message.NewMsg().Role(message.RoleTool)
+	sigs := make([]failureSignal, 0, len(results))
 	for _, r := range results {
 		toolResultMsg.Content(r.resultMsg.Content...)
+		sigs = append(sigs, failureSignal{
+			ToolName: r.toolName,
+			IsError:  r.isErr,
+			ErrText:  r.errText,
+			Blocks:   r.blocks,
+		})
 	}
 
 	// Batch summarize
@@ -901,7 +935,7 @@ func (a *ReActAgent) executeToolsStream(
 		}
 	}
 
-	return toolResultMsg.Build(), nil
+	return toolResultMsg.Build(), sigs, nil
 }
 
 // findToolInput returns the input map for a tool call by ID.

@@ -49,6 +49,31 @@ func TestMatchBashCommand(t *testing.T) {
 	}
 }
 
+// TestMatchBashCommandOrRegex Q1：PyV2 语义优先，正则 pattern 回退命中。
+func TestMatchBashCommandOrRegex(t *testing.T) {
+	// 既有 PyV2 语义不变。
+	if !MatchBashCommandOrRegex("git:*", "git status") {
+		t.Fatal("bash pattern must keep working")
+	}
+	if MatchBashCommandOrRegex("git:*", "gitx status") {
+		t.Fatal("bash pattern must not over-match")
+	}
+	// 正则 pattern（如 guard 的 `\brm\b`）经回退命中。
+	if !MatchBashCommandOrRegex(`\brm\b`, "rm -rf /tmp/x") {
+		t.Fatal("regex pattern must match via fallback")
+	}
+	if !MatchBashCommandOrRegex(`\bsudo\b`, "sudo apt install x") {
+		t.Fatal("regex sudo pattern must match")
+	}
+	if MatchBashCommandOrRegex(`\brm\b`, "echo farm") {
+		t.Fatal("word-boundary must not match inside a word")
+	}
+	// 无效正则：编译失败即不匹配（不 panic）。
+	if MatchBashCommandOrRegex("(unclosed", "anything") {
+		t.Fatal("invalid regex must not match")
+	}
+}
+
 func TestSuggestPathParentGlob(t *testing.T) {
 	rules := SuggestPathParentGlob("view_text_file", "src/main.go")
 	if len(rules) != 1 || rules[0].Pattern != "src/**" {

@@ -3,6 +3,7 @@ package react
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -294,6 +295,112 @@ func TestReActAgent_HITL_PermissionAsk(t *testing.T) {
 
 	if !foundConfirm {
 		t.Fatal("expected RequireUserConfirmEvent")
+	}
+}
+
+// oddToolModel emits a tool-use on odd-numbered Chat calls and a plain "done"
+// on even ones, so two turns each see exactly one tool call followed by a
+// final answer. Used to verify session-scoped ("always") approvals persist
+// across turns.
+type oddToolModel struct {
+	toolName string
+	calls    int
+}
+
+func (m *oddToolModel) Chat(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
+	m.calls++
+	if m.calls%2 == 1 {
+		return message.NewMsg().Role(message.RoleAssistant).
+			Content(message.NewToolUseBlock("tc"+strconv.Itoa(m.calls), m.toolName, map[string]any{})).
+			Build(), nil
+	}
+	return message.NewMsg().Role(message.RoleAssistant).TextContent("done").Build(), nil
+}
+
+func (m *oddToolModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+	msg, err := m.Chat(ctx, messages, options...)
+	if err != nil {
+		return nil, err
+	}
+	ch := make(chan *model.StreamChunk, 4)
+	if text := msg.GetTextContent(); text != "" {
+		ch <- &model.StreamChunk{Delta: text}
+	}
+	if len(msg.Content) > 0 {
+		ch <- &model.StreamChunk{Done: true, Content: msg.Content}
+	} else {
+		ch <- &model.StreamChunk{Done: true}
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (m *oddToolModel) ModelName() string { return "odd-tool-model" }
+
+// TestReActAgent_HITL_AlwaysApprovalPersistsAcrossTurns reproduces kopaw's real
+// config: ModeDefault (no explicit ask rule), so a non-readonly tool asks via
+// the mode default and the eval carries Rule == nil. After the user approves
+// with scope "always", the SAME tool must NOT ask again on the next turn.
+// Regression: previously the approval was silently dropped because the
+// registration code required ev.Rule != nil.
+func TestReActAgent_HITL_AlwaysApprovalPersistsAcrossTurns(t *testing.T) {
+	mockT := &mockTool{name: "mock_tool", result: "tool-result"}
+	m := &oddToolModel{toolName: "mock_tool"}
+	// ModeDefault + NO ask rule: the tool asks purely via the mode default,
+	// exactly like kopaw's AUTO approval level. ev.Rule is nil for such asks.
+	pe := permission.NewEngine(permission.ModeDefault, nil)
+	agent, err := Builder().
+		Name("test").
+		Model(m).
+		Memory(memory.NewInMemoryMemory()).
+		Tools(mockT).
+		PermissionEngine(pe).
+		MaxIterations(3).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Turn 1: expect exactly one confirm; approve with scope "always".
+	ctx := context.Background()
+	ch1, err := agent.ReplyStream(ctx, message.NewMsg().Role(message.RoleUser).TextContent("go").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var turn1Confirms int
+	for ev := range ch1 {
+		if confirm, ok := ev.(*event.RequireUserConfirmEvent); ok {
+			turn1Confirms++
+			_ = agent.InjectEvent(ctx, event.NewUserConfirmResult(confirm.ReplyID(), confirm.ConfirmID, []event.ConfirmDecision{
+				{ToolCallID: confirm.ToolCalls[0].ID, Decision: "always_allow", Scope: "always"},
+			}))
+		}
+	}
+	if turn1Confirms != 1 {
+		t.Fatalf("turn 1: expected exactly 1 confirm, got %d", turn1Confirms)
+	}
+
+	// Turn 2: the "always" approval must persist — no confirm expected. Use a
+	// timeout so a regression (approval not registered → asks again → blocks
+	// waiting for a decision) fails fast instead of hanging the test runner.
+	ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch2, err := agent.ReplyStream(ctx2, message.NewMsg().Role(message.RoleUser).TextContent("again").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var turn2Confirms int
+	for ev := range ch2 {
+		if confirm, ok := ev.(*event.RequireUserConfirmEvent); ok {
+			turn2Confirms++
+			// Drain the confirm so the stream can close instead of blocking.
+			_ = agent.InjectEvent(ctx2, event.NewUserConfirmResult(confirm.ReplyID(), confirm.ConfirmID, []event.ConfirmDecision{
+				{ToolCallID: confirm.ToolCalls[0].ID, Decision: "allow"},
+			}))
+		}
+	}
+	if turn2Confirms != 0 {
+		t.Fatalf("turn 2: expected 0 confirms (always should persist), got %d", turn2Confirms)
 	}
 }
 

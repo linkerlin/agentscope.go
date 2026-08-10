@@ -497,6 +497,55 @@ func TestReActAgent_MaxIterationsReached(t *testing.T) {
 	}
 }
 
+// TestReActAgent_ConsecutiveToolFailure_TextSmuggledError covers tools that
+// return "error: ..." text in the SUCCESS channel (a nil Go error) — the
+// pattern that caused web_fetch to storm before kopaw fixed it. The breaker
+// must still detect such results and stop the loop.
+func TestReActAgent_ConsecutiveToolFailure_TextSmuggledError(t *testing.T) {
+	toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+		message.NewToolUseBlock("call_1", "smuggler", map[string]any{}),
+	).Build()
+	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
+	// Tool returns nil error but "error: rate limited" text — no Go error.
+	smuggler := tool.NewFunctionTool("smuggler", "smuggler", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return tool.NewTextResponse("error: rate limited"), nil
+	})
+	a, _ := Builder().Name("Test").Model(m).Tools(smuggler).MaxIterations(20).Build()
+	resp, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatalf("breaker should end gracefully, got error: %v", err)
+	}
+	if m.calls > 3 {
+		t.Fatalf("retry storm not stopped: model called %d times (msg=%q)", m.calls, resp.GetTextContent())
+	}
+	if !strings.Contains(resp.GetTextContent(), "smuggler") || !strings.Contains(resp.GetTextContent(), "rate limited") {
+		t.Fatalf("breaker message should name tool + reason, got: %q", resp.GetTextContent())
+	}
+}
+
+// TestReActAgent_ConsecutiveToolFailure_NormalContentResetsCount ensures the
+// text-error heuristic does not false-positive on legitimate content: when a
+// tool returns normal text (not starting with "error:"), the failure count
+// resets and the loop continues to a final answer.
+func TestReActAgent_ConsecutiveToolFailure_NormalContentResetsCount(t *testing.T) {
+	toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+		message.NewToolUseBlock("call_1", "goodtool", map[string]any{}),
+	).Build()
+	finalMsg := message.NewMsg().Role(message.RoleAssistant).TextContent("done").Build()
+	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg, toolCallMsg, finalMsg}}
+	good := tool.NewFunctionTool("goodtool", "goodtool", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		return tool.NewTextResponse("error handling guide: see docs"), nil // legit content, NOT an error
+	})
+	a, _ := Builder().Name("Test").Model(m).Tools(good).MaxIterations(20).Build()
+	resp, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.GetTextContent() != "done" {
+		t.Fatalf("expected normal completion, got: %q", resp.GetTextContent())
+	}
+}
+
 // TestReActAgent_ConsecutiveToolFailureBreaker guards against the retry storm:
 // when the same tool fails repeatedly, the loop must stop early with a helpful
 // message instead of burning all maxIterations (issue: "Edge: Too Many Requests"

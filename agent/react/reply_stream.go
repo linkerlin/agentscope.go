@@ -619,12 +619,16 @@ func (a *ReActAgent) executeToolsStream(
 						continue
 					}
 					ev, ok := evalByID[d.ToolCallID]
-					if !ok || ev.Rule == nil {
+					if !ok {
 						continue
 					}
-					allow := *ev.Rule
+					base := approvalRuleForEval(ev)
+					if base == nil {
+						continue
+					}
+					allow := *base
 					allow.Decision = permission.DecisionAllow
-					allow.Name = "session-approved:" + ev.Rule.Name
+					allow.Name = "session-approved:" + allow.Name
 					a.permissionEngine.ApproveRuleClass(allow)
 				}
 			}
@@ -905,6 +909,37 @@ func findToolInput(calls []*message.ToolUseBlock, id string) map[string]any {
 	for _, c := range calls {
 		if c.ID == id {
 			return c.Input
+		}
+	}
+	return nil
+}
+
+// approvalRuleForEval returns the permission.Rule to register when the user
+// approves a tool call with session/always scope. It prefers the rule that
+// actually produced the ASK (ev.Rule) so the approval is scoped to the same
+// rule class. When ev.Rule is nil -- which happens when the ask came from the
+// mode default (e.g. kopaw's AUTO = ModeDefault), a tool's own permission
+// decider, or a safety check -- it synthesizes one from the eval's suggested
+// rules (command-prefix for bash, dir-pattern for files) or, as a last
+// resort, a tool-name rule. Without this, an "always" approval was silently
+// dropped for mode-default asks, so the tool kept prompting every turn.
+func approvalRuleForEval(ev *permission.Result) *permission.Rule {
+	if ev == nil {
+		return nil
+	}
+	if ev.Rule != nil {
+		return ev.Rule
+	}
+	if len(ev.SuggestedRules) > 0 {
+		r := ev.SuggestedRules[0]
+		return &r
+	}
+	if ev.ToolName != "" {
+		return &permission.Rule{
+			Name:     "tool:" + ev.ToolName,
+			ToolName: ev.ToolName,
+			Target:   "tool_name",
+			Pattern:  ev.ToolName,
 		}
 	}
 	return nil

@@ -82,6 +82,32 @@ func truncateRunes(s string, n int) string {
 	return string(rs[:n]) + "…"
 }
 
+// toolResultLooksLikeError detects tools that smuggle an error into the success
+// channel as a single short text block starting with "error:" — a codebase
+// convention (the framework itself formats Go errors as "error: <msg>", and
+// several kopaw tools historically returned tool.NewTextResponse("error: ...")
+// with a nil error). Returns (true, text) so the consecutive-failure breaker
+// can still count these as failures and stop the retry storm.
+//
+// Conservative by design: only a SINGLE text block whose trimmed text starts
+// with the marker counts. Real fetched content (HTML/JSON/markdown) is never
+// a bare one-liner starting with "error:", so false positives are effectively
+// impossible in practice.
+func toolResultLooksLikeError(blocks []message.ContentBlock) (bool, string) {
+	if len(blocks) != 1 {
+		return false, ""
+	}
+	tb, ok := blocks[0].(*message.TextBlock)
+	if !ok {
+		return false, ""
+	}
+	t := strings.TrimSpace(tb.Text)
+	if !strings.HasPrefix(strings.ToLower(t), "error:") {
+		return false, ""
+	}
+	return true, t
+}
+
 // ErrAgentClosed is returned when calling a shut-down agent.
 var ErrAgentClosed = errors.New("react agent: agent is closed")
 
@@ -945,9 +971,20 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 		// until maxIterations (e.g. HTTP 429 "Too Many Requests" retried 6x).
 		if a.maxConsecutiveToolFailures > 0 {
 			for _, r := range results {
-				if r.isErr {
+				failed, reason := r.isErr, r.errMsg
+				if !failed {
+					// Defense-in-depth: a tool that smuggles its error into the
+					// success channel as "error: ..." text still counts as a
+					// failure (covers MCP/extension tools outside our control).
+					if isErrText, txt := toolResultLooksLikeError(r.contentBlocks); isErrText {
+						failed, reason = true, txt
+					}
+				}
+				if failed {
 					consecutiveToolFailures[r.toolName]++
-					lastToolErr[r.toolName] = r.errMsg
+					if reason != "" {
+						lastToolErr[r.toolName] = reason
+					}
 				} else {
 					consecutiveToolFailures[r.toolName] = 0
 				}

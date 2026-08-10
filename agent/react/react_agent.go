@@ -50,6 +50,7 @@ type ReActAgent struct {
 	toolkit        *toolkit.Toolkit
 	memory         memory.Memory
 	maxIterations  int
+	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
 	toolMap        map[string]tool.Tool
 	shutdownConfig shutdown.GracefulShutdownConfig
 
@@ -87,6 +88,7 @@ type ReActAgentBuilder struct {
 	toolkit        *toolkit.Toolkit
 	memory         memory.Memory
 	maxIterations  int
+	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
 	hooks          []hook.Hook
 	streamHooks    []hook.StreamHook
 	middlewares    []middleware.Middleware
@@ -168,6 +170,13 @@ func (b *ReActAgentBuilder) Memory(mem memory.Memory) *ReActAgentBuilder {
 //nolint:revive
 func (b *ReActAgentBuilder) MaxIterations(n int) *ReActAgentBuilder {
 	b.maxIterations = n
+	return b
+}
+
+// MaxTurnDuration caps the wall-clock time of a single turn (Q8). 0 disables.
+// When the cap expires the turn is cancelled the same way a context abort is.
+func (b *ReActAgentBuilder) MaxTurnDuration(d time.Duration) *ReActAgentBuilder {
+	b.maxTurnDuration = d
 	return b
 }
 
@@ -313,6 +322,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		toolkit:          b.toolkit,
 		memory:           b.memory,
 		maxIterations:    b.maxIterations,
+		maxTurnDuration:  b.maxTurnDuration,
 		toolMap:          toolMap,
 		shutdownConfig:   b.shutdownConfig,
 		waiters:          make(map[string]chan event.AgentEvent),

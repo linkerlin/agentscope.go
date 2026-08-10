@@ -165,3 +165,43 @@ func TestReActAgent_AbortMidTurn(t *testing.T) {
 		}
 	}
 }
+
+func TestReActAgent_TurnWallClockCap(t *testing.T) {
+	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
+	agent, err := Builder().
+		Name("wallclock-test").
+		Model(m).
+		Memory(memory.NewInMemoryMemory()).
+		Tools(&mockTool{name: "mock_tool", result: "ok"}).
+		MaxIterations(20).
+		MaxTurnDuration(100 * time.Millisecond). // 墙钟上限：第一轮模型调用尚未放行即到期
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evCh, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("start").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-m.firstEntered
+
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev, ok := <-evCh:
+			if !ok {
+				if agent.ActiveTurn() {
+					t.Fatal("capped turn must not remain active")
+				}
+				return
+			}
+			if e, ok := ev.(*event.ErrorEvent); ok && e.Err != "" {
+				// 墙钟到期以错误事件终结也可接受。
+				return
+			}
+		case <-deadline:
+			t.Fatal("wall-clock cap did not terminate the turn in time")
+		}
+	}
+}

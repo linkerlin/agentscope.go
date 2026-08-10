@@ -63,6 +63,13 @@ func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out 
 		a.steerMu.Unlock()
 	}()
 
+	// Q8: 单回合墙钟上限（0=不限）；到期即同 ctx 取消。
+	if a.maxTurnDuration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.maxTurnDuration)
+		defer cancel()
+	}
+
 	a.runtimeMu.Lock()
 	var replyID string
 	var isResume bool

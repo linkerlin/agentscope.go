@@ -23,6 +23,15 @@ func NormalizeCommand(cmd string) string {
 	return cmd
 }
 
+// sudoValueFlags are sudo/doas options that consume a separate value argument
+// (e.g. `sudo -u root rm -rf /`). Boolean flags (-n, -s, -i, -v, ...) are
+// stripped singly. Without this, `sudo -u root -- rm -rf /` never unwraps to
+// `rm -rf /` and the safety checks miss the dangerous inner command.
+var sudoValueFlags = map[string]bool{
+	"-u": true, "-g": true, "-p": true, "-h": true, "-D": true,
+	"-U": true, "-C": true, "-T": true, "-R": true,
+}
+
 // unwrapOnce applies a single normalization step: strip a leading wrapper
 // token, or strip quoting when no wrapper is present.
 func unwrapOnce(cmd string) string {
@@ -35,7 +44,15 @@ func unwrapOnce(cmd string) string {
 	}
 	switch tokens[0] {
 	case "sudo", "doas":
-		return joinTokens(tokens[1:])
+		rest := tokens[1:]
+		for len(rest) > 0 && strings.HasPrefix(rest[0], "-") && rest[0] != "-" {
+			f := rest[0]
+			rest = rest[1:]
+			if sudoValueFlags[f] && len(rest) > 0 {
+				rest = rest[1:] // consume the option's value
+			}
+		}
+		return joinTokens(rest)
 	case "sh", "bash", "dash", "zsh", "ksh":
 		if len(tokens) > 1 && tokens[1] == "-c" {
 			return joinTokens(tokens[2:])

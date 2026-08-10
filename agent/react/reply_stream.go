@@ -34,6 +34,7 @@ func (a *ReActAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan 
 	if a.eventBus != nil {
 		// Bridge: copy every event to both the returned channel and the event bus.
 		bridge := make(chan event.AgentEvent, 64)
+		a.bumpActive()
 		go func() {
 			defer close(out)
 			for ev := range bridge {
@@ -45,6 +46,7 @@ func (a *ReActAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan 
 		return out, nil
 	}
 
+	a.bumpActive()
 	go a.replyStreamLoop(ctx, msg, out)
 	return out, nil
 }
@@ -53,10 +55,9 @@ func (a *ReActAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan 
 func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out chan<- event.AgentEvent) {
 	defer close(out)
 
-	// Q8: register this turn for steer/active-turn tracking.
-	a.steerMu.Lock()
-	a.activeTurns++
-	a.steerMu.Unlock()
+	// Q8: unregister this turn when the loop ends. The increment happened
+	// synchronously in ReplyStream (bumpActive) so Steer right after
+	// ReplyStream returns sees the active turn without a race.
 	defer func() {
 		a.steerMu.Lock()
 		a.activeTurns--
@@ -720,7 +721,7 @@ func (a *ReActAgent) executeToolsStream(
 			out <- event.NewToolResultEnd(replyID, idx, tc.ID)
 			results[idx] = result{
 				blocks:     blocks,
-				resultMsg:  message.NewMsg().Role(message.RoleTool).Content(message.NewToolResultBlock(tc.ID, blocks, toolErr)).Build(),
+				resultMsg:  message.NewMsg().Role(message.RoleTool).Content(message.NewToolResultBlock(tc.ID, a.labelToolResultBlocks(tc.Name, blocks), toolErr)).Build(),
 				toolName:   tc.Name,
 				toolInput:  tc.Input,
 				toolCallID: tc.ID,
@@ -808,7 +809,7 @@ func (a *ReActAgent) executeToolsStream(
 			out <- event.NewToolResultEnd(replyID, idx, tc.ID)
 
 			resultMsg := message.NewMsg().Role(message.RoleTool).Content(
-				message.NewToolResultBlock(tc.ID, blocks, toolErr != nil),
+				message.NewToolResultBlock(tc.ID, a.labelToolResultBlocks(tc.Name, blocks), toolErr != nil),
 			).Build()
 
 			// After-tool hook

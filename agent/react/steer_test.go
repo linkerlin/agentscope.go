@@ -2,6 +2,7 @@ package react
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,6 +167,61 @@ func TestReActAgent_AbortMidTurn(t *testing.T) {
 	}
 }
 
+func TestReActAgent_ToolResultLabels(t *testing.T) {
+	// 开启标签：第二轮模型调用的历史里工具结果消息带 [tool_result:mock_tool]。
+	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
+	agent, err := Builder().
+		Name("labels-test").
+		Model(m).
+		Memory(memory.NewInMemoryMemory()).
+		Tools(&mockTool{name: "mock_tool", result: "tool-out"}).
+		MaxIterations(5).
+		WithToolResultLabels(true).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evCh, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("go").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-m.firstEntered
+	close(m.release)
+	for ev := range evCh {
+		if e, ok := ev.(*event.ErrorEvent); ok && e.Err != "" {
+			t.Fatalf("turn error: %s", e.Err)
+		}
+	}
+
+	// 第二轮（最终轮）历史应含带来源标签的工具结果。
+	if len(m.histories) < 2 {
+		t.Fatalf("expected >=2 model calls, got %d", len(m.histories))
+	}
+	var found bool
+	for _, msg := range m.histories[1] {
+		if msg.Role != message.RoleTool {
+			continue
+		}
+		for _, c := range msg.Content {
+			if tb, ok := c.(*message.TextBlock); ok && strings.Contains(tb.Text, "[tool_result:mock_tool]") {
+				found = true
+			}
+			// 标签在 ToolResultBlock 内部。
+			if tr, ok := c.(*message.ToolResultBlock); ok {
+				for _, inner := range tr.Content {
+					if itb, ok := inner.(*message.TextBlock); ok && strings.Contains(itb.Text, "[tool_result:mock_tool]") {
+						found = true
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("tool result must carry the provenance header when enabled")
+	}
+}
+
 func TestReActAgent_TurnWallClockCap(t *testing.T) {
 	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
 	agent, err := Builder().
@@ -203,5 +259,60 @@ func TestReActAgent_TurnWallClockCap(t *testing.T) {
 		case <-deadline:
 			t.Fatal("wall-clock cap did not terminate the turn in time")
 		}
+	}
+}
+
+func TestReActAgent_CallHonorsMaxTurnDuration(t *testing.T) {
+	// Parity: MaxTurnDuration must cap the synchronous Call path too (the cap
+	// was previously applied only to ReplyStream).
+	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
+	agent, err := Builder().
+		Name("call-wallclock").
+		Model(m).
+		Memory(memory.NewInMemoryMemory()).
+		Tools(&mockTool{name: "mock_tool", result: "ok"}).
+		MaxIterations(20).
+		MaxTurnDuration(100 * time.Millisecond).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	_, err = agent.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("start").Build())
+	if err == nil {
+		t.Fatal("Call must return an error when the wall-clock cap expires mid-turn")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("Call ignored MaxTurnDuration: took %v", elapsed)
+	}
+	if agent.ActiveTurn() {
+		t.Fatal("Call path must not leave an active turn")
+	}
+}
+
+func TestReActAgent_SteerQueueCap(t *testing.T) {
+	m := &steerMockModel{firstEntered: make(chan struct{}), release: make(chan struct{})}
+	agent, err := newSteerAgent(t, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evCh, err := agent.ReplyStream(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("start").Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-m.firstEntered
+
+	for i := 0; i < steerQueueCap; i++ {
+		if err := agent.Steer("m"); err != nil {
+			t.Fatalf("steer %d: %v", i, err)
+		}
+	}
+	if err := agent.Steer("overflow"); err == nil {
+		t.Fatal("steer beyond the queue cap must fail")
+	}
+
+	close(m.release)
+	for range evCh {
 	}
 }

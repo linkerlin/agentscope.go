@@ -45,14 +45,14 @@ func (e *hookInterruptError) Error() string { return "hook interrupted" }
 type ReActAgent struct {
 	*agent.Base
 
-	chatModel      model.ChatModel
-	tools          []tool.Tool
-	toolkit        *toolkit.Toolkit
-	memory         memory.Memory
-	maxIterations  int
+	chatModel       model.ChatModel
+	tools           []tool.Tool
+	toolkit         *toolkit.Toolkit
+	memory          memory.Memory
+	maxIterations   int
 	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
-	toolMap        map[string]tool.Tool
-	shutdownConfig shutdown.GracefulShutdownConfig
+	toolMap         map[string]tool.Tool
+	shutdownConfig  shutdown.GracefulShutdownConfig
 
 	// V2 runtime state (suspend-resume support)
 	runtimeMu    sync.Mutex
@@ -75,25 +75,29 @@ type ReActAgent struct {
 	steerMu     sync.Mutex
 	steerQueue  []string
 	activeTurns int
+
+	// Q4: 工具结果来源标签（[tool_result:<name>]），默认关。
+	toolResultLabels bool
 }
 
 // ReActAgentBuilder provides a fluent API for constructing ReActAgent
 type ReActAgentBuilder struct {
-	agentID        string
-	name           string
-	description    string
-	sysPrompt      string
-	chatModel      model.ChatModel
-	tools          []tool.Tool
-	toolkit        *toolkit.Toolkit
-	memory         memory.Memory
-	maxIterations  int
-	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
-	hooks          []hook.Hook
-	streamHooks    []hook.StreamHook
-	middlewares    []middleware.Middleware
-	meta           map[string]any
-	shutdownConfig shutdown.GracefulShutdownConfig
+	agentID          string
+	name             string
+	description      string
+	sysPrompt        string
+	chatModel        model.ChatModel
+	tools            []tool.Tool
+	toolkit          *toolkit.Toolkit
+	memory           memory.Memory
+	maxIterations    int
+	maxTurnDuration  time.Duration // Q8: 单回合墙钟上限（0=不限）
+	hooks            []hook.Hook
+	streamHooks      []hook.StreamHook
+	middlewares      []middleware.Middleware
+	meta             map[string]any
+	shutdownConfig   shutdown.GracefulShutdownConfig
+	toolResultLabels bool // Q4: 工具结果来源标签（默认关）
 
 	// V2 fields
 	permissionEngine *permission.Engine
@@ -177,6 +181,14 @@ func (b *ReActAgentBuilder) MaxIterations(n int) *ReActAgentBuilder {
 // When the cap expires the turn is cancelled the same way a context abort is.
 func (b *ReActAgentBuilder) MaxTurnDuration(d time.Duration) *ReActAgentBuilder {
 	b.maxTurnDuration = d
+	return b
+}
+
+// WithToolResultLabels prepends a provenance header ([tool_result:<name>]) to
+// tool result messages in history (Q4). Off by default; consumers that want
+// external tool outputs attributable to their source enable it.
+func (b *ReActAgentBuilder) WithToolResultLabels(v bool) *ReActAgentBuilder {
+	b.toolResultLabels = v
 	return b
 }
 
@@ -323,6 +335,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		memory:           b.memory,
 		maxIterations:    b.maxIterations,
 		maxTurnDuration:  b.maxTurnDuration,
+		toolResultLabels: b.toolResultLabels,
 		toolMap:          toolMap,
 		shutdownConfig:   b.shutdownConfig,
 		waiters:          make(map[string]chan event.AgentEvent),
@@ -384,23 +397,44 @@ func extractUsage(msg *message.Msg) model.ChatUsage {
 	return model.ChatUsage{}
 }
 
-// Call executes the ReAct loop and returns the final response
 // Call executes the agent synchronously (V1 API).
+// MaxTurnDuration applies here too (parity with ReplyStream): the same
+// wall-clock cap cancels a synchronous turn when it expires.
 func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
+	if a.maxTurnDuration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.maxTurnDuration)
+		defer cancel()
+	}
 	return a.Base.Call(ctx, msg, a.replyInternal)
 }
 
 // Steer injects a user message into the running turn (Q8). The message is
 // appended to history at the next loop iteration, so the model sees it within
-// the same turn. Returns an error when no turn is running.
+// the same turn. Returns an error when no turn is running or the queue is full.
 func (a *ReActAgent) Steer(text string) error {
 	a.steerMu.Lock()
 	defer a.steerMu.Unlock()
 	if a.activeTurns == 0 {
 		return errors.New("react agent: no active turn to steer")
 	}
+	if len(a.steerQueue) >= steerQueueCap {
+		return errors.New("react agent: steer queue full")
+	}
 	a.steerQueue = append(a.steerQueue, text)
 	return nil
+}
+
+// steerQueueCap bounds queued steer messages so a flood cannot grow memory.
+const steerQueueCap = 64
+
+// bumpActive registers one in-flight turn. Called synchronously in
+// ReplyStream BEFORE the loop goroutine is spawned so a caller can Steer
+// immediately after ReplyStream returns (no TOCTOU window).
+func (a *ReActAgent) bumpActive() {
+	a.steerMu.Lock()
+	a.activeTurns++
+	a.steerMu.Unlock()
 }
 
 // ActiveTurn reports whether a ReplyStream turn is currently running (Q8).
@@ -419,6 +453,18 @@ func (a *ReActAgent) drainSteer() []string {
 	}
 	out := append([]string(nil), a.steerQueue...)
 	a.steerQueue = nil
+	return out
+}
+
+// labelToolResultBlocks optionally prepends a provenance header to tool result
+// content (Q4). The model sees the tool name as the source of external data.
+func (a *ReActAgent) labelToolResultBlocks(toolName string, blocks []message.ContentBlock) []message.ContentBlock {
+	if !a.toolResultLabels {
+		return blocks
+	}
+	out := make([]message.ContentBlock, 0, len(blocks)+1)
+	out = append(out, message.NewTextBlock(fmt.Sprintf("[tool_result:%s]", toolName)))
+	out = append(out, blocks...)
 	return out
 }
 

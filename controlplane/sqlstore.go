@@ -57,6 +57,7 @@ func InitSchema(db *sql.DB) error {
 			capability_id TEXT NOT NULL DEFAULT '',
 			objective TEXT NOT NULL DEFAULT '',
 			scope TEXT NOT NULL DEFAULT '[]',
+			registered_agents TEXT NOT NULL DEFAULT '[]',
 			authority TEXT NOT NULL DEFAULT '[]',
 			state TEXT NOT NULL DEFAULT 'active',
 			current_todo_id TEXT NOT NULL DEFAULT '',
@@ -290,7 +291,7 @@ func (s *SQLGoalStore) qr(ctx context.Context) queryer {
 // Get returns the goal, or ErrGoalNotFound.
 func (s *SQLGoalStore) Get(ctx context.Context, id string) (*Goal, error) {
 	row := s.qr(ctx).QueryRowContext(ctx,
-		`SELECT id, owner_user_id, capability_id, objective, scope, authority, state, current_todo_id, quota, created_at, updated_at
+		`SELECT id, owner_user_id, capability_id, objective, scope, registered_agents, authority, state, current_todo_id, quota, created_at, updated_at
 		 FROM cp_goals WHERE id = ?`, id)
 	g, err := scanGoal(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -310,13 +311,14 @@ func (s *SQLGoalStore) Upsert(ctx context.Context, g *Goal) error {
 	}
 	g.UpdatedAt = now
 	_, err := s.ex(ctx).ExecContext(ctx,
-		`INSERT INTO cp_goals (id, owner_user_id, capability_id, objective, scope, authority, state, current_todo_id, quota, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		`INSERT INTO cp_goals (id, owner_user_id, capability_id, objective, scope, registered_agents, authority, state, current_todo_id, quota, created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   owner_user_id=excluded.owner_user_id, capability_id=excluded.capability_id, objective=excluded.objective, scope=excluded.scope,
+		   registered_agents=excluded.registered_agents,
 		   authority=excluded.authority, state=excluded.state, current_todo_id=excluded.current_todo_id,
 		   quota=excluded.quota, updated_at=excluded.updated_at`,
-		g.ID, g.OwnerUserID, g.CapabilityID, g.Objective, encJSON(g.Scope), encJSON(g.Authority),
+		g.ID, g.OwnerUserID, g.CapabilityID, g.Objective, encJSON(g.Scope), encJSON(g.RegisteredAgents), encJSON(g.Authority),
 		string(g.State), g.CurrentTodoID, encJSON(g.Quota), ts(g.CreatedAt), ts(g.UpdatedAt))
 	return err
 }
@@ -330,7 +332,7 @@ func (s *SQLGoalStore) Delete(ctx context.Context, id string) error {
 // List returns all goals.
 func (s *SQLGoalStore) List(ctx context.Context) ([]*Goal, error) {
 	rows, err := s.qr(ctx).QueryContext(ctx,
-		`SELECT id, owner_user_id, capability_id, objective, scope, authority, state, current_todo_id, quota, created_at, updated_at
+		`SELECT id, owner_user_id, capability_id, objective, scope, registered_agents, authority, state, current_todo_id, quota, created_at, updated_at
 		 FROM cp_goals ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
@@ -353,13 +355,14 @@ type scanner interface {
 
 func scanGoal(sc scanner) (*Goal, error) {
 	var g Goal
-	var scope, authority, quota, state, created, updated string
-	if err := sc.Scan(&g.ID, &g.OwnerUserID, &g.CapabilityID, &g.Objective, &scope, &authority,
+	var scope, regAgents, authority, quota, state, created, updated string
+	if err := sc.Scan(&g.ID, &g.OwnerUserID, &g.CapabilityID, &g.Objective, &scope, &regAgents, &authority,
 		&state, &g.CurrentTodoID, &quota, &created, &updated); err != nil {
 		return nil, err
 	}
 	g.State = GoalState(state)
 	decJSONInto(scope, &g.Scope)
+	decJSONInto(regAgents, &g.RegisteredAgents)
 	decJSONInto(authority, &g.Authority)
 	decJSONInto(quota, &g.Quota)
 	g.CreatedAt = parseTS(created)

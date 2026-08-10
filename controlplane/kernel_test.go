@@ -1110,3 +1110,84 @@ func TestRevokeRewardUnblocksGoal(t *testing.T) {
 	err = k.RevokeReward(ctxBG(), g.ID, "ghost")
 	assert.ErrorIs(t, err, ErrRewardNotFound)
 }
+
+// --- round-7 wrap-up: abandoned tickets, agent registration, metrics ---
+
+func TestReapUnconsumedRemovesOnlyAbandoned(t *testing.T) {
+	ts := NewMemoryTicketStore()
+	ctx := ctxBG()
+	_, err := ts.Mint(ctx, "g", "turn-new")
+	require.NoError(t, err)
+	_, err = ts.Mint(ctx, "g", "turn-kept")
+	require.NoError(t, err)
+	// Backdate one ticket to simulate an abandoned turn.
+	// (Memory store has no backdate hook; verify via SQL store which can UPDATE.)
+	db := openDB(t, ":memory:")
+	require.NoError(t, InitSchema(db))
+	tsql := NewSQLTicketStore(db)
+	tok, err := tsql.Mint(ctx, "g", "turn-old")
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE cp_tickets SET minted_at = ? WHERE turn_id='turn-old'`, ts2(time.Now().UTC().Add(-48*time.Hour)))
+	require.NoError(t, err)
+	require.NoError(t, tsql.ReapUnconsumed(ctx, 24*time.Hour))
+	// turn-old removed -> Consume now reports no ticket.
+	err = tsql.Consume(ctx, "g", "turn-old", tok)
+	assert.ErrorIs(t, err, ErrNoShouldRunTicket, "abandoned (unconsumed+old) ticket reaped")
+	// turn-new still present.
+	tok2, err := tsql.Mint(ctx, "g", "turn-new")
+	require.NoError(t, err)
+	require.NotEmpty(t, tok2, "fresh unconsumed ticket survives ReapUnconsumed")
+}
+
+func TestShouldRunRejectsUnregisteredAgent(t *testing.T) {
+	k, _, g, _ := seedKernel(t, DefaultQuota())
+	// Open goal: any agent may run.
+	dec, _ := k.ShouldRun(ctxBG(), g.ID, "anyone")
+	assert.True(t, dec.ShouldRun)
+
+	// Restrict to registered agents.
+	g.RegisteredAgents = []string{"worker-a"}
+	require.NoError(t, k.GoalStore().Upsert(ctxBG(), g))
+	dec2, _ := k.ShouldRun(ctxBG(), g.ID, "intruder")
+	assert.False(t, dec2.ShouldRun, "unregistered agent fails closed")
+	assert.Equal(t, RouteContractError, dec2.Route)
+	assert.Contains(t, dec2.Reason, "not registered")
+	dec3, _ := k.ShouldRun(ctxBG(), g.ID, "worker-a")
+	assert.True(t, dec3.ShouldRun, "registered agent runs")
+}
+
+func TestMetricsCounters(t *testing.T) {
+	k, _, g, todo := seedKernel(t, DefaultQuota())
+	ctx := ctxBG()
+	// eligible + blocked turns
+	dec, _ := k.ShouldRun(ctx, g.ID, "a1")
+	assert.True(t, dec.ShouldRun)
+	require.NoError(t, k.OpenGate(ctx, UserGate{GateID: "gm", GoalID: g.ID, Question: "q?", Scope: DecisionScope{Kind: ScopeWrite, ScopeKey: "x"}}))
+	_, _ = k.ShouldRun(ctx, g.ID, "a1") // blocked
+	// gate + writeback + spend
+	require.NoError(t, k.ResolveGate(ctx, g.ID, "gm", GateOutcome{Decision: DecisionApprove, By: "a1"}))
+	_, err := k.Writeback(ctx, ValidatedWriteback{GoalID: g.ID, TodoID: todo.ID, TurnID: "t1", AgentID: "a1", Outcome: Outcome{Status: OutcomeProgress}, Evidence: []Evidence{{ID: "e", Kind: "k", Summary: "s"}}})
+	require.NoError(t, err)
+	_, err = k.SpendSlot(ctx, g.ID, "t1", SpendOpts{Execute: true})
+	require.NoError(t, err)
+	// reward record + revoke
+	require.NoError(t, k.RecordReward(ctx, g.ID, RewardRecord{Class: AuthoritySoftPreference, Content: "prefer x"}))
+	recs, _ := k.RewardStore().List(ctx, g.ID)
+	var rid string
+	for _, r := range recs {
+		if r.Class == AuthoritySoftPreference {
+			rid = r.ID
+		}
+	}
+	require.NoError(t, k.RevokeReward(ctx, g.ID, rid))
+
+	m := k.Metrics()
+	assert.Equal(t, int64(1), m.ShouldRunEligible)
+	assert.Equal(t, int64(1), m.ShouldRunBlocked)
+	assert.Equal(t, int64(1), m.GatesOpened)
+	assert.Equal(t, int64(1), m.GatesResolved)
+	assert.Equal(t, int64(1), m.Writebacks)
+	assert.Equal(t, int64(1), m.SpendExecuted)
+	assert.Equal(t, int64(1), m.RewardsRecorded)
+	assert.Equal(t, int64(1), m.RewardsRevoked)
+}

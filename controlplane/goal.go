@@ -20,17 +20,21 @@ type AuthoritySrc struct {
 // can recover the objective, its scope, its authority, and the next safe
 // transition. This is the LoopX "lifetime goal invariant".
 type Goal struct {
-	ID            string         `json:"id"`
-	OwnerUserID   string         `json:"owner_user_id,omitempty"` // tenant scope (#5); empty = legacy/global
-	CapabilityID  string         `json:"capability_id,omitempty"` // lane this goal runs, e.g. "issue-fix" (#3c)
-	Objective     string         `json:"objective"`
-	Scope         []string       `json:"scope,omitempty"`     // explicit boundaries / non-goals
-	Authority     []AuthoritySrc `json:"authority,omitempty"` // who may change this goal
-	State         GoalState      `json:"state"`               // active|paused|completed|abandoned
-	CurrentTodoID string         `json:"current_todo_id,omitempty"`
-	Quota         Quota          `json:"quota"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	ID           string   `json:"id"`
+	OwnerUserID  string   `json:"owner_user_id,omitempty"` // tenant scope (#5); empty = legacy/global
+	CapabilityID string   `json:"capability_id,omitempty"` // lane this goal runs, e.g. "issue-fix" (#3c)
+	Objective    string   `json:"objective"`
+	Scope        []string `json:"scope,omitempty"` // explicit boundaries / non-goals
+	// RegisteredAgents restricts which agents may run this goal. Empty =
+	// open (any agent). When non-empty, ShouldRun fails closed for unregistered
+	// agent ids (LoopX peer_v1 parity — only registered peers may act).
+	RegisteredAgents []string       `json:"registered_agents,omitempty"`
+	Authority        []AuthoritySrc `json:"authority,omitempty"` // who may change this goal
+	State            GoalState      `json:"state"`               // active|paused|completed|abandoned
+	CurrentTodoID    string         `json:"current_todo_id,omitempty"`
+	Quota            Quota          `json:"quota"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 }
 
 // goalTransitions is the legal state-transition table. Terminal states have

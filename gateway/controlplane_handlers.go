@@ -50,6 +50,7 @@ func (s *Server) RegisterControlPlaneRoutes() {
 	mux.HandleFunc("POST /api/v1/controlplane/goals/{id}/rewards", s.requireAuth(s.handleCPRecordReward))
 	mux.HandleFunc("POST /api/v1/controlplane/goals/{id}/rewards/{rid}/revoke", s.requireAuth(s.handleCPRevokeReward))
 	mux.HandleFunc("POST /api/v1/controlplane/maintenance", s.requireAuth(s.handleCPMaintenance))
+	mux.HandleFunc("GET /api/v1/controlplane/metrics", s.requireAuth(s.handleCPMetrics))
 }
 
 func (s *Server) cp() (*controlplane.Kernel, bool) {
@@ -655,6 +656,17 @@ func (s *Server) handleCPRevokeReward(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"revoked": true, "record_id": rid})
 }
 
+// handleCPMetrics returns the control plane's runtime counters (#3): eligible/
+// blocked turns, spends, gate load, writebacks, supersedes, reward activity.
+func (s *Server) handleCPMetrics(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.cp()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, errCPDisabled())
+		return
+	}
+	writeJSON(w, http.StatusOK, k.Metrics())
+}
+
 // handleCPMaintenance triggers storage housekeeping (#2 round-5): reaps
 // consumed tickets, spent deliveries, and inactive rewards older than
 // older_days, and compacts each goal's ledger to its last keep_last_n events.
@@ -668,8 +680,9 @@ func (s *Server) handleCPMaintenance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		OlderDays int `json:"older_days,omitempty"`
-		KeepLastN int `json:"keep_last_n,omitempty"`
+		OlderDays   int `json:"older_days,omitempty"`
+		AbandonDays int `json:"abandon_days,omitempty"`
+		KeepLastN   int `json:"keep_last_n,omitempty"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -679,15 +692,19 @@ func (s *Server) handleCPMaintenance(w http.ResponseWriter, r *http.Request) {
 	if olderThan <= 0 {
 		olderThan = 24 * time.Hour
 	}
+	abandonTTL := time.Duration(req.AbandonDays) * 24 * time.Hour
+	if abandonTTL <= 0 {
+		abandonTTL = 7 * 24 * time.Hour // abandoned (never-consumed) ticket TTL
+	}
 	keepLastN := req.KeepLastN
 	if keepLastN <= 0 {
 		keepLastN = 200
 	}
-	if err := k.ReapAll(r.Context(), olderThan, keepLastN); err != nil {
+	if err := k.ReapAll(r.Context(), olderThan, abandonTTL, keepLastN); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reaped": true, "older_than": olderThan.String(), "keep_last_n": keepLastN})
+	writeJSON(w, http.StatusOK, map[string]any{"reaped": true, "older_than": olderThan.String(), "abandon_ttl": abandonTTL.String(), "keep_last_n": keepLastN})
 }
 
 // decodeJSON is the gateway's shared JSON request decoder. It caps the request

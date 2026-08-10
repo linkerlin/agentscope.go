@@ -112,7 +112,7 @@ func (k *Kernel) SupersedeTodo(ctx context.Context, goalID, oldTodoID, agentID, 
 	if err != nil {
 		return nil, err
 	}
-
+	k.metrics.supersedes.Add(1)
 	k.record(ctx, Event{
 		Kind: EventDecision, Type: "todo_superseded",
 		GoalID: goalID, TodoID: successor.ID,

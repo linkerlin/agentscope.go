@@ -10,6 +10,9 @@ func cloneGoal(g *Goal) *Goal {
 	if g.Scope != nil {
 		cp.Scope = append([]string(nil), g.Scope...)
 	}
+	if g.RegisteredAgents != nil {
+		cp.RegisteredAgents = append([]string(nil), g.RegisteredAgents...)
+	}
 	if g.Authority != nil {
 		cp.Authority = append([]AuthoritySrc(nil), g.Authority...)
 	}

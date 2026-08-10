@@ -117,7 +117,7 @@ func main() {
 
 	// --- 6. Maintenance: reap + compact via ReapAll ---
 	fmt.Println("\n== 6. Maintenance (ReapAll) ==")
-	must(kA.ReapAll(ctx, time.Hour, 200))
+	must(kA.ReapAll(ctx, time.Hour, 7*24*time.Hour, 200))
 	fmt.Println("  reaped consumed tickets/deliveries/inactive rewards, compacted ledgers")
 
 	// --- 7. Review packet: active policies + recent lineage surfaced ---

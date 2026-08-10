@@ -101,6 +101,7 @@ type Kernel struct {
 	rewards       RewardStore
 	deliveries    DeliveryStore
 	txStarter     func(ctx context.Context, fn func(context.Context) error) error
+	metrics       *metrics
 	enforceTicket bool
 }
 
@@ -129,8 +130,15 @@ func NewKernel(g GoalStore, t TodoStore, s SpendLog) *Kernel {
 		tickets:      NewMemoryTicketStore(),
 		rewards:      NewMemoryRewardStore(),
 		deliveries:   NewMemoryDeliveryStore(),
+		metrics:      newMetrics(),
 	}
 }
+
+// Metrics returns a snapshot of the control plane's runtime counters (#3):
+// how many turns were eligible vs blocked, spends executed, gates opened/
+// resolved, writebacks, supersedes, and reward records. Poll it from an
+// operator surface or exporter.
+func (k *Kernel) Metrics() MetricsSnapshot { return k.metrics.Snapshot() }
 
 // WithTicketEnforcement turns on #3 spend authorization: SpendSlot then
 // requires a fresh ShouldRunTurn ticket for the turn, proving the control plane
@@ -196,7 +204,11 @@ func (k *Kernel) RecordReward(ctx context.Context, goalID string, r RewardRecord
 	if r.Confidence == "" {
 		r.Confidence = ConfidenceLow
 	}
-	return k.rewards.Add(ctx, goalID, r)
+	if err := k.rewards.Add(ctx, goalID, r); err != nil {
+		return err
+	}
+	k.metrics.rewardsRecorded.Add(1)
+	return nil
 }
 
 // RevokeReward deactivates a policy by record ID (Lifecycle -> revoked), so a
@@ -209,6 +221,7 @@ func (k *Kernel) RevokeReward(ctx context.Context, goalID, recordID string) erro
 	if err := k.rewards.Revoke(ctx, goalID, recordID); err != nil {
 		return err
 	}
+	k.metrics.rewardsRevoked.Add(1)
 	k.record(ctx, Event{
 		Kind: EventDecision, Type: "reward_revoked",
 		GoalID: goalID, Detail: map[string]any{"record_id": recordID},
@@ -330,12 +343,16 @@ func (k *Kernel) CompactHistory(ctx context.Context, goalID string, keepLastN in
 
 // ReapAll is the unified maintenance entry point (#2 round-5): it reaps
 // consumed tickets, spent deliveries, and inactive reward records older than
-// olderThan, then compacts every goal's ledger to its last keepLastN events.
-// Previously ReapTickets/CompactHistory existed but had NO caller — growth was
-// bounded in capability but never in operation. Call this from a background
-// sweeper or the gateway maintenance endpoint.
-func (k *Kernel) ReapAll(ctx context.Context, olderThan time.Duration, keepLastN int) error {
+// olderThan, removes ABANDONED tickets (never-consumed, older than abandonTTL),
+// then compacts every goal's ledger to its last keepLastN events. Previously
+// ReapTickets/CompactHistory existed but had NO caller — growth was bounded in
+// capability but never in operation. Call this from a background sweeper or the
+// gateway maintenance endpoint.
+func (k *Kernel) ReapAll(ctx context.Context, olderThan, abandonTTL time.Duration, keepLastN int) error {
 	if err := k.tickets.Reap(ctx, olderThan); err != nil {
+		return err
+	}
+	if err := k.tickets.ReapUnconsumed(ctx, abandonTTL); err != nil {
 		return err
 	}
 	if err := k.deliveries.Reap(ctx, olderThan); err != nil {
@@ -402,7 +419,7 @@ func containsString(list []string, s string) bool {
 // when the caller intends to spend against this turn and ticket enforcement is
 // on. ShouldRun is appropriate for inspection surfaces (review board, etc.).
 func (k *Kernel) ShouldRun(ctx context.Context, goalID, agentID string) (*Decision, error) {
-	return k.shouldRun(ctx, goalID, agentID, "")
+	return k.shouldRunCounted(ctx, goalID, agentID, "")
 }
 
 // ShouldRunTurn is the authorizing variant of ShouldRun: it computes the same
@@ -411,7 +428,20 @@ func (k *Kernel) ShouldRun(ctx context.Context, goalID, agentID string) (*Decisi
 // so a runtime cannot spend without first asking the control plane. The minted
 // token is returned in Decision.TurnToken.
 func (k *Kernel) ShouldRunTurn(ctx context.Context, goalID, agentID, turnID string) (*Decision, error) {
-	return k.shouldRun(ctx, goalID, agentID, turnID)
+	return k.shouldRunCounted(ctx, goalID, agentID, turnID)
+}
+
+// shouldRunCounted runs the decision and records the eligible/blocked metric.
+func (k *Kernel) shouldRunCounted(ctx context.Context, goalID, agentID, turnID string) (*Decision, error) {
+	dec, err := k.shouldRun(ctx, goalID, agentID, turnID)
+	if err == nil && dec != nil {
+		if dec.ShouldRun {
+			k.metrics.shouldRunEligible.Add(1)
+		} else {
+			k.metrics.shouldRunBlocked.Add(1)
+		}
+	}
+	return dec, err
 }
 
 func (k *Kernel) shouldRun(ctx context.Context, goalID, agentID, turnID string) (*Decision, error) {
@@ -429,6 +459,16 @@ func (k *Kernel) shouldRun(ctx context.Context, goalID, agentID, turnID string) 
 			Mode: ModeMonitorQuietSkip, Notify: DontNotify,
 			Scheduler: HintStopUntilExplicitResume,
 			Reason:    "goal terminal: " + string(g.State),
+		}, nil
+	}
+	// Agent registration (peer_v1 parity): when the goal names its registered
+	// agents, an unregistered agent fails closed — it may not act on the goal.
+	if len(g.RegisteredAgents) > 0 && !containsString(g.RegisteredAgents, agentID) {
+		return &Decision{
+			ShouldRun: false, State: ComputeBlockedHealth, Route: RouteContractError,
+			Mode: ModeMonitorQuietSkip, Notify: DontNotify,
+			Scheduler: HintStopUntilExplicitResume,
+			Reason:    "agent not registered for goal: " + agentID,
 		}, nil
 	}
 	if g.State == GoalPaused || g.Quota.Compute <= 0 {
@@ -545,6 +585,7 @@ func (k *Kernel) OpenGate(ctx context.Context, gate UserGate) error {
 	if err := k.gates.Upsert(ctx, gate); err != nil {
 		return err
 	}
+	k.metrics.gatesOpened.Add(1)
 	k.record(ctx, Event{
 		Kind: EventDecision, Type: "gate_opened",
 		GoalID: gate.GoalID, GateID: gate.GateID, TodoID: gate.TodoID,
@@ -573,6 +614,7 @@ func (k *Kernel) ResolveGate(ctx context.Context, goalID, gateID string, outcome
 	if err := k.gates.Upsert(ctx, g); err != nil {
 		return err
 	}
+	k.metrics.gatesResolved.Add(1)
 	k.record(ctx, Event{
 		Kind: EventDecision, Type: "gate_resolved",
 		GoalID: goalID, GateID: gateID,
@@ -716,6 +758,7 @@ func (k *Kernel) Writeback(ctx context.Context, wb ValidatedWriteback) (delivery
 	if err != nil {
 		return "", err
 	}
+	k.metrics.writebacks.Add(1)
 	if !accountable {
 		return "", nil
 	}
@@ -816,6 +859,7 @@ func (k *Kernel) SpendSlot(ctx context.Context, goalID, turnID string, opts Spen
 	// window computation lives in the Kernel (goal WindowHours), not inside
 	// SpendLog.Append (which is backend-agnostic, all-time only).
 	spent, _ := k.spend.SpentInWindow(ctx, goalID, window)
+	k.metrics.spendExecuted.Add(1)
 	return spent, nil
 }
 

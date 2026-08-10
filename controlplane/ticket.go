@@ -27,6 +27,11 @@ type TicketStore interface {
 	Consume(ctx context.Context, goalID, turnID, token string) error
 	// Reap removes consumed (and stale) tickets to bound growth (#5).
 	Reap(ctx context.Context, olderThan time.Duration) error
+	// ReapUnconsumed removes tickets that were NEVER consumed and are older
+	// than olderThan — abandoned turns whose authorization will never be spent.
+	// The TTL must be long (the turn may be legitimately long-running); Reap
+	// (consumed-only) remains the short-TTL path.
+	ReapUnconsumed(ctx context.Context, olderThan time.Duration) error
 }
 
 // --- MemoryTicketStore (single-process; preserves pre-#2 behavior) ---
@@ -98,6 +103,25 @@ func (s *MemoryTicketStore) Reap(_ context.Context, olderThan time.Duration) err
 	for goalID, gm := range s.m {
 		for turnID, t := range gm {
 			if t.consumed && t.mintedAt.Before(cutoff) {
+				delete(gm, turnID)
+			}
+		}
+		if len(gm) == 0 {
+			delete(s.m, goalID)
+		}
+	}
+	return nil
+}
+
+// ReapUnconsumed removes NEVER-consumed tickets older than olderThan
+// (abandoned turns). Long TTL required — see interface doc.
+func (s *MemoryTicketStore) ReapUnconsumed(_ context.Context, olderThan time.Duration) error {
+	cutoff := time.Now().UTC().Add(-olderThan)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for goalID, gm := range s.m {
+		for turnID, t := range gm {
+			if !t.consumed && t.mintedAt.Before(cutoff) {
 				delete(gm, turnID)
 			}
 		}
@@ -205,5 +229,14 @@ func (s *SQLTicketStore) Reap(ctx context.Context, olderThan time.Duration) erro
 	cutoff := ts(time.Now().UTC().Add(-olderThan))
 	_, err := s.ex(ctx).ExecContext(ctx,
 		`DELETE FROM cp_tickets WHERE consumed = 1 AND minted_at < ?`, cutoff)
+	return err
+}
+
+// ReapUnconsumed removes never-consumed tickets older than olderThan
+// (abandoned turns). Long TTL required.
+func (s *SQLTicketStore) ReapUnconsumed(ctx context.Context, olderThan time.Duration) error {
+	cutoff := ts(time.Now().UTC().Add(-olderThan))
+	_, err := s.ex(ctx).ExecContext(ctx,
+		`DELETE FROM cp_tickets WHERE consumed = 0 AND minted_at < ?`, cutoff)
 	return err
 }

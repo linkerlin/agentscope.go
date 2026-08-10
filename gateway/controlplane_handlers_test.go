@@ -318,3 +318,16 @@ func TestCPHTTP_RewardRecordAndRevoke(t *testing.T) {
 	rr = doJSON(t, srv, "POST", "/api/v1/controlplane/goals/g/rewards/ghost/revoke", nil)
 	require.Equal(t, http.StatusNotFound, rr.Code)
 }
+
+func TestCPHTTP_Metrics(t *testing.T) {
+	srv, k := newCPTestServer(t)
+	ctx := context.Background()
+	require.NoError(t, k.GoalStore().Upsert(ctx, &controlplane.Goal{ID: "g", Objective: "o", State: controlplane.GoalActive, Quota: controlplane.DefaultQuota()}))
+	_, _ = k.ShouldRun(ctx, "g", "a1") // eligible
+
+	rr := doJSON(t, srv, "GET", "/api/v1/controlplane/metrics", nil)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	m := decodeBody(t, rr)
+	assert.Equal(t, float64(1), m["should_run_eligible"])
+	assert.Equal(t, float64(0), m["should_run_blocked"])
+}

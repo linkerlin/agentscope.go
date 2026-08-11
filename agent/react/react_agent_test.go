@@ -523,6 +523,45 @@ func TestReActAgent_ConsecutiveToolFailure_TextSmuggledError(t *testing.T) {
 	}
 }
 
+// TestReActAgent_ConsecutiveToolFailure_BilingualErrorText covers kopaw's
+// pervasive convention of returning tool.NewTextResponse("错误：...") with a
+// nil Go error. The breaker must count these as failures too, not just the
+// English "error:" form. Without bilingual detection, tools like browser_use,
+// lsp_*, view_image, etc. could still storm.
+func TestReActAgent_ConsecutiveToolFailure_BilingualErrorText(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+	}{
+		{"english lower", "error: rate limited"},
+		{"english upper", "Error: Bad Request"},
+		{"chinese simplified", "错误：须指定 url"},
+		{"chinese traditional", "錯誤：連線失敗"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+				message.NewToolUseBlock("call_1", "smuggler", map[string]any{}),
+			).Build()
+			m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
+			smuggler := tool.NewFunctionTool("smuggler", "smuggler", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+				return tool.NewTextResponse(c.text), nil // nil Go error
+			})
+			a, _ := Builder().Name("Test").Model(m).Tools(smuggler).MaxIterations(20).Build()
+			resp, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+			if err != nil {
+				t.Fatalf("breaker should end gracefully, got error: %v", err)
+			}
+			if m.calls > 3 {
+				t.Fatalf("retry storm not stopped for %q: model called %d times", c.text, m.calls)
+			}
+			if !strings.Contains(resp.GetTextContent(), "smuggler") {
+				t.Fatalf("breaker message should name the tool, got: %q", resp.GetTextContent())
+			}
+		})
+	}
+}
+
 // TestReActAgent_ConsecutiveToolFailure_NormalContentResetsCount ensures the
 // text-error heuristic does not false-positive on legitimate content: when a
 // tool returns normal text (not starting with "error:"), the failure count

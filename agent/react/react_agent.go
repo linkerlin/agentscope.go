@@ -83,16 +83,18 @@ func truncateRunes(s string, n int) string {
 }
 
 // toolResultLooksLikeError detects tools that smuggle an error into the success
-// channel as a single short text block starting with "error:" — a codebase
-// convention (the framework itself formats Go errors as "error: <msg>", and
-// several kopaw tools historically returned tool.NewTextResponse("error: ...")
-// with a nil error). Returns (true, text) so the consecutive-failure breaker
-// can still count these as failures and stop the retry storm.
+// channel as a single short text block starting with an error marker, so the
+// consecutive-failure breaker can still count these as failures and stop the
+// retry storm. Markers (bilingual, since kopaw tools use the Chinese form):
+//   - "error:" / "Error:" / "ERROR:" — the framework itself formats Go errors
+//     as "error: <msg>".
+//   - "错误：" / "錯誤：" — kopaw's pervasive convention
+//     (tool.NewTextResponse("错误：" + err.Error()) with a nil Go error).
 //
 // Conservative by design: only a SINGLE text block whose trimmed text starts
-// with the marker counts. Real fetched content (HTML/JSON/markdown) is never
-// a bare one-liner starting with "error:", so false positives are effectively
-// impossible in practice.
+// with a marker counts. Real fetched content (HTML/JSON/markdown) is never a
+// bare one-liner starting with these markers, so false positives are
+// effectively impossible in practice.
 func toolResultLooksLikeError(blocks []message.ContentBlock) (bool, string) {
 	if len(blocks) != 1 {
 		return false, ""
@@ -102,10 +104,16 @@ func toolResultLooksLikeError(blocks []message.ContentBlock) (bool, string) {
 		return false, ""
 	}
 	t := strings.TrimSpace(tb.Text)
-	if !strings.HasPrefix(strings.ToLower(t), "error:") {
+	if len(t) == 0 {
 		return false, ""
 	}
-	return true, t
+	// English marker is case-insensitive; Chinese markers are exact (lowercase
+	// is a no-op on them, so check against the original text).
+	lt := strings.ToLower(t)
+	if strings.HasPrefix(lt, "error:") || strings.HasPrefix(t, "错误：") || strings.HasPrefix(t, "錯誤：") {
+		return true, t
+	}
+	return false, ""
 }
 
 // failureSignal is one tool call's outcome for breaker accounting.

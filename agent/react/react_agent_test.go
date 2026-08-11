@@ -615,6 +615,33 @@ func TestReActAgent_ReplyStream_ToolErrorBreaker(t *testing.T) {
 	}
 }
 
+// TestReActAgent_ToolPanic_DoesNotCrash covers the panic-recovery wrapper
+// around tool execution. Without executeToolSafely, a panicking tool runs in
+// an errgroup/WaitGroup goroutine whose panic is NOT recovered and crashes
+// the whole agent process. After recovery the panic becomes a normal tool
+// error: fed to the model, and the breaker stops a repeated panic storm.
+func TestReActAgent_ToolPanic_DoesNotCrash(t *testing.T) {
+	toolCallMsg := message.NewMsg().Role(message.RoleAssistant).Content(
+		message.NewToolUseBlock("call_1", "bomber", map[string]any{}),
+	).Build()
+	m := &mockToolModel{name: "m", responses: []*message.Msg{toolCallMsg}}
+	bomber := tool.NewFunctionTool("bomber", "bomber", map[string]any{"type": "object"}, func(ctx context.Context, input map[string]any) (*tool.Response, error) {
+		panic("kaboom")
+	})
+	a, _ := Builder().Name("Test").Model(m).Tools(bomber).MaxIterations(20).Build()
+	resp, err := a.Call(context.Background(), message.NewMsg().Role(message.RoleUser).TextContent("hi").Build())
+	if err != nil {
+		t.Fatalf("panic must become a tool error, not a turn error: %v", err)
+	}
+	// The breaker message names the tool; the panic reason is surfaced.
+	if resp == nil || !strings.Contains(resp.GetTextContent(), "bomber") || !strings.Contains(resp.GetTextContent(), "kaboom") {
+		t.Fatalf("expected breaker message naming tool+panic, got: %v", resp)
+	}
+	if m.calls > 3 {
+		t.Fatalf("panic retry storm not stopped: model called %d times", m.calls)
+	}
+}
+
 // TestReActAgent_ConsecutiveToolFailureBreaker guards against the retry storm:
 // when the same tool fails repeatedly, the loop must stop early with a helpful
 // message instead of burning all maxIterations (issue: "Edge: Too Many Requests"

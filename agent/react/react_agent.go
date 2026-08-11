@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -935,7 +936,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 				}
 
 				tcStart := time.Now()
-				resp, toolErr := a.executeTool(ctx, tc.Name, tc.Input)
+				resp, toolErr := a.executeToolSafely(ctx, tc.Name, tc.Input)
 				tcElapsed := time.Since(tcStart).Seconds()
 
 				var contentBlocks []message.ContentBlock
@@ -1234,6 +1235,23 @@ func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[str
 		return handler(ctx)
 	}
 	return final(ctx)
+}
+
+// executeToolSafely runs a tool, converting a panic into a tool error so a
+// single misbehaving tool cannot crash the whole agent process. Both ReAct
+// loops (Call and ReplyStream) execute tools in goroutines; errgroup and
+// WaitGroup do NOT recover panics, so without this a panicking tool kills
+// KoPaw. The panic stack is printed to stderr for diagnostics, and the error
+// flows through the normal tool-error channel (fed to the model, counted by
+// the consecutive-failure breaker).
+func (a *ReActAgent) executeToolSafely(ctx context.Context, name string, input map[string]any) (resp *tool.Response, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			debug.PrintStack()
+			resp, err = nil, fmt.Errorf("tool %s panicked: %v", name, r)
+		}
+	}()
+	return a.executeTool(ctx, name, input)
 }
 
 func (a *ReActAgent) actingImpl(ctx context.Context, name string, input map[string]any) (*tool.Response, error) {

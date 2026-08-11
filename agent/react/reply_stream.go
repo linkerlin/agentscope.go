@@ -788,7 +788,7 @@ func (a *ReActAgent) executeToolsStream(
 			out <- event.NewToolResultStart(replyID, idx, tc.ID, tc.Name)
 
 			start := time.Now()
-			resp, toolErr := a.executeTool(ctx, tc.Name, tc.Input)
+			resp, toolErr := a.executeToolSafely(ctx, tc.Name, tc.Input)
 			elapsed := time.Since(start).Seconds()
 
 			var blocks []message.ContentBlock

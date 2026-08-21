@@ -5,6 +5,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
@@ -30,6 +31,13 @@ func (Base) middleware() {}
 type ReplyInput struct {
 	Messages []*message.Msg
 }
+
+// ErrContinueReply is a sentinel an on_reply middleware may return instead of
+// a final answer: the agent re-runs the reply (with the previous reply
+// appended to the input messages) so reasoning can continue. The loop is
+// bounded (see Base.Call); after the bound the last reply wins.
+// PyV2 #2322 parity (on_reply middlewares swallowing ReplyEndEvent).
+var ErrContinueReply = errors.New("middleware: continue reply loop")
 
 // ReplyNext executes the next middleware or the core reply handler.
 type ReplyNext func(ctx context.Context) (*message.Msg, error)

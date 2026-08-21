@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -268,14 +269,38 @@ func (b *Base) FireStreamEvent(ctx context.Context, ev hook.Event) (hook.Event, 
 
 // Call wraps the full agent reply lifecycle: pre_reply -> reply -> post_reply.
 // When on_reply middleware is registered, the entire lifecycle is wrapped in an onion chain.
+// A middleware may return middleware.ErrContinueReply to force another reply
+// round (input grows with each intermediate reply); the loop is bounded.
 func (b *Base) Call(ctx context.Context, msg *message.Msg, reply func(context.Context, *message.Msg) (*message.Msg, error)) (*message.Msg, error) {
+	const maxContinueRounds = 3
 	core := func(ctx context.Context) (*message.Msg, error) {
 		return b.callWithHooks(ctx, msg, reply)
 	}
 	if b.mwChain != nil && len(b.mwChain.Reply) > 0 {
-		input := &middleware.ReplyInput{Messages: []*message.Msg{msg}}
-		handler := middleware.ChainReply(b.mwChain, b, input, core)
-		resp, err := handler(ctx)
+		messages := []*message.Msg{msg}
+		var resp *message.Msg
+		var err error
+		for round := 0; ; round++ {
+			input := &middleware.ReplyInput{Messages: messages}
+			handler := middleware.ChainReply(b.mwChain, b, input, core)
+			resp, err = handler(ctx)
+			if !errors.Is(err, middleware.ErrContinueReply) {
+				break
+			}
+			if round >= maxContinueRounds {
+				// Bound reached: drop the continue request and keep the last reply.
+				if resp != nil {
+					err = nil
+					break
+				}
+				err = fmt.Errorf("agent: reply continue loop exhausted after %d rounds", maxContinueRounds)
+				break
+			}
+			// Feed the intermediate reply back in for the next round.
+			if resp != nil {
+				messages = append(messages, resp)
+			}
+		}
 		if err != nil {
 			return nil, b.FireOnError(ctx, err, []*message.Msg{msg}, "", nil)
 		}

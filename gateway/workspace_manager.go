@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/linkerlin/agentscope.go/service"
@@ -61,6 +62,7 @@ type workspaceMCPTool struct {
 type WorkspaceManager struct {
 	mu                     sync.RWMutex
 	sessions               map[string]*SessionWorkspace
+	agentSkills            map[string]*skill.Registry // per-agent skill library, key user|agent
 	baseRoot               string
 	skillsRoot             string
 	defaultMCPGatewayURL   string
@@ -72,9 +74,10 @@ type WorkspaceManager struct {
 // NewWorkspaceManager creates a manager with optional roots for local workspaces/skills.
 func NewWorkspaceManager(baseRoot, skillsRoot string) *WorkspaceManager {
 	return &WorkspaceManager{
-		sessions:   make(map[string]*SessionWorkspace),
-		baseRoot:   baseRoot,
-		skillsRoot: skillsRoot,
+		sessions:    make(map[string]*SessionWorkspace),
+		agentSkills: make(map[string]*skill.Registry),
+		baseRoot:    baseRoot,
+		skillsRoot:  skillsRoot,
 	}
 }
 
@@ -101,6 +104,26 @@ func workspaceKey(userID, agentID, sessionID string) string {
 	return userID + "|" + agentID + "|" + sessionID
 }
 
+// sharedKey identifies a named shared workspace so that different agents and
+// sessions referencing the same WorkspaceID reuse one SessionWorkspace
+// (shared directory, skills registry and MCP registrations).
+func sharedKey(userID, workspaceID string) string {
+	return userID + "|shared|" + workspaceID
+}
+
+// sanitizePathSegment strips path separators and traversal from a workspace id
+// so it is safe to use as a single directory name.
+func sanitizePathSegment(id string) string {
+	id = strings.ReplaceAll(id, string(filepath.Separator), "_")
+	id = strings.ReplaceAll(id, "/", "_")
+	id = strings.ReplaceAll(id, "\\", "_")
+	id = strings.ReplaceAll(id, "..", "_")
+	if id == "" {
+		id = "default"
+	}
+	return id
+}
+
 // CloseAll closes all tracked workspaces and per-session MCP gateways.
 func (m *WorkspaceManager) CloseAll() {
 	m.mu.Lock()
@@ -119,10 +142,10 @@ func (m *WorkspaceManager) CloseAll() {
 
 // GetOrCreate returns the session workspace, creating a local workspace when missing.
 func (m *WorkspaceManager) GetOrCreate(ctx context.Context, st service.Storage, userID, agentID, sessionID string) (*SessionWorkspace, error) {
-	if err := m.ensureSession(ctx, st, userID, agentID, sessionID); err != nil {
+	key, err := m.ensureSession(ctx, st, userID, agentID, sessionID)
+	if err != nil {
 		return nil, err
 	}
-	key := workspaceKey(userID, agentID, sessionID)
 	m.mu.RLock()
 	sw := m.sessions[key]
 	m.mu.RUnlock()
@@ -132,33 +155,44 @@ func (m *WorkspaceManager) GetOrCreate(ctx context.Context, st service.Storage, 
 	return sw, nil
 }
 
-func (m *WorkspaceManager) ensureSession(ctx context.Context, st service.Storage, userID, agentID, sessionID string) error {
+// resolveWorkspace returns the cache key and directory for a session. When the
+// session carries a WorkspaceID, a named shared workspace (one directory per
+// user+workspace id, reusable across agents) is used instead of a
+// per-(agent,session) directory.
+func (m *WorkspaceManager) resolveWorkspace(se *service.Session, root, userID, agentID, sessionID string) (key, wsDir string) {
+	if se != nil && se.WorkspaceID != "" {
+		seg := sanitizePathSegment(se.WorkspaceID)
+		return sharedKey(userID, seg), filepath.Join(root, userID, "shared", seg)
+	}
+	return workspaceKey(userID, agentID, sessionID), filepath.Join(root, userID, agentID, sessionID)
+}
+
+func (m *WorkspaceManager) ensureSession(ctx context.Context, st service.Storage, userID, agentID, sessionID string) (string, error) {
 	if st == nil {
-		return fmt.Errorf("storage not configured")
+		return "", fmt.Errorf("storage not configured")
 	}
 	se, err := st.GetSession(ctx, sessionID)
 	if err != nil {
-		return fmt.Errorf("session not found: %s", sessionID)
+		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 	if se.UserID != userID || se.AgentID != agentID {
-		return fmt.Errorf("session not found: %s", sessionID)
-	}
-
-	key := workspaceKey(userID, agentID, sessionID)
-	m.mu.RLock()
-	_, ok := m.sessions[key]
-	m.mu.RUnlock()
-	if ok {
-		return nil
+		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	root := m.baseRoot
 	if root == "" {
 		root = os.TempDir()
 	}
-	wsDir := filepath.Join(root, userID, agentID, sessionID)
+	key, wsDir := m.resolveWorkspace(se, root, userID, agentID, sessionID)
+	m.mu.RLock()
+	_, ok := m.sessions[key]
+	m.mu.RUnlock()
+	if ok {
+		return key, nil
+	}
+
 	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	sw := &SessionWorkspace{
 		Workspace: workspace.NewLocalWorkspace(sessionID, wsDir),
@@ -170,7 +204,7 @@ func (m *WorkspaceManager) ensureSession(ctx context.Context, st service.Storage
 	m.mu.Lock()
 	m.sessions[key] = sw
 	m.mu.Unlock()
-	return nil
+	return key, nil
 }
 
 // ListSkills returns registered skills for a session workspace.
@@ -182,7 +216,8 @@ func (m *WorkspaceManager) ListSkills(ctx context.Context, st service.Storage, u
 	return sw.Skills.List(), nil
 }
 
-// AddSkill loads a skill from path and registers it on the session workspace.
+// AddSkill loads a skill from path and registers it on the session workspace
+// and in the agent-level skill library.
 func (m *WorkspaceManager) AddSkill(ctx context.Context, st service.Storage, userID, agentID, sessionID, skillPath string) error {
 	sw, err := m.GetOrCreate(ctx, st, userID, agentID, sessionID)
 	if err != nil {
@@ -192,7 +227,57 @@ func (m *WorkspaceManager) AddSkill(ctx context.Context, st service.Storage, use
 	if err != nil {
 		return err
 	}
+	m.agentLibrary(userID, agentID).Register(s)
 	sw.Skills.Register(s)
+	return nil
+}
+
+// agentLibrary returns the per-agent skill library, creating it on first use.
+func (m *WorkspaceManager) agentLibrary(userID, agentID string) *skill.Registry {
+	key := userID + "|" + agentID
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	lib := m.agentSkills[key]
+	if lib == nil {
+		lib = skill.NewRegistry()
+		m.agentSkills[key] = lib
+	}
+	return lib
+}
+
+// ListAgentSkills returns the agent-level skill library (all skills ever added
+// for this agent), independent of any session selection.
+func (m *WorkspaceManager) ListAgentSkills(userID, agentID string) []*skill.AgentSkill {
+	return m.agentLibrary(userID, agentID).List()
+}
+
+// SelectSkills replaces the session's active skills with the named subset of
+// the agent library (match by display name or skill id). Empty names clears
+// the selection. Unknown names return an error and change nothing.
+func (m *WorkspaceManager) SelectSkills(ctx context.Context, st service.Storage, userID, agentID, sessionID string, names []string) error {
+	sw, err := m.GetOrCreate(ctx, st, userID, agentID, sessionID)
+	if err != nil {
+		return err
+	}
+	byName := map[string]*skill.AgentSkill{}
+	for _, s := range m.agentLibrary(userID, agentID).List() {
+		byName[s.Name] = s
+		byName[s.SkillID()] = s
+	}
+	selected := make([]*skill.AgentSkill, 0, len(names))
+	for _, n := range names {
+		s, ok := byName[n]
+		if !ok {
+			return fmt.Errorf("skill not in agent library: %s", n)
+		}
+		selected = append(selected, s)
+	}
+	for _, s := range sw.Skills.List() {
+		sw.Skills.Remove(s.SkillID())
+	}
+	for _, s := range selected {
+		sw.Skills.Register(s)
+	}
 	return nil
 }
 

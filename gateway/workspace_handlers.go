@@ -13,6 +13,10 @@ type addSkillRequest struct {
 	SkillPath string `json:"skill_path"`
 }
 
+type selectSkillsRequest struct {
+	Names []string `json:"names"`
+}
+
 func (s *Server) workspaceQuery(r *http.Request) (userID, agentID, sessionID string, ok bool) {
 	userID = service.UserIDFromContext(r.Context())
 	agentID = r.URL.Query().Get("agent_id")
@@ -145,6 +149,60 @@ func (s *Server) handleWorkspaceSkillDelete(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleWorkspaceAgentSkills lists the agent-level skill library.
+// GET /workspace/agent_skills?agent_id=
+func (s *Server) handleWorkspaceAgentSkills(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.workspaceMgr == nil || s.storage == nil {
+		http.Error(w, "workspace manager not configured", http.StatusServiceUnavailable)
+		return
+	}
+	userID := service.UserIDFromContext(r.Context())
+	agentID := r.URL.Query().Get("agent_id")
+	if agentID == "" {
+		http.Error(w, "agent_id is required", http.StatusBadRequest)
+		return
+	}
+	skills := s.workspaceMgr.ListAgentSkills(userID, agentID)
+	if skills == nil {
+		skills = []*skill.AgentSkill{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(skills)
+}
+
+// handleWorkspaceSkillSelect replaces the session's active skills with a
+// named subset of the agent-level skill library.
+// POST /workspace/skill/select?agent_id=&session_id=
+func (s *Server) handleWorkspaceSkillSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.workspaceMgr == nil || s.storage == nil {
+		http.Error(w, "workspace manager not configured", http.StatusServiceUnavailable)
+		return
+	}
+	userID, agentID, sessionID, ok := s.workspaceQuery(r)
+	if !ok {
+		http.Error(w, "agent_id and session_id are required", http.StatusBadRequest)
+		return
+	}
+	var req selectSkillsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.workspaceMgr.SelectSkills(r.Context(), s.storage, userID, agentID, sessionID, req.Names); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // RegisterWorkspaceRoutes adds PyV2-aligned /workspace endpoints.
 func (s *Server) RegisterWorkspaceRoutes() {
 	if s.workspaceMgr == nil {
@@ -154,6 +212,11 @@ func (s *Server) RegisterWorkspaceRoutes() {
 	s.mux.HandleFunc("/workspace/mcp/{mcp_name}", s.requireAuth(s.handleWorkspaceMCPDelete))
 	s.mux.HandleFunc("/workspace/skill", s.requireAuth(s.handleWorkspaceSkill))
 	s.mux.HandleFunc("/workspace/skill/{skill_name}", s.requireAuth(s.handleWorkspaceSkillDelete))
+	s.mux.HandleFunc("/workspace/skill/select", s.requireAuth(s.handleWorkspaceSkillSelect))
+	s.mux.HandleFunc("/workspace/agent_skills", s.requireAuth(s.handleWorkspaceAgentSkills))
+	s.mux.HandleFunc("/workspace/list_dir", s.requireAuth(s.handleWorkspaceListDir))
+	s.mux.HandleFunc("/workspace/read_file", s.requireAuth(s.handleWorkspaceReadFile))
+	s.mux.HandleFunc("/workspace/status", s.requireAuth(s.handleWorkspaceStatus))
 }
 
 // WithWorkspaceManager attaches a workspace manager for session workspace HTTP APIs.

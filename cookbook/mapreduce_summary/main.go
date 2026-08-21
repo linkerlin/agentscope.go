@@ -5,25 +5,16 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/workflow"
 )
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY is required")
-	}
-
-	model, err := openai.Builder().APIKey(apiKey).ModelName("gpt-4o-mini").Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	model := llmenv.MustChatModel()
 
 	mapper, err := react.Builder().
 		Name("Summarizer").

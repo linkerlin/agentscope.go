@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/tool/multimodal"
 	"github.com/linkerlin/agentscope.go/toolkit"
 )
@@ -16,26 +15,19 @@ import (
 func main() {
 	// This example demonstrates how to wire OpenAI multimodal tools into a
 	// ReActAgent using toolkit.Toolkit. It requires a real OpenAI API key.
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
+	cfg := llmenv.Load()
+	if cfg.APIKey == "" {
 		fmt.Println("This example requires an OpenAI API key.")
-		fmt.Println("Set the OPENAI_API_KEY environment variable and run again.")
-		fmt.Println("Example: export OPENAI_API_KEY=sk-...")
+		fmt.Println("Set the OPENAI_API_KEY environment variable (or a .env file) and run again.")
 		return
 	}
 
 	// 1. Create an OpenAI-backed chat model for the agent.
-	chatModel, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o").
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	chatModel := llmenv.MustChatModel()
 
 	// 2. Create the multimodal tool wrapper.
 	//    This provides openai_text_to_image and openai_image_to_text.
-	mmTool, err := multimodal.NewOpenAIMultiModalTool(apiKey)
+	mmTool, err := multimodal.NewOpenAIMultiModalTool(cfg.APIKey)
 	if err != nil {
 		log.Fatal(err)
 	}

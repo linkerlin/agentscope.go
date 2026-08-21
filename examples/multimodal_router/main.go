@@ -9,34 +9,29 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/model/openai"
 )
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		fmt.Println("Set OPENAI_API_KEY to run this example.")
+	cfg := llmenv.Load()
+	if cfg.APIKey == "" {
+		fmt.Println("Set OPENAI_API_KEY (environment or .env file) to run this example.")
 		return
 	}
 
 	ctx := context.Background()
 
 	// 1. Build two backend models: a fast text model and a vision model.
-	textModel, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	textModel := llmenv.MustChatModel()
 
 	visionModel, err := openai.Builder().
-		APIKey(apiKey).
+		APIKey(cfg.APIKey).
+		BaseURL(cfg.BaseURL).
 		ModelName("gpt-4o").
 		Build()
 	if err != nil {

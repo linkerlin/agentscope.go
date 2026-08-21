@@ -12,10 +12,10 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/embedding"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/rerank"
 )
 
@@ -45,12 +45,12 @@ func (a *modelEmbeddingAdapter) EmbedBatch(ctx context.Context, texts []string) 
 }
 
 func main() {
-	openaiKey := os.Getenv("OPENAI_API_KEY")
-	if openaiKey == "" {
-		log.Fatal("OPENAI_API_KEY is required")
+	llm := llmenv.Load()
+	if llm.APIKey == "" {
+		log.Fatal("OPENAI_API_KEY is required (set it in the environment or a .env file)")
 	}
 
-	embedModel := embedding.NewOpenAI(openaiKey, "text-embedding-3-small")
+	embedModel := embedding.NewOpenAIWithBaseURL(llm.APIKey, llm.BaseURL, "text-embedding-3-small")
 	embedModel = embedding.WithFileCache(embedModel, "./.rag_cache")
 
 	cfg := memory.DefaultReMeFileConfig()
@@ -121,10 +121,7 @@ func main() {
 	}
 
 	// Answer with an Agent using reranked context.
-	chatModel, err := openai.Builder().APIKey(openaiKey).ModelName("gpt-4o-mini").Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	chatModel := llmenv.MustChatModel()
 	agent, err := react.Builder().
 		Name("RAGAssistant").
 		SysPrompt("You answer questions based ONLY on the provided context.").

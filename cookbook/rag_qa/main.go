@@ -5,16 +5,15 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/embedding"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/loader"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
-	"github.com/linkerlin/agentscope.go/model/openai"
 )
 
 // modelEmbeddingAdapter adapts model.EmbeddingModel to memory.EmbeddingModel.
@@ -43,9 +42,9 @@ func (a *modelEmbeddingAdapter) EmbedBatch(ctx context.Context, texts []string) 
 }
 
 func main() {
-	openaiKey := os.Getenv("OPENAI_API_KEY")
-	if openaiKey == "" {
-		log.Fatal("OPENAI_API_KEY is required")
+	llm := llmenv.Load()
+	if llm.APIKey == "" {
+		log.Fatal("OPENAI_API_KEY is required (set it in the environment or a .env file)")
 	}
 
 	// 1. Load a document
@@ -61,7 +60,7 @@ func main() {
 	}
 
 	// 2. Chunk and embed into vector memory
-	embedModel := embedding.NewOpenAI(openaiKey, "text-embedding-3-small")
+	embedModel := embedding.NewOpenAIWithBaseURL(llm.APIKey, llm.BaseURL, "text-embedding-3-small")
 	embedModel = embedding.WithFileCache(embedModel, "./.rag_cache")
 
 	cfg := memory.DefaultReMeFileConfig()
@@ -95,10 +94,7 @@ func main() {
 	contextText := strings.Join(contextParts, "\n---\n")
 
 	// 4. Answer with an Agent
-	chatModel, err := openai.Builder().APIKey(openaiKey).ModelName("gpt-4o-mini").Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	chatModel := llmenv.MustChatModel()
 
 	agent, err := react.Builder().
 		Name("RAGAssistant").

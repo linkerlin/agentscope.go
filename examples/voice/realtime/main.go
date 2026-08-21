@@ -3,15 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
-	"github.com/linkerlin/agentscope.go/model/openai"
 )
 
 // RealtimeVoiceAgent 实现端到端实时语音对话：
@@ -341,23 +340,17 @@ func (rva *RealtimeVoiceAgent) ttsWorker() {
 }
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		fmt.Println("Please set OPENAI_API_KEY")
+	cfg := llmenv.Load()
+	if cfg.APIKey == "" {
+		fmt.Println("Please set OPENAI_API_KEY (environment or .env file)")
 		return
 	}
 
 	// 1. Chat model
-	chatModel, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
-	if err != nil {
-		panic(err)
-	}
+	chatModel := llmenv.MustChatModel()
 
 	// 2. Audio model (TTS + STT)
-	audioModel := model.NewOpenAITTS(apiKey).WithVoice("alloy")
+	audioModel := model.NewOpenAITTS(cfg.APIKey).WithVoice("alloy")
 
 	// 3. 创建实时语音 Agent
 	rva := NewRealtimeVoiceAgent(chatModel, audioModel)

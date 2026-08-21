@@ -16,10 +16,10 @@ import (
 	"github.com/linkerlin/agentscope.go/embedding"
 	"github.com/linkerlin/agentscope.go/evolver"
 	"github.com/linkerlin/agentscope.go/gateway"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/observability"
 	"github.com/linkerlin/agentscope.go/service"
 
@@ -83,23 +83,13 @@ func (a *modelEmbeddingAdapter) EmbedBatch(ctx context.Context, texts []string) 
 //
 // The studio reuses the existing gateway + service layer.
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY is required")
-	}
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "dev-secret-change-me"
 	}
 
 	// Model (for demo agent)
-	model, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	model := llmenv.MustChatModel()
 
 	// Agent for studio demo - use StandardTools so even base has some auto tools; dynamic sessions via AutoStandardTools get full (file+task+web+json+schedule etc.)
 	demoTools := gateway.StandardTools(gateway.StandardToolsOptions{
@@ -141,7 +131,7 @@ func main() {
 	// Gateway with FULL auto-assembly enabled so the Studio itself demonstrates the effects.
 	// Agents created via the UI (or API) will automatically receive rich tools, workspace, task store (auto in-mem), etc.
 	// Demonstrate Phase 3 gateway embedding + cache enhancement
-	embedModel := embedding.NewOpenAI(apiKey, "text-embedding-3-small")
+	embedModel := embedding.NewOpenAIWithBaseURL(llmenv.Load().APIKey, llmenv.Load().BaseURL, "text-embedding-3-small")
 
 	appCfg := gateway.AppConfig{
 		Agent:             agent,

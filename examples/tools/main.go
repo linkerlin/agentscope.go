@@ -4,27 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/tool"
 )
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
-	}
-
-	chatModel, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
-	if err != nil {
-		log.Fatal(err)
-	}
+	chatModel := llmenv.MustChatModel()
 
 	type calcInput struct {
 		Operation string  `json:"operation" desc:"The arithmetic operation to perform"`

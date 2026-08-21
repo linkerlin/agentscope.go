@@ -10,9 +10,9 @@ import (
 	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/embedding"
 	"github.com/linkerlin/agentscope.go/gateway"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/observability"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
@@ -34,17 +34,13 @@ import (
 // Schedules will survive restarts thanks to auto BTM + restore.
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY is required")
-	}
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "dev-secret-change-me"
 	}
 
 	// 1. Model
-	m, _ := openai.Builder().APIKey(apiKey).ModelName("gpt-4o-mini").Build()
+	m := llmenv.MustChatModel()
 
 	// 2. Storage + Auth (in prod use Redis + proper secrets)
 	storage := service.NewMemoryStorage()
@@ -112,7 +108,7 @@ func main() {
 		AutoToolOffload:       true,
 		DefaultPermissionMode: permission.ModeExplore,
 		// Phase 3: enable embedding with auto cache from the recommended top-level embedding/ package (uses FileCache)
-		EmbeddingModel: embedding.WithFileCache(embedding.NewOpenAI(apiKey, "text-embedding-3-small"), "./workspaces/.embed_cache"),
+		EmbeddingModel: embedding.WithFileCache(embedding.NewOpenAIWithBaseURL(llmenv.Load().APIKey, llmenv.Load().BaseURL, "text-embedding-3-small"), "./workspaces/.embed_cache"),
 	}
 	srv := gateway.NewApp(appCfg)
 	srv.RegisterAppRoutes(jwt)

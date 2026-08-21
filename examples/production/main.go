@@ -8,8 +8,8 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent/react"
 	"github.com/linkerlin/agentscope.go/gateway"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/memory"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -29,20 +29,13 @@ import (
 //	GET  /v2/chat/ws                — WebSocket 对话（需 JWT）
 //	POST /v2/resume                 — 恢复挂起的 Agent
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY is required")
-	}
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "dev-secret-change-me"
 	}
 
 	// 1. 模型
-	model, _ := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
+	model := llmenv.MustChatModel()
 
 	// 2. 存储（生产用 RedisStorage，示例用内存）
 	storage := service.NewMemoryStorage()

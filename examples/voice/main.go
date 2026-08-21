@@ -6,29 +6,19 @@ import (
 	"os"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
-	"github.com/linkerlin/agentscope.go/model/openai"
 )
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		fmt.Println("Please set OPENAI_API_KEY")
-		return
-	}
+	cfg := llmenv.Load()
 
 	// ---- 1. Chat model for reasoning ----
-	chatModel, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
-	if err != nil {
-		panic(err)
-	}
+	chatModel := llmenv.MustChatModel()
 
 	// ---- 2. Audio model for TTS / STT ----
-	audioModel := model.NewOpenAITTS(apiKey).WithVoice("alloy")
+	audioModel := model.NewOpenAITTS(cfg.APIKey).WithVoice("alloy")
 
 	// ---- 3. Voice-enabled ReActAgent ----
 	agent, err := react.Builder().

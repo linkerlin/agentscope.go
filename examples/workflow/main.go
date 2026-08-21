@@ -3,29 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/linkerlin/agentscope.go/agent/react"
+	"github.com/linkerlin/agentscope.go/internal/llmenv"
 	"github.com/linkerlin/agentscope.go/message"
-	"github.com/linkerlin/agentscope.go/model/openai"
 	"github.com/linkerlin/agentscope.go/pipeline"
 	"github.com/linkerlin/agentscope.go/workflow"
 )
 
 func main() {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		fmt.Println("Please set OPENAI_API_KEY")
-		return
-	}
-
-	chatModel, err := openai.Builder().
-		APIKey(apiKey).
-		ModelName("gpt-4o-mini").
-		Build()
-	if err != nil {
-		panic(err)
-	}
+	chatModel := llmenv.MustChatModel()
 
 	// Step 1: generate ideas
 	brainstorm, _ := react.Builder().

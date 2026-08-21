@@ -144,14 +144,18 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
+	}
+	if !s.checkSessionAccess(w, r, sessionID) {
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 
-	if sessionID == "" {
-		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
-	}
 	room := r.URL.Query().Get("room")
 
 	ws := &wsSession{

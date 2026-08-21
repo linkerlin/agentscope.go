@@ -5,7 +5,7 @@
 
 ## 项目概述
 
-本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.4.0**。
+本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.5.1**（Phase 14 演进中：Console TUI / Workspace 服务化 / 治理-演化闭环已落地，目标 v2.6.0）。
 
 ## V2 架构总览
 
@@ -57,8 +57,10 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
            embedding/onnx/ ONNX HTTP 代理：CLIP/Whisper 预处理(Go本地) + 嵌入推理(HTTP代理) + 模型管理器
            a2a/           A2A 增强：认证/限流/WebSocket/安全中间件/ShardRouter/ClusterManager
            benchmark/     性能基准测试目录 + Catalog (Gateway/Memory/Plan/Graph/A2A)
- 平台层     channel/       多平台集成 (ChannelEvent/Channel接口/Gateway/Dispatcher/Routing + Webhook 通道)
-           hub/           Hub 市场 (MCP/Skill 卡片浏览+安装 + FSHub + zip-slip 防护)
+平台层     channel/       多平台集成 (ChannelEvent/Channel接口/Gateway/Dispatcher/Routing + Webhook 通道)
+            hub/           Hub 市场 (MCP/Skill 卡片浏览+安装 + FSHub + zip-slip 防护)
+ 治理层     controlplane/  LoopX 风格长时序治理平面 (Goal/Quota/Gate/Evidence/Lease/Reward/Kanban + 演化闭环)
+终端层     console/       bubbletea TUI 终端 (HITL y/n/a 确认 + 中断 + 三档事件渲染)
 ```
 
 ## 核心模块与代码量（非测试行 / 测试行 / 测试文件数）
@@ -118,7 +120,9 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 | `shutdown/` | 42 | 35 | 1 | 优雅关闭 |
 | `interruption/` | 51 | 52 | 1 | 中断处理 |
 | `runcontext/` | 39 | 37 | 2 | 运行时上下文 |
-| **总计** | **~66,500** | **~39,900** | **~303** | 162 包，持续增长 |
+| `controlplane/` | 4,089 | 1,453 | 3 | LoopX 风格治理平面: Goal/Quota/Gate/Evidence/Lease/Reward/Kanban + SQL 持久化 + 演化闭环 |
+| `console/` | 491 | 184 | 1 | bubbletea TUI 终端: 多轮对话 + HITL 确认 + 中断 + 三档事件渲染 |
+| **总计** | **~71,100** | **~41,600** | **~331** | 165 包，持续增长 |
 
 ## 测试
 
@@ -204,6 +208,8 @@ make test   # 或 make ci
 44. **Word/Excel 解析器**（对齐 Python `WordParser`/`ExcelParser`，#811425c0/#e67e54f5）：纯 Go `archive/zip`+`encoding/xml` 解析 OOXML。WordParser：`word/document.xml` 状态机遍历 `<w:p>`/`<w:r>`/`<w:t>` 段落+`<w:tbl>`/`<w:tr>`/`<w:tc>` 表格（Markdown pipe-table 渲染+`|` 转义）。ExcelParser：`xl/sharedStrings.xml` 共享字符串解析+`xl/worksheets/sheetN.xml` cell 解析（`t="s"` 类型索引解析+数字直接取值）+workbook.xml sheet 名映射+Markdown table 渲染+等宽 padding。Registry 已注册 6 个 parser（Text/PDF/PPTX/Image/Word/Excel）
 45. **SQL 存储后端**（对齐 Python `AsyncSQLAlchemyStorage`，#b49a26b9）：`service.SQLStorage` 基于 `database/sql`+`modernc.org/sqlite`（纯 Go 零 CGO）实现完整 `Storage` 接口。8 张表（users/sessions/agents/credentials/messages/snapshots/schedules/teams）各有索引列+JSON payload 列。原子 upsert 使用 SQLite `ON CONFLICT(conflictCol) DO UPDATE SET`（支持自定义冲突列如 snapshots 的 session_id）。级联删除事务（删除 user → 级联 sessions→messages/snapshots + agents + credentials + schedules + teams）。WAL 模式提升并发。泛型 `scanRows[T]` 消除重复代码。`:memory:` 模式零配置测试
 46. **Workspace 7 后端扩展**（对齐 Python Workspace 多元化，#81538d35/#7af58b11/#dd71a372/#15b5243e）：从 3 个后端扩展到 7 个。**K8sWorkspace** 使用 kubectl CLI（非 client-go，保持二进制轻量）——`kubectl run` 创建 Pod+`kubectl wait` 等 Ready+`kubectl exec` 执行命令/文件操作+`kubectl delete --force` 清理。支持包装已存在 Pod（`NewK8sWorkspaceForExistingPod`）。**BubblewrapWorkspace** Linux 用户命名空间沙箱——文件操作直接在宿主机 BaseDir（bind-mount 到 /workspace）+Execute 每次生成新鲜 bwrap 进程（`--ro-bind` 系统目录+`--bind` 工作目录+`--unshare-all/net`+`--die-with-parent`）。**DaytonaWorkspace/OpenSandboxWorkspace** REST API 客户端——POST 创建+toolbox/files API 文件操作+execute API 命令执行+Bearer 认证+httptest mock 测试。全部复用 `cmdRunner` 抽象（K8s）或 `http.Client`（REST），保持可测性
+47. **bubbletea TUI Console**（对齐 Python `agentscope.console` #2297）：`console/` 包——bubbletea+bubbles+lipgloss 三态机（idle/running/confirming）。ReplyStream 事件经 `waitForEvent` tea.Cmd 桥接；三档 verbosity（quiet/default/debug）渲染文本/思考/工具/令牌；HITL 逐工具 y/n/a 确认→`InjectEvent(NewUserConfirmResult)` 恢复，Ctrl+C 拒绝全部；running 时 Ctrl+C→`agent.Interrupt()`（类型断言）；无会话持久化（对齐 Python）。`examples/console/` 演示 calculator 工具 + ModeDefault 权限的完整确认流
+48. **治理-演化闭环 + steer/abort 端点**：controlplane 目标迁移到 completed（仅 `handleUpdateCPGoal` 一处）→ 触发 `evolver.Solidify`（DecisionSource=controlplane/PrimaryCause=goal_id，`AppConfig.AutoSolidifyOnGoalComplete` opt-in，异步+recover）。`POST /v2/sessions/{id}/steer|interrupt` 端点挂 `SessionManager` 活动 run（`Steer` 类型断言，interrupt 复用 Terminate）。**多租户会话隔离**：`checkSessionAccess` 校验 session 归属（storage 可用时，跨用户 POST/GET/DELETE/WS 握手全部 404，不泄露存在性）。react 中断恢复文案附带部分回复摘要（PyV2 #2209）
 
 ## 已知代码质量问题（审阅发现，待修复）
 

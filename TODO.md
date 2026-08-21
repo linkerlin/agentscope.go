@@ -1,8 +1,8 @@
 # AgentScope.Go 演进实施 TODO
 
-> 来源：`演进方案.md`（2026-07-30 深度修订版，v3）+ `演进方案v4.md`（2026-08-08）
-> 状态：**Phase 5-13 + 旧 Phase 3 + 守护任务全部完成**（v2.5.0）
-> 更新日期：2026-08-08（最终收尾：Channel 三平台 + Hub + Plugin 示例 + 全量验证）
+> 来源：`演进方案.md`（2026-07-30 深度修订版，v3）+ `演进方案v4.md`（2026-08-08）+ `演进方案v5.md`（2026-08-21）
+> 状态：**Phase 5-14 全部完成**（v2.6.0 发布准备就绪）
+> 更新日期：2026-08-21（Phase 14 收尾：Console TUI / Workspace 服务化 / 治理-演化闭环 / 多租户隔离 + 文档清理）
 >
 > **代码规模**（2026-07-30 审阅实测）：~66,500 非测试行 / ~39,900 测试行 / 303 测试文件 / 162 包 / 45 示例 / `go build ./...` + `go vet ./...` 全绿
 >
@@ -397,3 +397,43 @@
 - [x] `gateway/hub_handlers.go`：`WithHubs` + `RegisterHubRoutes`（GET /api/v1/hubs + /hubs/{id}/mcps|skills 浏览分页 + POST /hubs/{id}/mcps|skills/{card}/install 安装）
 - [x] gateway 集成测试 6 个（列表/浏览/安装缺失二进制 422/skill 安装解压/404/无 hub 无路由）
 - [x] `examples/hub_demo/`：可运行 demo（FSHub 浏览 + skill 下载解压安装），**实测通过**
+
+---
+
+## Phase 14：Console TUI + Workspace 服务化 + 治理-演化闭环（2026-08-21，目标 v2.6.0）
+
+> 来源：`演进方案v5.md`。对标 Python v4 基准后 6 个实质提交（console #2297 / workspace 共享 #1951 / skills 隔离 #2283）+ v4 漏盘点的存量差距（artifact 端点 #2187 / git status #2257 / 中断原因 #2209）。
+
+### 14.1 Console 终端 TUI（采用 bubbletea/bubbles/lipgloss）
+- [x] `console/` 包：三态机（idle/running/confirming）+ `waitForEvent` tea.Cmd 桥接 ReplyStream + 三档 verbosity 渲染
+- [x] HITL：逐工具 y/n/a 确认 → `InjectEvent(NewUserConfirmResult)` 恢复；Ctrl+C 拒绝全部
+- [x] 中断：running 时 Ctrl+C → `agent.Interrupt()`（类型断言优雅降级）
+- [x] `examples/console/`：calculator + ModeDefault 权限完整确认流
+- [x] 8 测试全绿（文本流/截断/确认流/Ctrl+C 全拒/多工具逐个/陈旧事件/退出/truncate）
+
+### 14.2 Workspace 服务化
+- [x] artifact 端点：`GET /workspace/list_dir` + `read_file`（只读 + workspaceSafeJoin 防穿越 + 5MiB 上限）
+- [x] status 端点：`GET /workspace/status`（工作目录 + git branch/porcelain，优雅降级）
+- [x] 跨 agent 共享工作区：复用 `Session.WorkspaceID`（零 schema 改动）→ `<root>/<user>/shared/<name>`，路径段消毒
+- [x] skills agent 级库 + `GET /workspace/agent_skills` + `POST /workspace/skill/select` 白名单选择（向后兼容）
+- [x] 5 组集成测试全绿
+
+### 14.3 治理-演化闭环 + steer/打断
+- [x] auto-solidify：goal→completed 迁移触发 `evolver.Solidify`（DecisionSource=controlplane/PrimaryCause=goal_id），`AppConfig.AutoSolidifyOnGoalComplete` opt-in，异步+recover+防重复
+- [x] steer/打断端点：`POST /v2/sessions/{id}/steer`（SessionManager.Steer 类型断言）+ `/{id}/interrupt`（复用 Terminate）
+- [x] web_ui composer 注入/打断操作行
+- [x] `examples/controlplane_demo` 第 10 步闭环演示（goal 完成 → capsule 固化 → 可列出）
+- [x] 修复 `MockEvolver.Solidify` nil Gene panic；7 测试全绿
+
+### 14.4 文档与遗留清理
+- [x] AGENTS.md 更新（v2.5.1→目标 v2.6.0、controlplane/console 架构层、~71,100 行/165 包、设计决策 47-48）
+- [x] `docs/WORKSPACE.md`：7 后端 + 会话工作区服务化指南
+- [x] **多租户 SSE/WS 集成测试 + 安全修复**：发现 v2 POST/GET/DELETE/WS 不校验 session 归属 → `checkSessionAccess`（跨用户 404 不泄露存在性），2 组集成测试
+- [x] react 中断恢复文案附带 partial response 摘要（#2209 对齐）+ 单测
+- [x] 明确延后：Apple Container、ES/MongoDB 向量库、S3、NATS、K8s Operator（外部依赖，按需触发）
+
+**Phase 14 验证**：`go build ./...` + `go test ./... -race -count=1` 全绿（93 包）；gofmt/vet 干净；新增 23 测试。
+
+---
+
+**仅剩 maintainer 执行**：`git tag v2.6.0 && git push --tags && gh release create v2.6.0 -F RELEASE_NOTES_v2.6.0.md`

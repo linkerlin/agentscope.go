@@ -944,6 +944,43 @@ func TestExtractUsage_NonChatUsage(t *testing.T) {
 	}
 }
 
+func TestReActAgent_InterruptPreservesPartialReason(t *testing.T) {
+	m := &slowMockChatModel{name: "mock"}
+	a, err := Builder().
+		Name("Test").
+		Model(m).
+		MaxIterations(3).
+		Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	userMsg := message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()
+	history := []*message.Msg{
+		userMsg,
+		message.NewMsg().Role(message.RoleAssistant).TextContent("partial answer").Build(),
+	}
+
+	// With a partial assistant message in history, the recovery text preserves it.
+	resp, err := a.handleInterrupt(context.Background(), userMsg, history, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	text := resp.GetTextContent()
+	if !strings.Contains(text, "partial answer") || !strings.Contains(text, "before the interruption") {
+		t.Fatalf("recovery text should preserve the partial reason: %q", text)
+	}
+
+	// Without any assistant message, the plain recovery text is kept.
+	resp2, err := a.handleInterrupt(context.Background(), userMsg, history[:1], nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp2.GetTextContent() != "I noticed that you have interrupted me. What can I do for you?" {
+		t.Fatalf("unexpected recovery text: %q", resp2.GetTextContent())
+	}
+}
+
 func TestReActAgent_UserInterrupt(t *testing.T) {
 	// Slow model so the goroutine has time to fire the interrupt.
 	m := &slowMockChatModel{name: "mock", delay: 100 * time.Millisecond}

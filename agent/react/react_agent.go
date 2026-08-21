@@ -1109,6 +1109,11 @@ func (a *ReActAgent) handleInterrupt(ctx context.Context, originalMsg *message.M
 	}
 
 	recoveryText := "I noticed that you have interrupted me. What can I do for you?"
+	if last := lastAssistantText(history); last != "" {
+		// Preserve the partial response reason so the user can see what the
+		// agent was saying before the interruption (PyV2 #2209 parity).
+		recoveryText += " (before the interruption I was saying: " + truncateRunes(last, 80) + ")"
+	}
 	recoveryMsg := message.NewMsg().
 		Role(message.RoleAssistant).
 		Name(a.Name()).
@@ -1117,6 +1122,17 @@ func (a *ReActAgent) handleInterrupt(ctx context.Context, originalMsg *message.M
 
 	_ = a.memory.Add(recoveryMsg)
 	return recoveryMsg, nil
+}
+
+// lastAssistantText returns the text of the most recent assistant message in
+// history, or "" when there is none.
+func lastAssistantText(history []*message.Msg) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == message.RoleAssistant {
+			return history[i].GetTextContent()
+		}
+	}
+	return ""
 }
 
 // Observe receives a message without generating a reply (aligns with Python AgentBase).

@@ -9,7 +9,28 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/service"
 )
+
+// checkSessionAccess verifies that a session belongs to the authenticated user
+// when storage is available. It writes 404 (not 403, to avoid leaking session
+// existence) and returns false when access is denied. Without storage there is
+// nothing to enforce against and access is allowed.
+func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sessionID string) bool {
+	if s.storage == nil || sessionID == "" {
+		return true
+	}
+	se, err := s.storage.GetSession(r.Context(), sessionID)
+	if err != nil {
+		return true // session not persisted; nothing to enforce against
+	}
+	userID := service.UserIDFromContext(r.Context())
+	if se.UserID != "" && userID != "" && se.UserID != userID {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return false
+	}
+	return true
+}
 
 // Streamable HTTP transport for Agent Service (MCP 2025-03-26 inspired):
 // single endpoint /v2/chat supports POST (send message), GET (subscribe/reconnect),
@@ -84,6 +105,10 @@ func (s *Server) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts c
 		useAGUI:   useAGUIProtocol(r),
 	}
 
+	if !s.checkSessionAccess(w, r, sessionID) {
+		return
+	}
+
 	a, err := s.resolveAgentForRequest(r, params.agentID, params.sessionID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -130,6 +155,9 @@ func (s *Server) handleV2ChatGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session manager not configured", http.StatusServiceUnavailable)
 		return
 	}
+	if !s.checkSessionAccess(w, r, sessionID) {
+		return
+	}
 
 	params := chatStreamParams{
 		sessionID: sessionID,
@@ -151,6 +179,9 @@ func (s *Server) handleV2ChatDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.sessionMgr == nil {
 		http.Error(w, "session manager not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if !s.checkSessionAccess(w, r, sessionID) {
 		return
 	}
 

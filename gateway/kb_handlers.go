@@ -57,6 +57,8 @@ func (s *Server) RegisterKBRoutes() {
 	mux.HandleFunc("POST /api/v1/knowledge-bases/{id}/documents", s.requireAuth(s.handleUploadDocument))
 	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents", s.requireAuth(s.handleListDocuments))
 	mux.HandleFunc("DELETE /api/v1/knowledge-bases/{id}/documents/{doc_id}", s.requireAuth(s.handleDeleteDocument))
+	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents/{doc_id}/chunks", s.requireAuth(s.handleListDocChunks))
+	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents/{doc_id}/raw", s.requireAuth(s.handleRawDocument))
 	mux.HandleFunc("POST /api/v1/knowledge-bases/{id}/search", s.requireAuth(s.handleSearchKnowledgeBase))
 }
 
@@ -86,7 +88,27 @@ type searchResultItem struct {
 
 func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
 	specs := s.kbService.Manager.List(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"knowledge_bases": specs})
+	// ponytail: per-KB ListDocuments aggregate is O(records); fine for the
+	// in-memory store — move into the manager when remote backends arrive.
+	type kbSummary struct {
+		kb.Spec
+		Documents int `json:"documents"`
+		Chunks    int `json:"chunks"`
+	}
+	out := make([]kbSummary, 0, len(specs))
+	for _, spec := range specs {
+		sum := kbSummary{Spec: spec}
+		if h, err := s.kbService.Manager.Get(r.Context(), spec.Name); err == nil {
+			if docs, err := h.ListDocuments(r.Context()); err == nil {
+				sum.Documents = len(docs)
+				for _, d := range docs {
+					sum.Chunks += d.Chunks
+				}
+			}
+		}
+		out = append(out, sum)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"knowledge_bases": out})
 }
 
 func (s *Server) handleCreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +217,65 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"documents": docs})
+}
+
+// handleListDocChunks returns every indexed chunk of one document (no
+// vectors), ordered by chunk index.
+func (s *Server) handleListDocChunks(w http.ResponseWriter, r *http.Request) {
+	h, err := s.kbService.Manager.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	recs, err := h.ListChunks(r.Context(), r.PathValue("doc_id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if recs == nil {
+		recs = []kb.Record{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"chunks": recs})
+}
+
+// handleRawDocument streams the original uploaded bytes of a document from
+// the blob store (addressed via the blob_uri tagged on its chunks).
+func (s *Server) handleRawDocument(w http.ResponseWriter, r *http.Request) {
+	h, err := s.kbService.Manager.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	docID := r.PathValue("doc_id")
+	recs, err := h.ListChunks(r.Context(), docID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var blobURI string
+	if len(recs) > 0 {
+		blobURI, _ = recs[0].Metadata["blob_uri"].(string)
+	}
+	if blobURI == "" {
+		http.Error(w, "no raw blob recorded for document "+docID, http.StatusNotFound)
+		return
+	}
+	rc, err := s.kbService.Blob.Get(r.Context(), blobURI)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if name, _ := recs[0].Metadata["source"].(string); name != "" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", name))
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(data))
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {

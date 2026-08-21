@@ -289,7 +289,13 @@ async function loadKBDocs(name) {
     docList.innerHTML = docs.map(d => `
       <div class="doc-item">
         <span>📄 ${escapeHtml(d.source || d.doc_id)} <span class="dim">(${d.chunks} chunks)</span></span>
-        <button class="doc-del" data-doc="${escapeHtml(d.doc_id)}">✕</button>
+        <span class="doc-actions">
+          <a class="doc-chunks" data-doc="${escapeHtml(d.doc_id)}" href="javascript:void(0)">分块</a>
+          <a class="doc-raw" target="_blank" rel="noopener"
+             href="/api/v1/knowledge-bases/${encodeURIComponent(name)}/documents/${encodeURIComponent(d.doc_id)}/raw">原文</a>
+          <button class="doc-del" data-doc="${escapeHtml(d.doc_id)}">✕</button>
+        </span>
+        <div class="chunk-list hidden" id="chunks-${escapeHtml(d.doc_id)}"></div>
       </div>`).join("");
     docList.querySelectorAll(".doc-del").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -297,7 +303,31 @@ async function loadKBDocs(name) {
         loadKBDocs(name);
       });
     });
+    docList.querySelectorAll(".doc-chunks").forEach(link => {
+      link.addEventListener("click", () => toggleDocChunks(name, link.dataset.doc));
+    });
   } catch (err) { docList.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+}
+
+async function toggleDocChunks(kbName, docId) {
+  const box = document.getElementById("chunks-" + docId);
+  if (!box) return;
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); return; }
+  if (!box.dataset.loaded) {
+    try {
+      const data = await api("GET", `/api/v1/knowledge-bases/${encodeURIComponent(kbName)}/documents/${encodeURIComponent(docId)}/chunks`);
+      const chunks = (data && data.chunks) || [];
+      box.innerHTML = chunks.length
+        ? chunks.map(c => {
+            const idx = (c.metadata && c.metadata.chunk_index !== undefined) ? c.metadata.chunk_index : "";
+            const text = (c.text || "").slice(0, 300);
+            return `<div class="chunk-item"><span class="dim">#${idx}</span> ${escapeHtml(text)}${(c.text || "").length > 300 ? "…" : ""}</div>`;
+          }).join("")
+        : `<div class="empty">无分块</div>`;
+      box.dataset.loaded = "1";
+    } catch (err) { box.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+  }
+  box.classList.remove("hidden");
 }
 
 document.getElementById("kb-upload-input").addEventListener("change", async (e) => {

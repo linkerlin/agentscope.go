@@ -64,6 +64,14 @@ func (w *Worker) Process(ctx context.Context, task Task) error {
 	if err != nil {
 		return w.fail(task, fmt.Errorf("index: chunk: %w", err))
 	}
+	// Tag chunks with the blob URI so the raw document stays addressable from
+	// indexed records (chunk browsing / raw preview endpoints).
+	for i := range chunks {
+		if chunks[i].Metadata == nil {
+			chunks[i].Metadata = map[string]any{}
+		}
+		chunks[i].Metadata["blob_uri"] = task.BlobURI
+	}
 	if err := kbh.InsertChunks(ctx, task.DocID, chunks); err != nil {
 		return w.fail(task, fmt.Errorf("index: insert: %w", err))
 	}

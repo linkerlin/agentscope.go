@@ -50,6 +50,9 @@ type VectorStore interface {
 	// ListDocuments returns the distinct doc_ids (with first-seen metadata) in
 	// the collection, scoped by filter.
 	ListDocuments(ctx context.Context, collection string, filter map[string]any) ([]DocInfo, error)
+	// ListChunks returns every record of one document (metadata "doc_id" ==
+	// docID), scoped by filter, ordered by metadata "chunk_index".
+	ListChunks(ctx context.Context, collection, docID string, filter map[string]any) ([]Record, error)
 }
 
 // DocInfo summarises one indexed document in a collection.
@@ -128,6 +131,21 @@ func (kb *KnowledgeBase) DeleteDocument(ctx context.Context, docID string) error
 // ListDocuments returns the documents indexed in this knowledge base.
 func (kb *KnowledgeBase) ListDocuments(ctx context.Context) ([]DocInfo, error) {
 	return kb.Store.ListDocuments(ctx, kb.Collection, kb.Filter)
+}
+
+// ListChunks returns every indexed chunk of one document, ordered by chunk
+// index. Vector payloads are not included.
+func (kb *KnowledgeBase) ListChunks(ctx context.Context, docID string) ([]Record, error) {
+	recs, err := kb.Store.ListChunks(ctx, kb.Collection, docID, kb.Filter)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Record, 0, len(recs))
+	for _, r := range recs {
+		r.Vector = nil
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 func mergeMeta(base, extra map[string]any) map[string]any {

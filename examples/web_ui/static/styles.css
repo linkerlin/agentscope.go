@@ -124,6 +124,11 @@ body {
 }
 .text-input:focus { outline: none; border-color: var(--accent); }
 .kb-results, .doc-list { display: flex; flex-direction: column; gap: 8px; }
+.doc-actions { display: inline-flex; gap: 10px; align-items: center; }
+.doc-actions a { color: var(--text-dim); font-size: 12px; text-decoration: none; }
+.doc-actions a:hover { color: var(--accent); }
+.chunk-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.chunk-item { font-size: 12px; color: var(--text-dim); background: var(--bg-soft); border-radius: 4px; padding: 6px 10px; word-break: break-all; }
 .result-item, .doc-item {
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 13px;
 }

@@ -112,6 +112,42 @@ func (s *InMemoryVectorStore) ListDocuments(ctx context.Context, collection stri
 	return out, nil
 }
 
+// ListChunks returns every record whose metadata "doc_id" == docID (and
+// matches filter), ordered by metadata "chunk_index".
+func (s *InMemoryVectorStore) ListChunks(ctx context.Context, collection, docID string, filter map[string]any) ([]Record, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	f := mergeFilters(map[string]any{"doc_id": docID}, filter)
+	var out []Record
+	for _, r := range s.collections[collection] {
+		if !matchFilter(r.Metadata, f) {
+			continue
+		}
+		r.Vector = nil // chunk browsing never ships vectors
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ci, _ := out[i].Metadata["chunk_index"].(int)
+		cj, _ := out[j].Metadata["chunk_index"].(int)
+		return ci < cj
+	})
+	return out, nil
+}
+
+func mergeFilters(a, b map[string]any) map[string]any {
+	if len(b) == 0 {
+		return a
+	}
+	out := make(map[string]any, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
+}
+
 func matchFilter(meta, filter map[string]any) bool {
 	for k, v := range filter {
 		if meta[k] != v {

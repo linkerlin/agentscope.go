@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/service"
@@ -156,5 +157,46 @@ func (d *WakeupDispatcher) drainAndRun(ctx context.Context, sessionID string) {
 	}
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(sb.String()).Build()
 	// Fire and forget: SessionManager serialises per-session and persists the reply.
-	_, _ = d.sessionMgr.Run(ctx, sessionID, ag, msg)
+	ch, err := d.sessionMgr.Run(ctx, sessionID, ag, msg)
+	if err == nil && ch != nil {
+		// A failed worker turn must reach the leader (PyV2 #2386 parity).
+		go d.watchRunFailure(ctx, se, ch)
+	}
+}
+
+// watchRunFailure consumes the run's event stream just far enough to detect a
+// terminal error, then notifies the team leader. It returns after the first
+// error (or stream end) to avoid holding the channel.
+func (d *WakeupDispatcher) watchRunFailure(ctx context.Context, se *service.Session, ch <-chan event.AgentEvent) {
+	for ev := range ch {
+		if e, ok := ev.(*event.ErrorEvent); ok && e.Err != "" {
+			d.notifyLeaderOfFailure(ctx, se, e.Err)
+			return
+		}
+		if _, ok := ev.(*event.ReplyEndEvent); ok {
+			return // clean finish — no notification needed
+		}
+	}
+}
+
+// notifyLeaderOfFailure pushes a <team-error> message into the leader's inbox
+// and wakes it so the failure surfaces on the next leader turn.
+func (d *WakeupDispatcher) notifyLeaderOfFailure(ctx context.Context, se *service.Session, runErr string) {
+	if d.storage == nil || se == nil || se.TeamID == "" {
+		return
+	}
+	team, err := d.storage.GetTeam(ctx, se.TeamID)
+	if err != nil || team == nil || team.LeaderSessionID == "" || team.LeaderSessionID == se.ID {
+		return
+	}
+	errMsg := runErr
+	if len(errMsg) > 300 {
+		errMsg = errMsg[:300]
+	}
+	_ = d.bus.InboxPush(ctx, team.LeaderSessionID, messagebus.TeamMessage{
+		From: "worker:" + se.ID,
+		Content: fmt.Sprintf("<team-error from=%q>\nworker turn failed: %s\n</team-error>",
+			se.ID, errMsg),
+	})
+	_ = d.bus.EnqueueWakeup(ctx, team.LeaderSessionID)
 }

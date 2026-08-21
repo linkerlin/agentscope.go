@@ -67,6 +67,31 @@ form.addEventListener("submit", (e) => {
   input.value = "";
   sendMessage(text);
 });
+
+// ── mid-turn steering / interrupt (Phase 14.3) ──
+const steerInput = document.getElementById("steer-input");
+const steerBtn = document.getElementById("steer-btn");
+const interruptBtn = document.getElementById("interrupt-btn");
+function appendSystemNote(text) {
+  const el = document.createElement("div");
+  el.className = "system-note";
+  el.textContent = text;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+if (steerBtn) steerBtn.addEventListener("click", () => {
+  const text = (steerInput.value || "").trim();
+  if (!text) return;
+  steerInput.value = "";
+  api("POST", `/v2/sessions/${encodeURIComponent(sessionId)}/steer`, { text })
+    .then(() => appendSystemNote("steer 注入: " + text))
+    .catch(err => appendSystemNote("steer 失败: " + err.message));
+});
+if (interruptBtn) interruptBtn.addEventListener("click", () => {
+  api("POST", `/v2/sessions/${encodeURIComponent(sessionId)}/interrupt`)
+    .then(() => appendSystemNote("已发送打断"))
+    .catch(err => appendSystemNote("打断失败: " + err.message));
+});
 function setReconnectStatus(t) { if (reconnectStatusEl) reconnectStatusEl.textContent = t; }
 function appendUserBubble(text) {
   const el = document.createElement("div");

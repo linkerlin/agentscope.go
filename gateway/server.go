@@ -15,6 +15,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/channel"
 	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/evolver"
 	"github.com/linkerlin/agentscope.go/hub"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
@@ -118,6 +119,11 @@ type Server struct {
 	// nil = disabled (default); attach via WithControlPlane to enable the
 	// /api/v1/controlplane/* routes and the ControlPlaneMiddleware path.
 	controlPlane *controlplane.Kernel
+
+	// evolver powers the governance->evolution closed loop: when autoSolidify
+	// is enabled, goal completion auto-solidifies into evolver capsules.
+	evolver      evolver.Evolver
+	autoSolidify bool
 }
 
 // NewServer creates a gateway HTTP server for the given agent.
@@ -287,6 +293,8 @@ func (s *Server) RegisterV2Routes() {
 	s.mux.HandleFunc("/v2/chat/stream", s.requireAuth(s.handleV2ChatStream))
 	s.mux.HandleFunc("/v2/chat/ws", s.requireAuth(s.handleChatWSV2))
 	s.mux.HandleFunc("/v2/resume", s.requireAuth(s.handleV2Resume))
+	s.mux.HandleFunc("POST /v2/sessions/{session_id}/steer", s.requireAuth(s.handleV2Steer))
+	s.mux.HandleFunc("POST /v2/sessions/{session_id}/interrupt", s.requireAuth(s.handleV2Interrupt))
 }
 
 // ServeHTTP implements http.Handler.

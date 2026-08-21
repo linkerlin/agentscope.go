@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/evolver"
+	"github.com/linkerlin/agentscope.go/logging"
 	"github.com/linkerlin/agentscope.go/service"
 )
 
@@ -18,6 +21,43 @@ import (
 func (s *Server) WithControlPlane(k *controlplane.Kernel) *Server {
 	s.controlPlane = k
 	return s
+}
+
+// WithEvolver attaches an evolver client for the governance→evolution closed
+// loop (goal completion → automatic capsule solidify).
+func (s *Server) WithEvolver(ev evolver.Evolver) *Server {
+	s.evolver = ev
+	return s
+}
+
+// WithAutoSolidifyOnGoalComplete enables automatic evolver.Solidify when a goal
+// transitions to completed. Off by default; requires an evolver to be attached.
+func (s *Server) WithAutoSolidifyOnGoalComplete(enabled bool) *Server {
+	s.autoSolidify = enabled
+	return s
+}
+
+// solidifyGoalCompletion solidifies a completed goal into the evolver
+// (best-effort; failures only log). DecisionSource marks the record as
+// governance-driven so the resulting capsule stays auditable.
+func (s *Server) solidifyGoalCompletion(g *controlplane.Goal) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Default().Error("controlplane auto-solidify panicked", "goal_id", g.ID, "recover", r)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := s.evolver.Solidify(ctx, evolver.SolidifyRequest{
+		Intent:         g.Objective,
+		Summary:        "control plane goal completed: " + g.Objective,
+		Signals:        []string{"goal_completed"},
+		DecisionSource: "controlplane",
+		PrimaryCause:   g.ID,
+	})
+	if err != nil {
+		logging.Default().Error("controlplane auto-solidify failed", "goal_id", g.ID, logging.KeyError, err)
+	}
 }
 
 // RegisterControlPlaneRoutes registers the long-running-agent governance API.
@@ -197,6 +237,7 @@ func (s *Server) handleUpdateCPGoal(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
+	prev := g.State
 	if req.State != nil && *req.State != g.State {
 		if !controlplane.LegalGoalTransition(g.State, *req.State) {
 			writeJSON(w, http.StatusConflict, map[string]any{"error": "illegal goal transition", "from": g.State, "to": *req.State})
@@ -213,6 +254,12 @@ func (s *Server) handleUpdateCPGoal(w http.ResponseWriter, r *http.Request) {
 	if err := k.GoalStore().Upsert(r.Context(), g); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
+	}
+	// Governance→evolution closed loop: a real transition into completed
+	// auto-solidifies the goal into the evolver (opt-in, best-effort).
+	if s.autoSolidify && s.evolver != nil &&
+		prev != controlplane.GoalCompleted && g.State == controlplane.GoalCompleted {
+		go s.solidifyGoalCompletion(g)
 	}
 	writeJSON(w, http.StatusOK, g)
 }

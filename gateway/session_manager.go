@@ -267,6 +267,33 @@ func (sm *SessionManager) ClearCompleted(sessionID string) {
 	sm.mu.Unlock()
 }
 
+// Steer injects a user message into the session's active run (mid-turn
+// steering). Returns an error when no active run exists or the agent does not
+// support steering.
+func (sm *SessionManager) Steer(sessionID, text string) error {
+	if sessionID == "" {
+		return fmt.Errorf("session_manager: session id required")
+	}
+	sm.mu.RLock()
+	run, ok := sm.runs[sessionID]
+	sm.mu.RUnlock()
+	if !ok || run == nil {
+		return fmt.Errorf("session_manager: no run for session %s", sessionID)
+	}
+	run.mu.RLock()
+	done := run.done
+	ag := run.agent
+	run.mu.RUnlock()
+	if done {
+		return fmt.Errorf("session_manager: run already finished for session %s", sessionID)
+	}
+	st, ok := ag.(interface{ Steer(string) error })
+	if !ok {
+		return fmt.Errorf("session_manager: agent does not support steering")
+	}
+	return st.Steer(text)
+}
+
 func interruptAgent(a agent.Agent) {
 	if a == nil {
 		return

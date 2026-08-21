@@ -367,11 +367,15 @@ func (m *MockEvolver) Solidify(_ context.Context, req SolidifyRequest) (*Solidif
 	m.caps = append(m.caps, cap)
 	m.mu.Unlock()
 
+	geneID := ""
+	if req.Gene != nil {
+		geneID = req.Gene.ID
+	}
 	return &SolidifyResult{
 		OK:        true,
 		EventID:   fmt.Sprintf("evt_%d", m.solid),
 		CapsuleID: cap.ID,
-		GeneID:    req.Gene.ID,
+		GeneID:    geneID,
 		Message:   "solidified (mock)",
 	}, nil
 }

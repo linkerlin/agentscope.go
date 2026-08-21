@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/evolver"
 )
 
 func main() {
@@ -119,6 +120,27 @@ func main() {
 	for _, e := range pkt.DecisionLineage {
 		fmt.Printf("    [%s] %s%s\n", e.Kind, e.Type, noteFor(e))
 	}
+
+	fmt.Println("\n== 10. Governance→evolution closed loop: completed goal → auto-solidify ==")
+	// The gateway fires this automatically (AppConfig.Evolver +
+	// AutoSolidifyOnGoalComplete); here we show the same payload on the Kernel
+	// path. MockEvolver runs locally; swap for evolver.NewMCPEvolver(...) in
+	// production to persist real Gene/Capsule records.
+	ev := evolver.NewMockEvolver()
+	goal.State = controlplane.GoalCompleted
+	must(goals.Upsert(ctx, goal))
+	sol, err := ev.Solidify(ctx, evolver.SolidifyRequest{
+		Intent:         goal.Objective,
+		Summary:        "control plane goal completed: " + goal.Objective,
+		Signals:        []string{"goal_completed"},
+		DecisionSource: "controlplane",
+		PrimaryCause:   goal.ID,
+	})
+	must(err)
+	fmt.Printf("  solidified: capsule=%s gene=%s\n", sol.CapsuleID, sol.GeneID)
+	caps, err := ev.ListCapsules(ctx, 5)
+	must(err)
+	fmt.Printf("  evolver capsules now: %d (decision_source=controlplane)\n", len(caps))
 }
 
 func must(err error) {

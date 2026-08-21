@@ -4,6 +4,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/embedding"
+	"github.com/linkerlin/agentscope.go/evolver"
 	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
@@ -71,6 +72,16 @@ type AppConfig struct {
 	// remember/recall, meetings, ATP tasks) via the existing MCP gateway.
 	// See evolver/ package, examples/evolver, and docs for wiring + MockEvolver for tests.
 	EvolverEnabled bool
+
+	// Evolver, when non-nil, powers the governance→evolution closed loop:
+	// goal completion can auto-solidify into evolver capsules (see
+	// AutoSolidifyOnGoalComplete). Attach via evolver.NewMockEvolver / MCPEvolver.
+	Evolver evolver.Evolver
+
+	// AutoSolidifyOnGoalComplete, when true and Evolver is set, automatically
+	// calls evolver.Solidify (DecisionSource="controlplane") each time a goal
+	// transitions to completed. Off by default (opt-in).
+	AutoSolidifyOnGoalComplete bool
 
 	// ControlPlane is the long-running-agent governance kernel (LoopX-style
 	// spine). Optional; nil = control plane disabled (the gateway behaves
@@ -160,6 +171,12 @@ func NewApp(cfg AppConfig) *Server {
 	}
 	if cfg.ControlPlane != nil {
 		srv.WithControlPlane(cfg.ControlPlane)
+	}
+	if cfg.Evolver != nil {
+		srv.WithEvolver(cfg.Evolver)
+	}
+	if cfg.AutoSolidifyOnGoalComplete {
+		srv.WithAutoSolidifyOnGoalComplete(true)
 	}
 
 	// Auto-assemble default SessionAgentDeps for dynamic per-session agents

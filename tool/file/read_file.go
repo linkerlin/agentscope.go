@@ -2,13 +2,17 @@ package file
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
 	"github.com/linkerlin/agentscope.go/workspace"
@@ -112,6 +116,26 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 			}
 			defaultReadCache.Put(path, modTime, data)
 		}
+	}
+
+	// Binary files (invalid UTF-8) are returned as a base64 DataBlock instead
+	// of mangled text (PyV2 #2114 parity).
+	if !utf8.Valid(data) {
+		mediaType := http.DetectContentType(data)
+		resp := &tool.Response{
+			Content: []message.ContentBlock{
+				message.NewTextBlock(fmt.Sprintf(
+					"%s is a binary file (%s, %d bytes); returned as base64 data block.",
+					filePath, mediaType, len(data))),
+				message.NewDataBlock(message.TypeData, &message.Source{
+					Type:      message.SourceTypeBase64,
+					MediaType: mediaType,
+					Data:      base64.StdEncoding.EncodeToString(data),
+				}),
+			},
+			IsLast: true,
+		}
+		return resp, nil
 	}
 
 	lines := strings.Split(string(data), "\n")

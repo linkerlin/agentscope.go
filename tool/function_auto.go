@@ -17,6 +17,17 @@ func WithConcurrencySafe(safe bool) FunctionToolOption {
 	return func(f *FunctionTool) { f.concurrencySafe = safe }
 }
 
+// WithInputSchema overrides the auto-generated JSON Schema parameters with a
+// user-provided schema (PyV2 #2378 parity). Use when the generated schema
+// needs hand-tuning (descriptions, enums, formats) for better model accuracy.
+func WithInputSchema(schema map[string]any) FunctionToolOption {
+	return func(f *FunctionTool) {
+		if schema != nil {
+			f.parameters = schema
+		}
+	}
+}
+
 // NewFunctionToolAuto registers a typed handler and auto-generates JSON Schema from T.
 // Handler signature: func(ctx context.Context, input T) (*Response, error)
 func NewFunctionToolAuto[T any](

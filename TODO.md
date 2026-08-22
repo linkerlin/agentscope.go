@@ -1,8 +1,8 @@
 # AgentScope.Go 演进实施 TODO
 
-> 来源：`演进方案.md`（2026-07-30 深度修订版，v3）+ `演进方案v4.md`（2026-08-08）+ `演进方案v5.md`（2026-08-21）
-> 状态：**Phase 5-14 全部完成**（v2.6.0 发布准备就绪）
-> 更新日期：2026-08-21（Phase 14 收尾：Console TUI / Workspace 服务化 / 治理-演化闭环 / 多租户隔离 + 文档清理）
+> 来源：`演进方案.md`（v3）+ `演进方案v4.md` + `演进方案v5.md` + `演进方案v6.md`
+> 状态：**Phase 5-15 全部完成**（v2.6.0 发布准备就绪；Phase 15 于 2026-08-22 收官）
+> 更新日期：2026-08-22（Phase 15：KB 可观测性 / 工具增强 / on_reply 续循环 / Team 失败通知 / 治理指标导出 / 性能快照）
 >
 > **代码规模**（2026-07-30 审阅实测）：~66,500 非测试行 / ~39,900 测试行 / 303 测试文件 / 162 包 / 45 示例 / `go build ./...` + `go vet ./...` 全绿
 >
@@ -433,6 +433,37 @@
 - [x] 明确延后：Apple Container、ES/MongoDB 向量库、S3、NATS、K8s Operator（外部依赖，按需触发）
 
 **Phase 14 验证**：`go build ./...` + `go test ./... -race -count=1` 全绿（93 包）；gofmt/vet 干净；新增 23 测试。
+
+---
+
+## Phase 15：对标 Python 36 新提交 + 护城河（2026-08-22，目标 v2.6.x）
+
+> 来源：`演进方案v6.md`。基准 Python 801dd1ef（0d54503e 后 36 个非 merge 提交，主题"可观测性 + 工具精细化 + Team 增强"）。
+
+### 15.1 KB 可观测性（对标 #2372）
+- [x] `VectorStore.ListChunks` 接口 + InMemory 实现（doc_id+filter，chunk_index 排序，vector 剥离）
+- [x] `GET /kb/{id}/documents/{doc}/chunks` + `/raw` 端点（worker 索引时注入 blob_uri 溯源 blob）
+- [x] KB 列表富化 documents/chunks 计数；web_ui 分块懒加载 + 原文链接
+- [x] 3 组测试全绿
+
+### 15.2 工具增强（对标 #2114/#2378）
+- [x] read_file 二进制 DataBlock（非 UTF-8 → base64 + media_type 嗅探 + 说明文本；文本行为不变）
+- [x] `WithInputSchema(schema)` FunctionToolOption（覆盖自动 schema，typed handler 不受影响）
+- [x] 核查：#2366（host OS 选 shell）在 Go 架构下不存在（shell 由各 Workspace 后端自决）
+
+### 15.3 on_reply 续循环（对标 #2322）
+- [x] `middleware.ErrContinueReply` 哨兵 + `Base.Call` 有界续循环（中间回复回灌 ReplyInput.Messages，3 轮上界）
+
+### 15.4 Team 鲁棒性（对标 #2386，部分）
+- [x] worker turn 失败 → leader inbox `<team-error>` + wakeup（300 字符截断，leader 自身不通知）
+- [ ] max_image_num（#2362）/ loop 中间件（#2379）/ prompt cache tokens（#2318）等低价值密度项延后
+
+### 护城河
+- [x] `observability.ControlPlaneCollector`（9 个治理 counter）+ `Server.WithMetricsRegistry`（/metrics 自动接线）
+- [x] `docs/benchmark_v2.6.0.md` 性能快照（147k req/s；1→100 并发延迟 +27%；热路径零/低分配）
+- [ ] evolver 真实 MCP 后端 e2e（需外部服务）
+
+**Phase 15 验证**：全仓库 `-race` 全绿；新增 14 测试（KB 3 + 工具 3 + 续循环 3 + team 1 + 指标 4）。
 
 ---
 

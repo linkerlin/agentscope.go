@@ -17,6 +17,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/gateway"
@@ -27,6 +30,8 @@ func main() {
 	k := controlplane.NewKernel(nil, nil, nil).WithTicketEnforcement()
 	srv := gateway.NewServer(nil).WithControlPlane(k)
 	srv.RegisterControlPlaneRoutes()
+	// Expose governance counters as Prometheus metrics at /metrics.
+	srv.WithMetricsRegistry(prometheus.NewRegistry())
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 	ctx := context.Background()
@@ -93,7 +98,27 @@ func main() {
 		map[string]any{"older_days": 1, "keep_last_n": 100})
 	fmt.Printf("  maintenance: reaped=%v keep_last_n=%v\n", mt["reaped"], mt["keep_last_n"])
 
+	// 9. Prometheus /metrics exports the governance counters.
+	res := getText(ts.URL + "/metrics")
+	for _, line := range strings.Split(res, "\n") {
+		if strings.HasPrefix(line, "agentscope_controlplane_") {
+			fmt.Printf("  %s\n", line)
+		}
+	}
+
 	fmt.Println("\nHTTP flow completed.")
+}
+
+// getText fetches a URL and returns the body as text.
+func getText(url string) string {
+	res, err := http.Get(url)
+	must(err)
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	if res.StatusCode >= 300 {
+		panic(fmt.Sprintf("GET %s -> %d", url, res.StatusCode))
+	}
+	return string(b)
 }
 
 // --- tiny helpers (no external deps) ---

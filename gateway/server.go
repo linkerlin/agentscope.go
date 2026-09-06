@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	agentscope "github.com/linkerlin/agentscope.go"
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/channel"
 	"github.com/linkerlin/agentscope.go/controlplane"
@@ -456,7 +457,7 @@ func parseChatRequest(body io.ReadCloser) (*chatRequest, error) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	status := map[string]any{
 		"status":    "healthy",
-		"version":   "2.0.0-rc.1",
+		"version":   agentscope.Version,
 		"uptime_ms": time.Since(time.Time{}).Milliseconds(), // simplified
 	}
 	if s.storage != nil {

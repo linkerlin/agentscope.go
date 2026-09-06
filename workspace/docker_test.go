@@ -18,12 +18,21 @@ func mockRunner(stdout, stderr string, exitCode int) cmdRunner {
 		cs = append(cs, name)
 		cs = append(cs, arg...)
 		cmd := exec.CommandContext(ctx, os.Args[0], cs...)
-		cmd.Env = []string{
+		// Inherit the parent environment so cover-instrumented test binaries
+		// find GOCOVERDIR. Replacing Env entirely used to print
+		// "warning: GOCOVERDIR not set" onto CombinedOutput/Stderr and
+		// break ListDir/Stat/Execute/HealthCheck assertions.
+		env := append([]string{}, os.Environ()...)
+		env = append(env,
 			"GO_WANT_HELPER_PROCESS=1",
-			"GO_HELPER_STDOUT=" + stdout,
-			"GO_HELPER_STDERR=" + stderr,
+			"GO_HELPER_STDOUT="+stdout,
+			"GO_HELPER_STDERR="+stderr,
 			fmt.Sprintf("GO_HELPER_EXIT=%d", exitCode),
+		)
+		if os.Getenv("GOCOVERDIR") == "" {
+			env = append(env, "GOCOVERDIR="+os.TempDir())
 		}
+		cmd.Env = env
 		return cmd
 	}
 }

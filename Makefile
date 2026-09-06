@@ -11,6 +11,9 @@ help: ## Show this help
 test: ## Run all tests with race detector (required before any commit)
 	go test -race -count=1 -timeout=12m ./...
 
+test-e2e: ## Production-path HTTP e2e (NewApp bootstrap + examples e2e)
+	go test -race -count=1 -timeout=5m ./tests/e2e ./examples/multi_tenant_workspace ./examples/web_ui
+
 test-short: ## Quick tests (no race, for fast iteration)
 	go test -count=1 -timeout=5m ./...
 

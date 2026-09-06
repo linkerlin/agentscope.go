@@ -74,8 +74,30 @@ AgentScope.Go 提供丰富的示例程序，覆盖从基础入门到生产部署
 | 全功能服务 | [`examples/full_service/main.go`](../examples/full_service/main.go) | 最大自动装配：tracing + embedding cache + auto restore |
 | 多租户工作区 | [`examples/multi_tenant_workspace/main.go`](../examples/multi_tenant_workspace/main.go) | 多租户网关 + MCP Sidecar + 工作区隔离 |
 | 网关服务 | [`examples/gateway/main.go`](../examples/gateway/main.go) | gateway.NewServer 提供 SSE + WebSocket 端点 |
-| Web UI | [`examples/web_ui/main.go`](../examples/web_ui/main.go) | AG-UI Streamable HTTP 协议前端对接 |
+| Web UI | [`examples/web_ui/main.go`](../examples/web_ui/main.go) | 零构建 SPA：Chat / KB / System（go:embed，AG-UI SSE） |
 | Studio | [`examples/studio/main.go`](../examples/studio/main.go) | 纯 Go + HTMX 管理后台：凭证/Agent/记忆/A2A/Evolver |
+| 终端 Console | [`examples/console/main.go`](../examples/console/main.go) | bubbletea TUI：HITL 确认 + 中断 |
+
+---
+
+## 平台与治理
+
+| 示例 | 路径 | 说明 |
+|------|------|------|
+| Channel Webhook | [`examples/channel_webhook/main.go`](../examples/channel_webhook/main.go) | HTTP webhook 收发 + chat→agent 路由 |
+| Discord bot | [`examples/channel_discord/main.go`](../examples/channel_discord/main.go) | Discord Gateway + REST 回发 |
+| 飞书 bot | [`examples/channel_feishu/main.go`](../examples/channel_feishu/main.go) | 事件订阅 webhook + send_message / list_chats |
+| Hub 市场 | [`examples/hub_demo/main.go`](../examples/hub_demo/main.go) | 浏览 MCP/Skill 卡片并安装 |
+| Agent Team | [`examples/agent_team/main.go`](../examples/agent_team/main.go) | leader/worker 异步协作 |
+| 消息总线 | [`examples/messagebus/main.go`](../examples/messagebus/main.go) | LocalBus / RedisBus pub/sub |
+| 托管知识库 | [`examples/rag_kb/main.go`](../examples/rag_kb/main.go) | 上传→解析→分块→索引→检索 |
+| Agentic Memory | [`examples/agentic_memory/main.go`](../examples/agentic_memory/main.go) | Agent 用文件工具管理 Markdown 记忆 |
+| 长期记忆中间件 | [`examples/longterm_memory/main.go`](../examples/longterm_memory/main.go) | static / agent / both 三模式 |
+| TTS | [`examples/tts/main.go`](../examples/tts/main.go) | DashScope / OpenAI TTS 合成 |
+| Plugin | [`examples/plugin_demo/main.go`](../examples/plugin_demo/main.go) | 三阶段生命周期 + YAML 注册工具 |
+| 治理平面 demo | [`examples/controlplane_demo/main.go`](../examples/controlplane_demo/main.go) | Goal / ShouldRun / 门 / 租约 / 看板 |
+| 治理平面 SQL | [`examples/controlplane_sql/main.go`](../examples/controlplane_sql/main.go) | SQL 持久化 + 跨重启 |
+| 治理平面 HTTP | [`examples/controlplane_http/main.go`](../examples/controlplane_http/main.go) | `/api/v1/controlplane/*` 全流程 |
 
 ---
 
@@ -120,5 +142,8 @@ AgentScope.Go 提供丰富的示例程序，覆盖从基础入门到生产部署
 - **学编排** → `examples/pipeline` → `examples/workflow` → `examples/mapreduce`
 - **学 A2A** → `examples/a2a` → `examples/a2a_secure` → `examples/a2a_redis_registry`
 - **学部署** → `examples/gateway` → `examples/production` → `examples/full_service`
+- **学终端** → `examples/console`
+- **学治理** → `examples/controlplane_demo` → `examples/controlplane_http`
+- **学 Channel** → `examples/channel_webhook` → `examples/channel_feishu`
 - **学 ONNX** → `examples/onnx` → `examples/cross_modal`
 - **学可观测** → `examples/trace` → `examples/observability` → `examples/langsmith`

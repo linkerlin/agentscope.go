@@ -6,21 +6,22 @@ AgentScope.Go — a production-grade AI Agent development framework that lets yo
 
 ## Overview
 
-AgentScope.Go provides everything needed to build intelligent agents using the ReAct (reason + act) paradigm: tool calling, memory management, multi-agent collaboration, **multi-platform chatbots (Webhook / Discord / Feishu)**, and an **ecosystem marketplace (MCP / Skill)** — all in idiomatic Go.
+AgentScope.Go provides everything needed to build intelligent agents using the ReAct (reason + act) paradigm: tool calling, memory management, multi-agent collaboration, a **terminal TUI**, a **long-horizon control plane**, **multi-platform chatbots (Webhook / Discord / Feishu)**, and an **ecosystem marketplace (MCP / Skill)** — all in idiomatic Go.
 
-## What's New (v2.5.0)
+Current release: **v2.6.0**. Roadmap: [演进方案.md](演进方案.md) (Chinese).
+
+## What's New (v2.6.0)
 
 <!-- BEGIN NEWS -->
-- **`Channel` multi-platform integration**: **3 platform adapters out of the box** — Webhook (zero-dependency HTTP), Discord (discordgo), Feishu (pure HTTP, incl. `send_message`/`list_chats` agent tools); chat→agent routing + async runs + reply delivery.
-- **`Hub` marketplace**: browse + install MCP/Skill cards (FSHub — a directory is a marketplace, zip-slip hardened).
-- **`Plugin` ecosystem example**: three-phase lifecycle + YAML config + tool registration (`examples/plugin_demo`).
-- **`RAG` managed knowledge bases**: document→parser(Text/PDF/PPTX/Image)→chunker→blob→kb→index pipeline + RAGMiddleware + KB HTTP API. Aligned with Python rag/ hosting.
-- **`Message Bus CoordBus`**: Lock/Registry/Queue/Log primitives (Local+Redis backends) + cross-session projection.
-- **`Web UI Console`**: zero-build SPA (Chat/KB/System, `go:embed` single binary).
-- **`Agentic Memory`**: the agent manages Markdown memory files itself (file-based, unlike passive ReMe retrieval).
-- **`Tracing` semantic attributes**: 5-hook span extraction (model/tool/iteration/usage) + otelSpan bridging.
-- **`MCP` declarative config**: ServerSpec YAML + 6-server catalog + resilient connections.
-- **`Langfuse`** integration + **`RBAC`** tests + **audit wiring** + **`slog`** structured logging.
+- **`console/` terminal TUI**: bubbletea state machine (idle/running/confirming), HITL `y/n/a` confirms, Ctrl+C interrupt, three verbosity levels.
+- **Workspace as a service**: artifact `list_dir`/`read_file`, git status, shared workspaces, agent-level skill allowlists.
+- **Governance → evolution loop**: completing a `controlplane` Goal can opt-in `evolver.Solidify`; `POST /v2/sessions/{id}/steer|interrupt`; quota heartbeat.
+- **Multi-tenant session isolation**: cross-user session access returns 404 (no existence leak).
+- **KB observability**: chunk listing / raw-document preview / enriched counts.
+- **`Channel`**: Webhook / Discord / Feishu (incl. `send_message`/`list_chats`).
+- **`Hub` marketplace**: browse + install MCP/Skill cards (FSHub, zip-slip hardened).
+- **RAG managed KBs**: parsers (Text/PDF/PPTX/Image/Word/Excel) → chunker → blob → kb → index + HTTP API.
+- **Zero-build Web UI**: Chat / KB / System, `go:embed` single binary.
 <!-- END NEWS -->
 
 ## Quickstart
@@ -120,9 +121,15 @@ Covered: OpenAI Chat / OpenAI Response / Anthropic / Gemini / DashScope / DeepSe
 | `a2a` | A2A protocol: AgentCard, Task, SSE, Registry, ShardRouter, security (auth/rate-limit/WebSocket) |
 | `gateway` | HTTP + SSE + WebSocket + AG-UI Gateway, multi-tenant auth + session persistence + tool offload + KB API + audit + RBAC |
 | `service` | Multi-tenant service layer: Storage + Auth + Credential encryption + RBAC roles/permissions + audit log |
-| `rag` | **Managed knowledge bases**: document/parser(Text/PDF/PPTX/Image)/chunker/blob/kb/index pipeline + RAGMiddleware + KB HTTP API |
+| `rag` | **Managed knowledge bases**: document/parser(Text/PDF/PPTX/Image/Word/Excel)/chunker/blob/kb/index pipeline + RAGMiddleware + KB HTTP API |
+| `workspace` | Sandboxed execution: Local / Docker / E2B / K8s / Bubblewrap / Daytona / OpenSandbox + MCP Gateway + Offloader |
+| `permission` | Rule engine + bash compound-command splitting + HITL confirm modes |
+| `console` | **Terminal TUI**: bubbletea HITL confirm / interrupt / three verbosity levels |
+| `controlplane` | **Long-horizon control plane**: Goal / Quota / Gate / Evidence / Lease / Kanban + SQL persistence |
+| `plugin` | Three-phase plugin lifecycle + YAML config + Linux `.so` loading |
+| `tts` | Standalone TTS: DashScope CosyVoice / OpenAI adapter + RealtimeModel |
 | `messagebus` | **Distributed message bus**: LocalBus + RedisBus + CoordBus primitives (Lock/Registry/Queue/Log) + TeamBus + cross-session projection |
-| `middleware` | Agent lifecycle middleware (onion model) + Budget/TTS/LongTermMemory/**RAG**/**AgenticMemory** |
+| `middleware` | Agent lifecycle middleware (7 onion hooks) + Budget/TTS/LongTermMemory/**RAG**/**AgenticMemory**/Injection/ControlPlane |
 | `logging` | **Structured logging**: stdlib slog wrapper + LOG_LEVEL/LOG_FORMAT env config + request-scoped FromContext |
 | `schedule` | Cron scheduler |
 | `async` | Async task pool |
@@ -176,6 +183,28 @@ mgr, _ := hub.InstallMCPs(ctx, mcps)              // resilient connect (missing 
 
 Gateway wiring: `srv.WithHubs(h)` + `srv.RegisterHubRoutes()` (5 browse/install routes).
 See [`docs/HUB.md`](docs/HUB.md).
+
+## Console TUI
+
+Debug a permission-gated ReAct agent in the terminal (HITL confirm + interrupt):
+
+```bash
+go run ./examples/console
+```
+
+Three verbosity levels (quiet / default / debug); per-tool `[y]es / [N]o / [a]lways`; Ctrl+C interrupts the running turn. No session persistence (state dies with the process).
+
+## Control Plane
+
+Lifetime goals, quota `ShouldRun`, user gates, validated writeback. Default-off; only sessions bound to a Goal enter the governance path.
+
+```go
+k := controlplane.NewKernel(controlplane.NewMemoryStore())
+// Goal → Todo → ShouldRun → Writeback → SpendSlot
+// HTTP: /api/v1/controlplane/* ; opt-in auto-solidify via AppConfig.AutoSolidifyOnGoalComplete
+```
+
+Examples: `examples/controlplane_demo`, `examples/controlplane_sql`, `examples/controlplane_http`.
 
 ## ONNX Production Inference (Local Multimodal)
 
@@ -234,7 +263,8 @@ wsServer := a2a.NewWebSocketEnabledServer(card, runner, store)
 | ONNX image preprocess | 3.5 ms/op | 1024×768 → 224×224 + normalize |
 | ONNX audio preprocess | ~9.7 s/op | 30s audio → Mel spectrogram (optimizable) |
 
-Run: `go test ./memory/... -run=^$ -bench=. -benchtime=1s`
+Run: `go test ./memory/... -run=^$ -bench=. -benchtime=1s`  
+v2.6.0 gateway / ReAct hot-path snapshot: [`docs/benchmark_v2.6.0.md`](docs/benchmark_v2.6.0.md) (~147k req/s in-memory pipeline).
 
 ## High-Level Production Bootstrap (Recommended)
 
@@ -594,6 +624,11 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/channel_discord`](examples/channel_discord/main.go) — **Discord bot** (WebSocket Gateway + REST replies)
 - [`examples/channel_feishu`](examples/channel_feishu/main.go) — **Feishu bot** (event webhook + send, pure HTTP)
 - [`examples/hub_demo`](examples/hub_demo/main.go) — **Hub marketplace** (browse MCP/Skill cards + install)
+- [`examples/console`](examples/console/main.go) — **Terminal TUI** (HITL confirm + interrupt)
+- [`examples/tts`](examples/tts/main.go) — **TTS** (DashScope / OpenAI adapter)
+- [`examples/longterm_memory`](examples/longterm_memory/main.go) — **Long-term memory middleware** (static / agent / both)
+- [`examples/messagebus`](examples/messagebus/main.go) — **Message bus** (LocalBus / RedisBus)
+- [`examples/agent_team`](examples/agent_team/main.go) — **Agent Team** (leader/worker async collab)
 - [`examples/plugin_demo`](examples/plugin_demo/main.go) — **Plugin system** (3-phase lifecycle + YAML + tool registration)
 - [`examples/observability`](examples/observability/main.go) — OpenTelemetry + LangSmith tracing
 - [`examples/state`](examples/state/main.go) — AgentState persistence (JSONFile/Redis)
@@ -628,6 +663,9 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/studio`](examples/studio/main.go) — Pure-Go lightweight Studio (HTMX) — Auth/Agents/Credentials/Schedules/Chat + live SSE
 - [`examples/evolver`](examples/evolver/main.go) — GEP self-evolution demo (Gene/Capsule, Run/Reflect/Solidify, distillation)
 - [`examples/langsmith`](examples/langsmith/main.go) — Forward agent events to LangSmith
+- [`examples/controlplane_demo`](examples/controlplane_demo/main.go) — Control plane e2e (Goal/ShouldRun/gates/leases/kanban, in-memory Kernel)
+- [`examples/controlplane_sql`](examples/controlplane_sql/main.go) — Control plane with SQL persistence across restarts
+- [`examples/controlplane_http`](examples/controlplane_http/main.go) — Control plane HTTP API (authorize → writeback → spend → review)
 
 ## Observability
 
@@ -743,14 +781,15 @@ hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Categ
 See also:
 - `evolver/` package (types, client, gep flow, tests)
 - `examples/evolver/main.go` (complete runnable demo)
-- `DEV_PLAN_CATCHUP.md` Phase 6 section
+- [`docs/EVOLVER.md`](docs/EVOLVER.md)
 - Evolver paper: arXiv:2604.15097
 
 ## Deployment & Migration
 
-- Production deployment guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- Migrating from Python AgentScope or older versions: [MIGRATION.md](MIGRATION.md)
+- Production deployment guide: [docs/deployment.md](docs/deployment.md)
+- Migrating from Python AgentScope or older versions: [docs/MIGRATION.md](docs/MIGRATION.md)
 - Release process: [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+- Release notes: [RELEASE_NOTES_v2.6.0.md](RELEASE_NOTES_v2.6.0.md)
 
 ## Contributing & Community
 
@@ -759,7 +798,7 @@ We welcome all forms of contribution!
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - Security vulnerability reporting: [SECURITY.md](SECURITY.md)
-- Current tasks & roadmap: [TODO.md](TODO.md)
+- Roadmap: [演进方案.md](演进方案.md) (Chinese)
 
 If you run into issues, check [docs/](docs/) and [examples/](examples/) first, then file an Issue.
 

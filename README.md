@@ -6,21 +6,22 @@ AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 
 
 ## 概述
 
-AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作、**多平台聊天机器人（Webhook/Discord/飞书）**、**生态市场（MCP/Skill）** 等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
+AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作、**终端 TUI**、**长时序治理平面**、**多平台聊天机器人（Webhook/Discord/飞书）**、**生态市场（MCP/Skill）** 等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
-## 新增能力（v2.5.0）
+当前版本 **v2.6.0**。现行路线图见 [演进方案.md](演进方案.md)。
+
+## 新增能力（v2.6.0）
 
 <!-- BEGIN NEWS -->
-- **`Channel` 多平台集成**：**3 个平台适配器开箱即用**——Webhook（零依赖 HTTP）、Discord（discordgo）、飞书（纯 HTTP，含 send_message/list_chats agent 工具）；chat→agent 路由 + 异步运行 + 回复回发。
-- **`Hub` 市场**：浏览 + 安装 MCP/Skill 卡片（FSHub 目录即市场，zip-slip 防护）。
-- **`Plugin` 生态示例**：三阶段生命周期 + YAML 配置 + 工具注册（examples/plugin_demo）。
-- **`RAG` 托管知识库**：document→parser(Text/PDF/PPTX/Image)→chunker→blob→kb→index 全管道 + RAGMiddleware + KB HTTP API。对齐 Python rag/ 托管服务。
-- **`消息总线 CoordBus`**：Lock/Registry/Queue/Log 四原语（Local+Redis 双后端）+ 跨会话投影。
-- **`Web UI 控制台`**：零构建 SPA（Chat/KB/System，go:embed 单二进制）。
-- **`Agentic Memory`**：agent 自主管理 Markdown 记忆文件（文件式，区别于被动检索的 ReMe）。
-- **`Tracing 语义属性`**：Span 五钩点提取（model/tool/iteration/usage）+ otelSpan 桥接。
-- **`MCP 声明式配置`**：ServerSpec YAML + 6-server 目录 + 弹性连接。
-- **`Langfuse`** 接入 + **`RBAC`** 测试 + **审计接线** + **`slog`** 结构化日志规范。
+- **`console/` 终端 TUI**：bubbletea 三态机（idle/running/confirming），HITL `y/n/a` 确认、Ctrl+C 中断、三档事件渲染。
+- **Workspace 服务化**：artifact `list_dir`/`read_file`、git status、跨 agent 共享工作区、agent 级 skills 白名单。
+- **治理-演化闭环**：`controlplane` Goal 完成可 opt-in 触发 `evolver.Solidify`；`POST /v2/sessions/{id}/steer|interrupt`；配额心跳。
+- **多租户会话隔离**：跨用户访问他人 session 一律 404（不泄露存在性）。
+- **KB 可观测性**：文档分块浏览 / 原文溯源 / 列表计数富化。
+- **`Channel` 三平台**：Webhook / Discord / 飞书（含 `send_message`/`list_chats`）。
+- **`Hub` 市场**：浏览 + 安装 MCP/Skill（FSHub，zip-slip 防护）。
+- **RAG 托管知识库**：parser（Text/PDF/PPTX/Image/Word/Excel）→ chunker → blob → kb → index + HTTP API。
+- **零构建 Web UI**：Chat / KB / System，`go:embed` 单二进制。
 <!-- END NEWS -->
 
 ## 快速开始
@@ -120,9 +121,15 @@ go run .
 | `a2a` | A2A 协议实现：AgentCard、Task、SSE、Registry、ShardRouter、安全（认证/限流/WebSocket） |
 | `gateway` | HTTP + SSE + WebSocket + AG-UI Gateway，多租户认证 + Session 持久化 + Tool Offload + KB API + 审计 + RBAC |
 | `service` | 多租户 Service 层：Storage + Auth + Credential 加密 + RBAC 角色/权限 + 审计日志 |
-| `rag` | **托管知识库**：document/parser(Text/PDF/PPTX/Image)/chunker/blob/kb/index 全管道 + RAGMiddleware + KB HTTP API |
+| `rag` | **托管知识库**：document/parser(Text/PDF/PPTX/Image/Word/Excel)/chunker/blob/kb/index 全管道 + RAGMiddleware + KB HTTP API |
+| `workspace` | 沙箱执行：Local / Docker / E2B / K8s / Bubblewrap / Daytona / OpenSandbox + MCP Gateway + Offloader |
+| `permission` | 规则引擎 + Bash 复合命令拆分 + HITL 确认模式 |
+| `console` | **终端 TUI**：bubbletea HITL 确认 / 中断 / 三档事件渲染 |
+| `controlplane` | **长时序治理平面**：Goal / Quota / Gate / Evidence / Lease / Kanban + SQL 持久化 |
+| `plugin` | Plugin 三阶段生命周期 + YAML 配置 + Linux `.so` 动态加载 |
+| `tts` | 独立 TTS：DashScope CosyVoice / OpenAI 适配 + RealtimeModel |
 | `messagebus` | **分布式消息总线**：LocalBus + RedisBus + CoordBus 四原语(Lock/Registry/Queue/Log) + TeamBus + 跨会话投影 |
-| `middleware` | Agent 生命周期中间件（洋葱模型）+ Budget/TTS/LongTermMemory/**RAG**/**AgenticMemory** |
+| `middleware` | Agent 生命周期中间件（洋葱 7 钩子）+ Budget/TTS/LongTermMemory/**RAG**/**AgenticMemory**/Injection/ControlPlane |
 | `logging` | **结构化日志规范**：stdlib slog 封装 + LOG_LEVEL/LOG_FORMAT 环境配置 + 请求级 FromContext |
 | `schedule` | Cron 定时任务调度器 |
 | `async` | 异步任务执行池 |
@@ -134,7 +141,7 @@ go run .
 | `hook` | 钩子系统，支持人机协作 |
 | `plan` | PlanNotebook，用于结构化多步骤任务管理 |
 | `embedding` | 独立 Embedding 包：OpenAI / Ollama / Gemini / DashScope / DashScope多模态 + FileCache，可直接用于 gateway / memory / RAG |
-| `evolver` | GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill→Gene 蒸馏（Phase 6 对齐 evolver 优势） |
+| `evolver` | GEP Gene/Capsule 类型 + Evolver 客户端 + Run/Reflect/Solidify 流程 + Skill→Gene 蒸馏 |
 | `embedding/onnx` | ONNX 本地推理：CLIP 图像嵌入 + Whisper 音频嵌入 + 模型管理器（HTTP 代理方案，零 CGO 依赖） |
 
 ## Channel 多平台集成
@@ -176,6 +183,28 @@ mgr, _ := hub.InstallMCPs(ctx, mcps)              // 弹性连接（缺失二进
 
 Gateway 接入：`srv.WithHubs(h)` + `srv.RegisterHubRoutes()`（浏览/安装 5 路由）。
 详见 [`docs/HUB.md`](docs/HUB.md)。
+
+## Console 终端 TUI
+
+在终端里调试带权限工具的 ReAct Agent（HITL 确认 + 中断）：
+
+```bash
+go run ./examples/console
+```
+
+三档 verbosity（quiet / default / debug）；工具调用逐条 `[y]es / [N]o / [a]lways`；运行中 Ctrl+C 中断当前回合。无会话持久化（状态随进程结束）。
+
+## 治理平面（Control Plane）
+
+长时序目标、配额 `ShouldRun`、用户门、经校验写回。默认关闭；绑定 Goal 的 session 才会进入治理路径。
+
+```go
+k := controlplane.NewKernel(controlplane.NewMemoryStore())
+// Goal → Todo → ShouldRun → Writeback → SpendSlot
+// HTTP：/api/v1/controlplane/* ；opt-in auto-solidify 见 AppConfig.AutoSolidifyOnGoalComplete
+```
+
+示例：`examples/controlplane_demo`、`examples/controlplane_sql`、`examples/controlplane_http`。
 
 ## ONNX 生产化（多模态本地推理）
 
@@ -234,7 +263,8 @@ wsServer := a2a.NewWebSocketEnabledServer(card, runner, store)
 | ONNX 图像预处理 | 3.5 ms/op | 1024×768 → 224×224 + 归一化 |
 | ONNX 音频预处理 | ~9.7 s/op | 30s 音频 → Mel 频谱图（可优化） |
 
-运行基准：`go test ./memory/... -run=^$ -bench=. -benchtime=1s`
+运行基准：`go test ./memory/... -run=^$ -bench=. -benchtime=1s`  
+v2.6.0 网关/ReAct 热路径快照见 [`docs/benchmark_v2.6.0.md`](docs/benchmark_v2.6.0.md)（内存管线约 147k req/s）。
 
 ## 高层生产服务 Bootstrap（强烈推荐）
 
@@ -594,6 +624,11 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/channel_discord`](examples/channel_discord/main.go) —— **Discord bot**（WebSocket Gateway 收消息 + REST 回发）
 - [`examples/channel_feishu`](examples/channel_feishu/main.go) —— **飞书 bot**（事件订阅 webhook + 发送，纯 HTTP）
 - [`examples/hub_demo`](examples/hub_demo/main.go) —— **Hub 市场**（浏览 MCP/Skill 卡片 + 下载安装）
+- [`examples/console`](examples/console/main.go) —— **终端 TUI**（HITL 确认 + 中断）
+- [`examples/tts`](examples/tts/main.go) —— **TTS 合成**（DashScope / OpenAI 适配）
+- [`examples/longterm_memory`](examples/longterm_memory/main.go) —— **长期记忆中间件**（static / agent / both）
+- [`examples/messagebus`](examples/messagebus/main.go) —— **消息总线**（LocalBus / RedisBus）
+- [`examples/agent_team`](examples/agent_team/main.go) —— **Agent Team**（leader/worker 异步协作）
 - [`examples/plugin_demo`](examples/plugin_demo/main.go) —— **Plugin 系统**（三阶段生命周期 + YAML 配置 + 工具注册）
 - [`examples/observability`](examples/observability/main.go) —— OpenTelemetry + LangSmith 追踪
 - [`examples/state`](examples/state/main.go) —— AgentState 持久化（JSONFile/Redis）
@@ -607,7 +642,6 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 - [`examples/middleware`](examples/middleware/main.go) —— Agent 生命周期中间件链
 - [`examples/interrupt`](examples/interrupt/main.go) —— 中断处理与暂停恢复
 - [`examples/trace`](examples/trace/main.go) —— 事件追踪与 Hook 系统
-- [`examples/web_ui`](examples/web_ui/main.go) —— Web UI 实时对话
 - [`examples/hello`](examples/hello/main.go) —— Agent 基础用法
 - [`examples/tools`](examples/tools/main.go) —— 带计算工具的 Agent
 - [`examples/v2_event_stream`](examples/v2_event_stream/main.go) —— V2 事件流完整生命周期演示
@@ -635,7 +669,7 @@ resp, _ := agent.Call(ctx, message.NewMsg().Role(message.RoleUser).TextContent("
 
 ## 可观测性
 
-### 追踪中间件（Phase 5 新增，对齐 Python）
+### 追踪中间件
 
 使用 `TracingMiddlewareAdapter` 可在 Agent 生命周期（on_reply、on_reasoning、on_acting、on_model_call、on_system_prompt）注入 tracing spans。
 
@@ -700,7 +734,7 @@ defer tp.Shutdown(context.Background())
 
 Gateway 自动集成 OTel HTTP 中间件，所有请求都会被追踪。Toolkit 层也有 TracingMiddleware。
 
-## GEP 自演化与 Evolver 对齐（Phase 6 新阶段）
+## GEP 自演化与 Evolver 对齐
 
 agentscope.go 现在对齐了 [Evolver](https://github.com/EvoMap/evolver)（及 evolver.py）的核心优势——**基于 GEP（Gene Evolution Protocol）的自演化能力**。
 
@@ -718,7 +752,7 @@ agentscope.go 已有 ReMe（世界级记忆）、a2a（领先协议）、gateway
 - 提供原生 Go 类型 + 高层流程 API
 - 通过现有 MCP 网关即可让你的 Agent 直接调用 evolver 全部工具
 - ReMe + 新 MemoryTypeGene/Capsule 天然承载演化资产
-- Skill 蒸馏 + Recording 风格可见性（类似 Phase 5 tracing）
+- Skill 蒸馏 + Recording 风格可见性
 
 ### 快速使用（Mock 先行，生产接 MCP）
 ```go
@@ -746,16 +780,15 @@ hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Categ
 详见：
 - `evolver/` 包（types, client, gep flow, tests）
 - `examples/evolver/main.go`（完整可运行 demo，含 recording calls、distill、recall）
-- `DEV_PLAN_CATCHUP.md` Phase 6 章节（含优势对比、实施策略）
+- [`docs/EVOLVER.md`](docs/EVOLVER.md)
 - evolver 官方：基因优于 skill 的论文 arXiv:2604.15097
-
-未来将持续增强：真实 MCP 客户端包装、Studio 演化资产 UI、a2a ATP 任务扩展、ReMe 深度 memoryGraph 实现。
 
 ## 部署与迁移
 
-- 生产部署指南：[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- 从 Python AgentScope 或旧版本迁移：[MIGRATION.md](MIGRATION.md)
+- 生产部署指南：[docs/deployment.md](docs/deployment.md)
+- 从 Python AgentScope 或旧版本迁移：[docs/MIGRATION.md](docs/MIGRATION.md)
 - 版本发布流程：[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+- 发布说明：[RELEASE_NOTES_v2.6.0.md](RELEASE_NOTES_v2.6.0.md)
 
 ## 贡献与社区
 
@@ -764,8 +797,7 @@ hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Categ
 - 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - 安全漏洞报告：[SECURITY.md](SECURITY.md)
-- 当前任务与路线图：[TODO.md](TODO.md)
-- 详细演进方案：[演进方案.md](演进方案.md)
+- 现行路线图：[演进方案.md](演进方案.md)
 
 如果你在使用过程中遇到问题，请先查看 [docs/](docs/) 和 [examples/](examples/)，然后提交 Issue。
 

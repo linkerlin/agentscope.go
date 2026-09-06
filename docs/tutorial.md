@@ -388,7 +388,7 @@ go run .
 
 ## 7. 参与贡献
 
-- 发现 bug 或有新想法？先查看 [CONTRIBUTING.md](../CONTRIBUTING.md) 和 [TODO.md](../TODO.md)。
+- 发现 bug 或有新想法？先查看 [CONTRIBUTING.md](../CONTRIBUTING.md) 和 [演进方案.md](../演进方案.md)。
 - 提交 Issue 时使用我们提供的 bug/feature/RFC 模板。
 - 安全相关请按 [SECURITY.md](../SECURITY.md) 私下报告。
 

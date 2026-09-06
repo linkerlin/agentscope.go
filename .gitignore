@@ -4,6 +4,11 @@
 *.db-journal
 *.db-wal
 
+# AI tool local config / state
+.codebuddy/
+.cursor/
+.workbuddy/
+
 # Build artifacts
 *.exe
 *.test

@@ -58,8 +58,15 @@ func (f *AnthropicFormatter) formatContentBlocks(blocks []message.ContentBlock) 
 	for _, b := range blocks {
 		switch block := b.(type) {
 		case *message.TextBlock:
+			// Empty text parts are rejected by the Anthropic API (PyV2 #2007).
+			if block.Text == "" {
+				continue
+			}
 			out = append(out, map[string]any{"type": "text", "text": block.Text})
 		case *message.ThinkingBlock:
+			if block.Thinking == "" {
+				continue
+			}
 			out = append(out, map[string]any{"type": "thinking", "thinking": block.Thinking, "signature": block.Signature})
 		case *message.ImageBlock:
 			src := f.imageSource(block.URL, block.Base64, block.MimeType)
@@ -87,6 +94,17 @@ func (f *AnthropicFormatter) formatContentBlocks(blocks []message.ContentBlock) 
 				"input": block.Input,
 			})
 		case *message.ToolResultBlock:
+			// Preserve media carried by tool results as native content blocks
+			// instead of dropping them (E8d). Text-only results keep the
+			// compact string form.
+			if hasAnthropicMedia(block.Content) {
+				out = append(out, map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": block.ToolUseID,
+					"content":     f.toolResultContentParts(block.Content),
+				})
+				continue
+			}
 			var result string
 			for _, c := range block.Content {
 				if tb, ok := c.(*message.TextBlock); ok {
@@ -111,6 +129,48 @@ func (f *AnthropicFormatter) imageSource(url, base64, mimeType string) map[strin
 		mimeType = "image/png"
 	}
 	return map[string]any{"type": "base64", "media_type": mimeType, "data": base64}
+}
+
+// hasAnthropicMedia reports whether blocks carry image content worth
+// preserving as native Anthropic content blocks.
+func hasAnthropicMedia(blocks []message.ContentBlock) bool {
+	for _, b := range blocks {
+		switch v := b.(type) {
+		case *message.ImageBlock:
+			return true
+		case *message.DataBlock:
+			if v.Source != nil && v.BlockType() == message.TypeImage {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// toolResultContentParts renders tool-result content as native Anthropic
+// content blocks, keeping text and images in order.
+func (f *AnthropicFormatter) toolResultContentParts(blocks []message.ContentBlock) []map[string]any {
+	var out []map[string]any
+	for _, b := range blocks {
+		switch block := b.(type) {
+		case *message.TextBlock:
+			if block.Text != "" {
+				out = append(out, map[string]any{"type": "text", "text": block.Text})
+			}
+		case *message.ImageBlock:
+			src := f.imageSource(block.URL, block.Base64, block.MimeType)
+			out = append(out, map[string]any{"type": "image", "source": src})
+		case *message.DataBlock:
+			if block.Source != nil && block.BlockType() == message.TypeImage {
+				src := f.imageSource(block.Source.URL, block.Source.Data, block.Source.MediaType)
+				out = append(out, map[string]any{"type": "image", "source": src})
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, map[string]any{"type": "text", "text": "(empty tool output)"})
+	}
+	return out
 }
 
 // FormatTools converts tool specs to Anthropic tool definitions.
@@ -183,11 +243,18 @@ func (f *AnthropicFormatter) ParseResponse(resp any) (*message.Msg, error) {
 
 	msg := builder.Build()
 	if usageRaw, ok := body["usage"].(map[string]any); ok {
-		msg.Metadata["usage"] = model.ChatUsage{
+		usage := model.ChatUsage{
 			PromptTokens:     intAny(usageRaw["input_tokens"]),
 			CompletionTokens: intAny(usageRaw["output_tokens"]),
 			TotalTokens:      intAny(usageRaw["input_tokens"]) + intAny(usageRaw["output_tokens"]),
 		}
+		if v := intAny(usageRaw["cache_creation_input_tokens"]); v > 0 {
+			usage.CacheCreationTokens = v
+		}
+		if v := intAny(usageRaw["cache_read_input_tokens"]); v > 0 {
+			usage.CachedPromptTokens = v
+		}
+		msg.Metadata["usage"] = usage
 	}
 	return msg, nil
 }

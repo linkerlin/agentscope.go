@@ -85,6 +85,57 @@ func TestAnthropicFormatter_FormatMessages_SkipsEmptyContent(t *testing.T) {
 	}
 }
 
+// TestAnthropicFormatter_DropsEmptyBlocks ensures empty text and thinking
+// blocks never reach the Anthropic API, which rejects them with 400
+// (PyV2 #2007).
+func TestAnthropicFormatter_DropsEmptyBlocks(t *testing.T) {
+	f := NewAnthropicFormatter()
+	msg := message.NewMsg().Role(message.RoleUser).Content(
+		message.NewTextBlock(""),
+		message.NewTextBlock("keep"),
+		message.NewThinkingBlock("", ""),
+	).Build()
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
+	if len(out) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(out))
+	}
+	var blocks []map[string]any
+	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
+		t.Fatal(err)
+	}
+	if len(blocks) != 1 || blocks[0]["text"] != "keep" {
+		t.Fatalf("expected only the non-empty text block, got %+v", blocks)
+	}
+}
+
+// TestAnthropicFormatter_ToolResult_PreservesMedia ensures images carried by
+// tool results are sent as native image blocks instead of being dropped (E8d).
+func TestAnthropicFormatter_ToolResult_PreservesMedia(t *testing.T) {
+	f := NewAnthropicFormatter()
+	msg := message.NewMsg().Role(message.RoleTool).Content(
+		message.NewToolResultBlock("tu_1", []message.ContentBlock{
+			message.NewTextBlock("see:"),
+			message.NewImageBlock("", "aGVsbG8=", "image/png"),
+		}, false),
+	).Build()
+	out, _ := mustFormatAnthropic(t, f, []*message.Msg{msg})
+	var blocks []map[string]any
+	if err := json.Unmarshal(out[0].Content, &blocks); err != nil {
+		t.Fatal(err)
+	}
+	if blocks[0]["type"] != "tool_result" {
+		t.Fatalf("expected tool_result, got %+v", blocks[0])
+	}
+	parts, ok := blocks[0]["content"].([]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("expected 2 content parts, got %+v", blocks[0]["content"])
+	}
+	img, ok := parts[1].(map[string]any)
+	if !ok || img["type"] != "image" {
+		t.Fatalf("expected image part second, got %+v", parts[1])
+	}
+}
+
 func TestAnthropicFormatter_FormatMessages_ImageBlockURL(t *testing.T) {
 	f := NewAnthropicFormatter()
 	msg := message.NewMsg().Role(message.RoleUser).Content(

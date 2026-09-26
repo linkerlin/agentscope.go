@@ -6,9 +6,16 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
-func validatePath(filePath string, baseDir string) (string, error) {
+// validatePath resolves and validates a tool input path. When a workspace is
+// bound the path belongs to the workspace's own namespace (sandbox container,
+// remote host, ...), so the host base-directory containment check is skipped;
+// only emptiness and normalization are enforced. Without a workspace the path
+// must stay inside baseDir.
+func validatePath(filePath string, baseDir string, ws workspace.Workspace) (string, error) {
 	if strings.TrimSpace(filePath) == "" {
 		return "", fmt.Errorf("file path cannot be empty")
 	}
@@ -26,7 +33,7 @@ func validatePath(filePath string, baseDir string) (string, error) {
 	}
 	path = filepath.Clean(path)
 
-	if baseDir != "" {
+	if baseDir != "" && ws == nil {
 		base, err := filepath.Abs(baseDir)
 		if err != nil {
 			return "", err

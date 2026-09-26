@@ -101,6 +101,7 @@ func formatOpenAIAgentMessageGroup(msgs []*message.Msg, isFirst bool) []goopenai
 	}
 
 	var lines []string
+	var media []message.ContentBlock
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
@@ -113,15 +114,32 @@ func formatOpenAIAgentMessageGroup(msgs []*message.Msg, isFirst bool) []goopenai
 		if text != "" {
 			lines = append(lines, name+": "+text)
 		}
+		// Forward images folded into history so the next agent still sees
+		// them instead of silently losing visual context (E8d).
+		for _, b := range msg.Content {
+			switch b.(type) {
+			case *message.ImageBlock, *message.DataBlock:
+				media = append(media, b)
+			}
+		}
 	}
-	if len(lines) == 0 {
+	if len(lines) == 0 && len(media) == 0 {
 		return nil
 	}
 	body := prompt + "<history>\n" + joinLines(lines) + "\n</history>"
-	return []goopenai.ChatCompletionMessage{{
+	outMsg := goopenai.ChatCompletionMessage{
 		Role:    goopenai.ChatMessageRoleUser,
 		Content: body,
-	}}
+	}
+	if len(media) > 0 {
+		parts := append([]goopenai.ChatMessagePart{{
+			Type: goopenai.ChatMessagePartTypeText,
+			Text: body,
+		}}, (&OpenAIFormatter{}).contentBlocksToParts(media)...)
+		outMsg.MultiContent = parts
+		outMsg.Content = ""
+	}
+	return []goopenai.ChatCompletionMessage{outMsg}
 }
 
 func joinLines(lines []string) string {

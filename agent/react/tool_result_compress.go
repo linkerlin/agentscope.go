@@ -165,17 +165,82 @@ func truncateTextBlockByTokenBudget(
 	return text[:reservedChars], text[reservedChars:]
 }
 
+// cloneContentBlocks deep-copies every mutable block so truncation and
+// prepending never write through to the original message held in memory
+// (PyV2 #2754 parity). A shallow copy would let each pre-truncation pass
+// prepend its own prefix onto the stored tool result.
 func cloneContentBlocks(blocks []message.ContentBlock) []message.ContentBlock {
 	if len(blocks) == 0 {
 		return nil
 	}
 	out := make([]message.ContentBlock, len(blocks))
-	copy(out, blocks)
+	for i, block := range blocks {
+		switch b := block.(type) {
+		case *message.TextBlock:
+			out[i] = message.NewTextBlock(b.Text)
+		case *message.ThinkingBlock:
+			out[i] = message.NewThinkingBlock(b.Thinking, b.Signature)
+		case *message.HintBlock:
+			out[i] = message.NewHintBlock(b.Text, b.Kind)
+		case *message.DataBlock:
+			out[i] = message.NewDataBlock(b.BlockType_, cloneSource(b.Source))
+		case *message.ImageBlock:
+			out[i] = message.NewImageBlock(b.URL, b.Base64, b.MimeType)
+		case *message.AudioBlock:
+			out[i] = message.NewAudioBlock(b.URL, b.Base64, b.MimeType)
+		case *message.VideoBlock:
+			out[i] = message.NewVideoBlock(b.URL)
+		case *message.ToolUseBlock:
+			out[i] = &message.ToolUseBlock{
+				ID:       b.ID,
+				Name:     b.Name,
+				Input:    cloneMap(b.Input),
+				RawInput: b.RawInput,
+			}
+		case *message.ToolResultBlock:
+			out[i] = &message.ToolResultBlock{
+				ID:        b.ID,
+				Name:      b.Name,
+				ToolUseID: b.ToolUseID,
+				Content:   cloneContentBlocks(b.Content),
+				IsError:   b.IsError,
+				State:     b.State,
+			}
+		default:
+			out[i] = block
+		}
+	}
+	return out
+}
+
+func cloneSource(src *message.Source) *message.Source {
+	if src == nil {
+		return nil
+	}
+	copied := *src
+	return &copied
+}
+
+func cloneMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
 	return out
 }
 
 func newToolResultBlock(src *message.ToolResultBlock, content []message.ContentBlock) *message.ToolResultBlock {
-	return message.NewToolResultBlock(src.ToolUseID, cloneContentBlocks(content), src.IsError)
+	return &message.ToolResultBlock{
+		ID:        src.ID,
+		Name:      src.Name,
+		ToolUseID: src.ToolUseID,
+		Content:   cloneContentBlocks(content),
+		IsError:   src.IsError,
+		State:     src.State,
+	}
 }
 
 func appendTextBlock(blocks *[]message.ContentBlock, text string, _ *message.TextBlock) {

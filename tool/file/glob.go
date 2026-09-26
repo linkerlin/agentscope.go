@@ -59,6 +59,16 @@ func (g *GlobTool) Spec() model.ToolSpec {
 					"type":        "string",
 					"description": "The base directory to search from (defaults to current working directory)",
 				},
+				"head_limit": map[string]any{
+					"type":        "integer",
+					"minimum":     0,
+					"description": "Limit output to first N matches. Defaults to 250. Pass 0 for unlimited.",
+				},
+				"offset": map[string]any{
+					"type":        "integer",
+					"minimum":     0,
+					"description": "Skip first N matches before applying head_limit.",
+				},
 			},
 			"required": []string{"pattern"},
 		},
@@ -69,16 +79,30 @@ func (g *GlobTool) Spec() model.ToolSpec {
 func (g *GlobTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	pattern, _ := input["pattern"].(string)
 	searchPath, _ := input["path"].(string)
+	headLimit := intValue(input["head_limit"])
+	if headLimit == 0 && input["head_limit"] == nil {
+		headLimit = 250 // default
+	}
+	offset := intValue(input["offset"])
 
 	if strings.TrimSpace(pattern) == "" {
 		return nil, fmt.Errorf("pattern cannot be empty")
+	}
+
+	// Negative pagination would silently disable the output bound; reject it
+	// explicitly (PyV2 #2572).
+	if headLimit < 0 {
+		return nil, fmt.Errorf("head_limit must be >= 0, got %d", headLimit)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be >= 0, got %d", offset)
 	}
 
 	if searchPath == "" {
 		searchPath = "."
 	}
 
-	basePath, err := validatePath(searchPath, g.baseDir)
+	basePath, err := validatePath(searchPath, g.baseDir, g.ws)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +146,17 @@ func (g *GlobTool) Execute(ctx context.Context, input map[string]any) (*tool.Res
 		return ti > tj
 	})
 
-	return tool.NewTextResponse(strings.Join(matches, "\n")), nil
+	// Bound the output so a broad pattern in a large repo cannot blow up the
+	// tool result (PyV2 #2572).
+	paged := applyPagination(matches, headLimit, offset)
+	if len(paged) == 0 {
+		return tool.NewTextResponse(fmt.Sprintf("No files found matching pattern: %s", pattern)), nil
+	}
+	suffix := ""
+	if len(paged) < len(matches) {
+		suffix = fmt.Sprintf("\n\n[Showing %d of %d matches]", len(paged), len(matches))
+	}
+	return tool.NewTextResponse(strings.Join(paged, "\n") + suffix), nil
 }
 
 func (g *GlobTool) globFS(pattern, basePath string) ([]string, error) {

@@ -368,6 +368,9 @@ func IsDangerousCommandSingle(cmd string) bool {
 // IsReadOnlyCommandSingle checks a single non-compound segment.
 func IsReadOnlyCommandSingle(cmd string) bool {
 	cmd = strings.TrimSpace(cmd)
+	if hasMutatingArguments(cmd) {
+		return false
+	}
 	for _, safe := range DefaultReadOnlyCommands {
 		if strings.HasPrefix(cmd, safe) {
 			rest := strings.TrimPrefix(cmd, safe)
@@ -380,6 +383,31 @@ func IsReadOnlyCommandSingle(cmd string) bool {
 	for _, safe := range DefaultReadOnlyCommands {
 		if prefix == safe || strings.HasPrefix(prefix, safe+" ") {
 			return true
+		}
+	}
+	return false
+}
+
+// hasMutatingArguments reports whether a whitelisted read-only command carries
+// an argument that makes it mutate state (PyV2 #2004/#2629/#2747/#2795).
+// Quotes are stripped before matching so `"find" -delete` cannot slip through.
+func hasMutatingArguments(cmd string) bool {
+	normalized := strings.NewReplacer(`"`, "", `'`, "").Replace(cmd)
+	for command, flags := range DefaultMutatingArguments {
+		if !strings.HasPrefix(normalized, command+" ") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(normalized, command))
+		for _, tok := range strings.Fields(rest) {
+			for _, f := range flags {
+				if tok == f {
+					return true
+				}
+				// Long options may carry an inline value: --move=x, --copy=y.
+				if strings.HasPrefix(f, "--") && strings.HasPrefix(tok, f+"=") {
+					return true
+				}
+			}
 		}
 	}
 	return false

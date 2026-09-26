@@ -4,12 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/linkerlin/agentscope.go/workspace"
 )
 
 func TestValidatePath(t *testing.T) {
 	dir := t.TempDir()
 	// relative inside baseDir
-	p, err := validatePath("foo.txt", dir)
+	p, err := validatePath("foo.txt", dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,14 +20,31 @@ func TestValidatePath(t *testing.T) {
 	}
 
 	// traversal
-	_, err = validatePath("../outside.txt", dir)
+	_, err = validatePath("../outside.txt", dir, nil)
 	if err == nil {
 		t.Fatal("expected traversal error")
 	}
 
 	// empty
-	_, err = validatePath("", dir)
+	_, err = validatePath("", dir, nil)
 	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestValidatePath_WorkspaceSkipsHostContainment(t *testing.T) {
+	dir := t.TempDir()
+	ws := workspace.NewLocalWorkspace("test", "")
+	// A path outside the host baseDir is legal when a workspace is bound:
+	// the workspace owns its own path namespace.
+	p, err := validatePath("/test.txt", dir, ws)
+	if err != nil {
+		t.Fatalf("expected workspace path to be accepted, got %v", err)
+	}
+	if p != "/test.txt" {
+		t.Fatalf("unexpected path: %s", p)
+	}
+	if _, err := validatePath("", dir, ws); err == nil {
 		t.Fatal("expected error for empty path")
 	}
 }

@@ -61,7 +61,7 @@ func (a *ReActAgent) runModelInner(
 			Iteration: iter,
 		},
 		Messages:  append([]*message.Msg(nil), history...),
-		ModelName: a.chatModel.ModelName(),
+		ModelName: a.effectiveModel(ctx).ModelName(),
 		ChatOpts:  chatOpts,
 	}
 	if ev, _, err := a.fireStreamEvent(ctx, pre); err != nil {
@@ -81,6 +81,13 @@ func (a *ReActAgent) runModelInner(
 			})
 			return nil, fmt.Errorf("react agent model call: %w", err)
 		}
+		if isDegenerateResponse(msg) {
+			_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
+				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
+				Err:       errEmptyModelResponse,
+			})
+			return nil, errEmptyModelResponse
+		}
 		_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
 			BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 			Messages:  append([]*message.Msg(nil), history...),
@@ -97,11 +104,28 @@ func (a *ReActAgent) runModelInner(
 		})
 		return nil, fmt.Errorf("react agent model stream: %w", err)
 	}
+	if ch == nil {
+		return nil, errEmptyModelResponse
+	}
+	defer drainStreamAsync(ch)
 	var sb strings.Builder
+	var thinkingSb strings.Builder
+	var thinkSig string
 	var streamUsage *model.ChatUsage
 	for chunk := range ch {
 		if chunk == nil {
 			continue
+		}
+		// Stop consuming as soon as an interrupt or cancellation arrives
+		// instead of reading the whole stream first (E4b). The deferred
+		// drain lets the producer finish in the background.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		if err := a.CheckInterrupted(); err != nil {
+			return nil, err
 		}
 		if chunk.Done {
 			if chunk.Error != nil {
@@ -114,10 +138,21 @@ func (a *ReActAgent) runModelInner(
 			if chunk.Usage != nil {
 				streamUsage = chunk.Usage
 			}
+			// Preserve the accumulated reasoning signature for history replay
+			// (PyV2 #2495).
+			if chunk.ThinkingSignature != "" {
+				thinkSig = chunk.ThinkingSignature
+			}
 			break
 		}
 		if chunk.Delta != "" {
-			sb.WriteString(chunk.Delta)
+			// Keep reasoning content out of the answer text so thinking-only
+			// streams do not masquerade as text (pairs with hasOnlyThinkingBlocks).
+			if chunk.IsThinking {
+				thinkingSb.WriteString(chunk.Delta)
+			} else {
+				sb.WriteString(chunk.Delta)
+			}
 			if _, _, err := a.fireStreamEvent(ctx, &hook.ReasoningChunkEvent{
 				BaseEvent: hook.BaseEvent{Type: hook.EventReasoningChunk, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 				Messages:  append([]*message.Msg(nil), history...),
@@ -130,7 +165,17 @@ func (a *ReActAgent) runModelInner(
 			}
 		}
 	}
-	msg := message.NewMsg().Role(message.RoleAssistant).TextContent(sb.String()).Build()
+	var content []message.ContentBlock
+	if sb.Len() > 0 {
+		content = append(content, message.NewTextBlock(sb.String()))
+	}
+	if thinkingSb.Len() > 0 {
+		content = append(content, message.NewThinkingBlock(thinkingSb.String(), thinkSig))
+	}
+	msg := message.NewMsg().Role(message.RoleAssistant).Content(content...).Build()
+	if isDegenerateResponse(msg) {
+		return nil, errEmptyModelResponse
+	}
 	if streamUsage != nil {
 		msg.Metadata["usage"] = *streamUsage
 	}
@@ -151,17 +196,17 @@ func (a *ReActAgent) invokeModelChat(
 ) (*message.Msg, error) {
 	chain := a.Base.MiddlewareChain()
 	if chain == nil || len(chain.ModelCall) == 0 {
-		return a.chatModel.Chat(ctx, history, chatOpts...)
+		return a.effectiveModel(ctx).Chat(ctx, history, chatOpts...)
 	}
 	input := &middleware.ModelCallInput{
 		Messages:  append([]*message.Msg(nil), history...),
 		ChatOpts:  append([]model.ChatOption(nil), chatOpts...),
-		ModelName: a.chatModel.ModelName(),
+		ModelName: a.effectiveModel(ctx).ModelName(),
 	}
 	// Final closure reads from input so on_model_call middleware can mutate
 	// Messages/ChatOpts and affect the actual Chat call.
 	handler := middleware.ChainModelCall(chain, a.Base, input, func(ctx context.Context) (*message.Msg, error) {
-		return a.chatModel.Chat(ctx, input.Messages, input.ChatOpts...)
+		return a.effectiveModel(ctx).Chat(ctx, input.Messages, input.ChatOpts...)
 	})
 	return handler(ctx)
 }
@@ -174,7 +219,7 @@ func (a *ReActAgent) invokeModelChatStream(
 	iter int,
 ) (<-chan *model.StreamChunk, error) {
 	final := func(ctx context.Context) (<-chan *model.StreamChunk, error) {
-		return a.chatModel.ChatStream(ctx, history, chatOpts...)
+		return a.effectiveModel(ctx).ChatStream(ctx, history, chatOpts...)
 	}
 	chain := a.Base.MiddlewareChain()
 	if chain == nil || len(chain.ModelCall) == 0 {
@@ -183,7 +228,7 @@ func (a *ReActAgent) invokeModelChatStream(
 	input := &middleware.ModelCallInput{
 		Messages:  append([]*message.Msg(nil), history...),
 		ChatOpts:  chatOpts,
-		ModelName: a.chatModel.ModelName(),
+		ModelName: a.effectiveModel(ctx).ModelName(),
 	}
 	// Stream path: middleware wraps by aggregating streamed output into one message.
 	wrapped := middleware.ChainModelCall(chain, a.Base, input, func(ctx context.Context) (*message.Msg, error) {
@@ -223,4 +268,17 @@ func (a *ReActAgent) invokeModelChatStream(
 		out <- &model.StreamChunk{Done: true}
 	}()
 	return out, nil
+}
+
+// drainStreamAsync consumes any remaining chunks in the background so the
+// model producer can finish and release its HTTP body when this consumer
+// abandons the stream early (hook interruption, downstream error) — E5d.
+func drainStreamAsync(ch <-chan *model.StreamChunk) {
+	if ch == nil {
+		return
+	}
+	go func() {
+		for range ch { //nolint:revive // intentional drain to unblock producer
+		}
+	}()
 }

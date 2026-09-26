@@ -166,6 +166,51 @@ func TestGemini_FormatContents_EmptyPartsIgnored(t *testing.T) {
 	}
 }
 
+// TestGemini_FormatContents_DropsEmptyBlocks ensures empty text and thinking
+// parts are dropped instead of being sent to the Gemini API, which rejects
+// them with "contents.parts must not be empty" (PyV2 #2641/#2013).
+func TestGemini_FormatContents_DropsEmptyBlocks(t *testing.T) {
+	f := NewGeminiFormatter()
+	msg := message.NewMsg().Role(message.RoleUser).Content(
+		message.NewTextBlock(""),
+		message.NewTextBlock("keep"),
+		message.NewThinkingBlock("", ""),
+	).Build()
+
+	contents, _ := f.FormatContents([]*message.Msg{msg})
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content, got %d", len(contents))
+	}
+	parts := contents[0]["parts"].([]map[string]any)
+	if len(parts) != 1 || parts[0]["text"] != "keep" {
+		t.Fatalf("expected only the non-empty text part, got %v", parts)
+	}
+}
+
+// TestGemini_FormatContents_ToolResult_PreservesMedia ensures images carried
+// by tool results become inline data parts instead of being dropped (E8d).
+func TestGemini_FormatContents_ToolResult_PreservesMedia(t *testing.T) {
+	f := NewGeminiFormatter()
+	toolResult := message.NewToolResultBlock("1", []message.ContentBlock{
+		message.NewTextBlock("see:"),
+		message.NewImageBlock("", "aGVsbG8=", "image/png"),
+	}, false)
+	msg := message.NewMsg().Role(message.RoleUser).Content(toolResult).Build()
+
+	contents, _ := f.FormatContents([]*message.Msg{msg})
+	parts := contents[0]["parts"].([]map[string]any)
+	if len(parts) != 2 {
+		t.Fatalf("expected text + image parts, got %v", parts)
+	}
+	if parts[0]["text"] != "see:" {
+		t.Fatalf("expected text part first, got %v", parts[0])
+	}
+	inline, ok := parts[1]["inline_data"].(map[string]any)
+	if !ok || inline["mime_type"] != "image/png" || inline["data"] != "aGVsbG8=" {
+		t.Fatalf("expected inline image part second, got %v", parts[1])
+	}
+}
+
 func TestGemini_FormatContents_ToolUseAndToolResult(t *testing.T) {
 	f := NewGeminiFormatter()
 	toolUse := message.NewToolUseBlock("1", "calc", map[string]any{"a": 1})

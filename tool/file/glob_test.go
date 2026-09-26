@@ -103,3 +103,59 @@ func TestGlobTool_BaseDirRestriction(t *testing.T) {
 		t.Fatal("expected traversal error")
 	}
 }
+
+// TestGlobTool_HeadLimitAndOffset bounds the output of broad patterns so a
+// large repo cannot blow up the tool result (PyV2 #2572).
+func TestGlobTool_HeadLimitAndOffset(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 5; i++ {
+		os.WriteFile(filepath.Join(dir, strings.Repeat("f", 3)+string(rune('a'+i))+".txt"), []byte("x"), 0o644)
+	}
+
+	tool := NewGlobTool("")
+	resp, err := tool.Execute(context.Background(), map[string]any{
+		"pattern":    "*.txt",
+		"path":       dir,
+		"head_limit": float64(2),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resp.GetTextContent()
+	lines := strings.Split(strings.TrimSpace(strings.Split(text, "[Showing")[0]), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 results, got %d: %s", len(lines), text)
+	}
+	if !strings.Contains(text, "[Showing 2 of 5 matches]") {
+		t.Fatalf("expected truncation suffix, got: %s", text)
+	}
+
+	resp, err = tool.Execute(context.Background(), map[string]any{
+		"pattern": "*.txt",
+		"path":    dir,
+		"offset":  float64(4),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines = strings.Split(strings.TrimSpace(strings.Split(resp.GetTextContent(), "[Showing")[0]), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 result after offset, got %d: %s", len(lines), resp.GetTextContent())
+	}
+}
+
+// TestGlobTool_NegativePagination rejects out-of-range pagination parameters.
+func TestGlobTool_NegativePagination(t *testing.T) {
+	dir := t.TempDir()
+	tool := NewGlobTool("")
+	for _, key := range []string{"head_limit", "offset"} {
+		_, err := tool.Execute(context.Background(), map[string]any{
+			"pattern": "*.txt",
+			"path":    dir,
+			key:       float64(-1),
+		})
+		if err == nil {
+			t.Fatalf("expected error for negative %s", key)
+		}
+	}
+}

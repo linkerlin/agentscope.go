@@ -40,6 +40,30 @@ func TestFormatOpenAIMultiAgentMessages_WrapsHistory(t *testing.T) {
 	}
 }
 
+// TestFormatOpenAIMultiAgentMessages_ForwardsImages ensures images folded into
+// history are forwarded as message parts instead of being dropped (E8d).
+func TestFormatOpenAIMultiAgentMessages_ForwardsImages(t *testing.T) {
+	msgs := []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).Content(
+			message.NewTextBlock("see this"),
+			message.NewImageBlock("", "aGVsbG8=", "image/png"),
+		).Name("Alice").Build(),
+	}
+	out := FormatOpenAIMultiAgentMessages(NewOpenAIFormatter(), msgs)
+	if len(out) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(out))
+	}
+	if len(out[0].MultiContent) != 2 {
+		t.Fatalf("expected text + image parts, got %+v", out[0].MultiContent)
+	}
+	if out[0].MultiContent[0].Type != "text" {
+		t.Fatalf("expected text part first, got %+v", out[0].MultiContent[0])
+	}
+	if out[0].MultiContent[1].Type != "image_url" || out[0].MultiContent[1].ImageURL == nil {
+		t.Fatalf("expected image part second, got %+v", out[0].MultiContent[1])
+	}
+}
+
 func containsAll(s string, parts ...string) bool {
 	for _, p := range parts {
 		if !contains(s, p) {

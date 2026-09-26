@@ -12,14 +12,20 @@ type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	TotalTokens      int `json:"total_tokens,omitempty"`
+	// CachedPromptTokens counts prompt tokens served from the provider cache.
+	CachedPromptTokens int `json:"cached_prompt_tokens,omitempty"`
+	// CacheCreationTokens counts tokens written to the provider cache.
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 }
 
 // Add returns a new TokenUsage with the fields summed.
 func (u TokenUsage) Add(other TokenUsage) TokenUsage {
 	return TokenUsage{
-		PromptTokens:     u.PromptTokens + other.PromptTokens,
-		CompletionTokens: u.CompletionTokens + other.CompletionTokens,
-		TotalTokens:      u.TotalTokens + other.TotalTokens,
+		PromptTokens:        u.PromptTokens + other.PromptTokens,
+		CompletionTokens:    u.CompletionTokens + other.CompletionTokens,
+		TotalTokens:         u.TotalTokens + other.TotalTokens,
+		CachedPromptTokens:  u.CachedPromptTokens + other.CachedPromptTokens,
+		CacheCreationTokens: u.CacheCreationTokens + other.CacheCreationTokens,
 	}
 }
 

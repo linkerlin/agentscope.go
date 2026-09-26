@@ -40,11 +40,18 @@ func (f *OpenAIFormatter) formatMsg(m *message.Msg) []goopenai.ChatCompletionMes
 	if len(toolResults) > 0 {
 		out := make([]goopenai.ChatCompletionMessage, 0, len(toolResults))
 		for _, tr := range toolResults {
-			out = append(out, goopenai.ChatCompletionMessage{
+			toolMsg := goopenai.ChatCompletionMessage{
 				Role:       goopenai.ChatMessageRoleTool,
-				Content:    contentBlocksToString(tr.Content),
 				ToolCallID: tr.ToolUseID,
-			})
+			}
+			// Preserve media carried by tool results (e.g. screenshots,
+			// charts) instead of dropping everything but text (E8d).
+			if hasMediaContent(tr.Content) {
+				toolMsg.MultiContent = f.contentBlocksToParts(tr.Content)
+			} else {
+				toolMsg.Content = contentBlocksToString(tr.Content)
+			}
+			out = append(out, toolMsg)
 		}
 		return out
 	}

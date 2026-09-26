@@ -81,3 +81,19 @@ var DefaultReadOnlyCommands = []string{
 	"git show",
 	"git branch",
 }
+
+// DefaultMutatingArguments maps read-only whitelist entries to arguments that
+// turn them into mutating operations. A bare prefix match is unsafe
+// (PyV2 #2004/#2629/#2747/#2795): `find /tmp -delete` and `git branch -d x`
+// must not be auto-allowed just because they start with a read-only command.
+var DefaultMutatingArguments = map[string][]string{
+	"find": {
+		"-delete", "-exec", "-execdir", "-ok", "-okdir",
+		"-fls", "-fprint", "-fprint0", "-fprintf",
+	},
+	"git branch": {
+		"-d", "-D", "-m", "-M", "-c", "-C", "-u",
+		"--delete", "--move", "--copy", "--edit-description",
+		"--set-upstream-to", "--unset-upstream",
+	},
+}

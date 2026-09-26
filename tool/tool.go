@@ -28,6 +28,14 @@ type ExternalChecker interface {
 	IsExternalTool() bool
 }
 
+// AutoApprovedChecker marks tools that never require a permission prompt
+// because the interaction itself is the consent (e.g. AskUser: "never asks
+// to ask"). Deny rules still take priority over auto approval.
+type AutoApprovedChecker interface {
+	Tool
+	IsAutoApproved() bool
+}
+
 // MCPChecker marks tools backed by an MCP server (PyV2 MCPTool).
 type MCPChecker interface {
 	Tool

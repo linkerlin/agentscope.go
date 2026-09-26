@@ -215,6 +215,9 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 				usage.PromptTokens = intAny(meta["promptTokenCount"])
 				usage.CompletionTokens = intAny(meta["candidatesTokenCount"])
 				usage.TotalTokens = intAny(meta["totalTokenCount"])
+				if v := intAny(meta["cachedContentTokenCount"]); v > 0 {
+					usage.CachedPromptTokens = v
+				}
 			}
 			candidates, ok := ev["candidates"].([]any)
 			if !ok || len(candidates) == 0 {

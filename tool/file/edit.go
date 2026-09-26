@@ -86,7 +86,7 @@ func (e *EditFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 		return nil, fmt.Errorf("old_string cannot be empty")
 	}
 
-	path, err := validatePath(filePath, e.baseDir)
+	path, err := validatePath(filePath, e.baseDir, e.ws)
 	if err != nil {
 		return nil, err
 	}

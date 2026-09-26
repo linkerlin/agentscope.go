@@ -109,9 +109,15 @@ func TestShardRouter_AutoRefreshPolling(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(150 * time.Millisecond)
-	if router.HasNode("http://a") {
-		t.Fatal("expected polling refresh to exclude unhealthy node")
+	// Wait for the poller to observe the external change. A fixed sleep is
+	// flaky under load: the 50ms ticker may be delayed when the whole test
+	// suite is running in parallel.
+	deadline := time.Now().Add(3 * time.Second)
+	for router.HasNode("http://a") {
+		if time.Now().After(deadline) {
+			t.Fatal("expected polling refresh to exclude unhealthy node")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if !router.HasNode("http://b") {
 		t.Fatal("expected node b to remain")

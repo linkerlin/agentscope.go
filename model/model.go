@@ -11,14 +11,22 @@ type ChatUsage struct {
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
 	TotalTokens      int `json:"total_tokens,omitempty"`
+	// CachedPromptTokens counts prompt tokens served from the provider cache
+	// (Anthropic cache_read, OpenAI cached_tokens, Gemini cached content).
+	CachedPromptTokens int `json:"cached_prompt_tokens,omitempty"`
+	// CacheCreationTokens counts tokens written to the provider cache
+	// (Anthropic cache_creation_input_tokens).
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 }
 
 // Add returns a new ChatUsage with the fields summed.
 func (u ChatUsage) Add(other ChatUsage) ChatUsage {
 	return ChatUsage{
-		PromptTokens:     u.PromptTokens + other.PromptTokens,
-		CompletionTokens: u.CompletionTokens + other.CompletionTokens,
-		TotalTokens:      u.TotalTokens + other.TotalTokens,
+		PromptTokens:        u.PromptTokens + other.PromptTokens,
+		CompletionTokens:    u.CompletionTokens + other.CompletionTokens,
+		TotalTokens:         u.TotalTokens + other.TotalTokens,
+		CachedPromptTokens:  u.CachedPromptTokens + other.CachedPromptTokens,
+		CacheCreationTokens: u.CacheCreationTokens + other.CacheCreationTokens,
 	}
 }
 
@@ -93,5 +101,10 @@ type StreamChunk struct {
 	Content    []message.ContentBlock
 	Done       bool
 	Usage      *ChatUsage // optional final usage for the stream
-	Error      error      // mid-stream failure; set on the final chunk when the stream failed
+	// ThinkingSignature carries the accumulated reasoning signature on the
+	// final chunk (e.g. Anthropic extended-thinking signature). Consumers
+	// attach it to the assembled thinking block so history replay passes the
+	// provider's required signature back (PyV2 #2495).
+	ThinkingSignature string
+	Error             error // mid-stream failure; set on the final chunk when the stream failed
 }

@@ -2,7 +2,6 @@ package shell
 
 import (
 	"fmt"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"unicode"
@@ -92,8 +91,10 @@ func (u *UnixCommandValidator) ExtractExecutable(command string) string {
 	} else {
 		executable = extractFirstToken(trimmed)
 	}
-	// filepath.Base also removes directory part
-	base := filepath.Base(executable)
+	// lastPathSegment is OS-independent: filepath.Base only honors the
+	// host separator, so a Windows path tested on a unix host would not
+	// be split at all.
+	base := lastPathSegment(executable, "/")
 	for _, ext := range []string{".sh", ".py", ".rb", ".pl", ".bash", ".zsh"} {
 		if strings.HasSuffix(base, ext) {
 			base = base[:len(base)-len(ext)]
@@ -177,7 +178,7 @@ func (w *WindowsCommandValidator) ExtractExecutable(command string) string {
 	} else {
 		executable = extractFirstToken(trimmed)
 	}
-	base := filepath.Base(executable)
+	base := lastPathSegment(executable, `/\`)
 	lowerBase := strings.ToLower(base)
 	for _, ext := range []string{".exe", ".bat", ".cmd"} {
 		if strings.HasSuffix(lowerBase, ext) {
@@ -220,6 +221,16 @@ func extractFirstToken(command string) string {
 		}
 	}
 	return command
+}
+
+// lastPathSegment returns the segment after the last occurrence of any
+// separator in seps. Unlike filepath.Base it is host-OS independent, so
+// command validation behaves identically on every platform.
+func lastPathSegment(path string, seps string) string {
+	if i := strings.LastIndexAny(path, seps); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }
 
 func extractWindowsPath(command string) string {

@@ -109,10 +109,12 @@ func (g *GrepTool) Spec() model.ToolSpec {
 				},
 				"head_limit": map[string]any{
 					"type":        "integer",
+					"minimum":     0,
 					"description": "Limit output to first N lines/entries. Defaults to 250. Pass 0 for unlimited.",
 				},
 				"offset": map[string]any{
 					"type":        "integer",
+					"minimum":     0,
 					"description": "Skip first N lines/entries before applying head_limit.",
 				},
 				"n": map[string]any{
@@ -163,6 +165,15 @@ func (g *GrepTool) Execute(ctx context.Context, input map[string]any) (*tool.Res
 		return nil, fmt.Errorf("pattern cannot be empty")
 	}
 
+	// Negative pagination would panic on slicing and silently disable the
+	// output bound; reject it explicitly (PyV2 #1954).
+	if headLimit < 0 {
+		return nil, fmt.Errorf("head_limit must be >= 0, got %d", headLimit)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("offset must be >= 0, got %d", offset)
+	}
+
 	if searchPath == "" {
 		searchPath = "."
 	}
@@ -170,7 +181,7 @@ func (g *GrepTool) Execute(ctx context.Context, input map[string]any) (*tool.Res
 		outputMode = "files_with_matches"
 	}
 
-	basePath, err := validatePath(searchPath, g.baseDir)
+	basePath, err := validatePath(searchPath, g.baseDir, g.ws)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +452,9 @@ func (g *GrepTool) formatContent(matches []matchRecord, contextLines, before, af
 }
 
 func applyPagination(items []string, limit, offset int) []string {
+	if offset < 0 {
+		offset = 0
+	}
 	if offset >= len(items) {
 		return nil
 	}

@@ -21,13 +21,6 @@ func NewMoonshotFormatter() *MoonshotFormatter {
 	return &MoonshotFormatter{OpenAIFormatter: NewOpenAIFormatter()}
 }
 
-// XAIFormatter reuses OpenAI-compatible message formatting (Grok).
-type XAIFormatter struct{ *OpenAIFormatter }
-
-func NewXAIFormatter() *XAIFormatter {
-	return &XAIFormatter{OpenAIFormatter: NewOpenAIFormatter()}
-}
-
 // OpenAIResponseFormatter reuses OpenAI-compatible formatting for Response API payloads.
 type OpenAIResponseFormatter struct{ *OpenAIFormatter }
 

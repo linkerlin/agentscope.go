@@ -2,10 +2,23 @@ package react
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/message"
 )
+
+// errEmptyModelResponse marks a model turn that produced no content at all:
+// no text, no thinking and no tool calls. It must surface as an error instead
+// of a silent empty reply (PyV2 #1861).
+var errEmptyModelResponse = errors.New("react agent: model returned an empty response")
+
+// isDegenerateResponse reports whether a model response carries no usable
+// content (nil or zero blocks).
+func isDegenerateResponse(msg *message.Msg) bool {
+	return msg == nil || len(msg.Content) == 0
+}
 
 // loopAction controls ReAct loop flow after hook evaluation.
 type loopAction int
@@ -96,7 +109,18 @@ func (a *ReActAgent) afterModelPhase(ctx context.Context, history []*message.Msg
 // checkFinalAnswer checks if the model response contains no tool calls.
 // If so, fires BeforeFinish hook and returns the (possibly overridden) response + isFinal=true.
 func (a *ReActAgent) checkFinalAnswer(ctx context.Context, history []*message.Msg, response *message.Msg) (*message.Msg, bool, error) {
+	if response == nil {
+		// Guard the nil receiver before GetToolUseCalls (PyV2 #1861): a model
+		// backend returning (nil, nil) must fail loudly, not panic the loop.
+		return nil, false, fmt.Errorf("react agent: model returned a nil response")
+	}
 	if len(response.GetToolUseCalls()) > 0 {
+		return response, false, nil
+	}
+	// A response carrying only thinking blocks has no user-visible answer yet.
+	// Treat it as an intermediate step so reasoning models do not finish the
+	// turn with an empty message (PyV2 #2120).
+	if hasOnlyThinkingBlocks(response) {
 		return response, false, nil
 	}
 	_, hr, err := a.fireHooks(ctx, hook.HookBeforeFinish, history, response, "", nil)
@@ -107,4 +131,18 @@ func (a *ReActAgent) checkFinalAnswer(ctx context.Context, history []*message.Ms
 		response = hr.Override
 	}
 	return response, true, nil
+}
+
+// hasOnlyThinkingBlocks reports whether msg carries at least one block and all
+// of them are thinking blocks.
+func hasOnlyThinkingBlocks(msg *message.Msg) bool {
+	if msg == nil || len(msg.Content) == 0 {
+		return false
+	}
+	for _, block := range msg.Content {
+		if _, ok := block.(*message.ThinkingBlock); !ok {
+			return false
+		}
+	}
+	return true
 }

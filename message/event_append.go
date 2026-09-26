@@ -32,6 +32,8 @@ func (m *Msg) AppendEvent(ev event.AgentEvent) *Msg {
 		m.Usage.PromptTokens += e.InputTokens
 		m.Usage.CompletionTokens += e.OutputTokens
 		m.Usage.TotalTokens += e.InputTokens + e.OutputTokens
+		m.Usage.CachedPromptTokens += e.CachedPromptTokens
+		m.Usage.CacheCreationTokens += e.CacheCreationTokens
 
 	// Text blocks
 	case *event.TextBlockStartEvent:

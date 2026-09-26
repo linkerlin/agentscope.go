@@ -20,6 +20,7 @@ import (
 	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
+	"github.com/linkerlin/agentscope.go/pipeline"
 	"github.com/linkerlin/agentscope.go/runcontext"
 	"github.com/linkerlin/agentscope.go/shutdown"
 	"github.com/linkerlin/agentscope.go/state"
@@ -573,6 +574,26 @@ func (a *ReActAgent) TotalUsage() model.ChatUsage {
 	return a.Base.TotalUsage()
 }
 
+// ResetDialogContext drops the conversation memory and the compression
+// summary while keeping tools, task state and configuration. GoalPipeline
+// uses it to give the verifier a fresh context between attempts.
+func (a *ReActAgent) ResetDialogContext() {
+	if a.memory != nil {
+		_ = a.memory.Clear()
+	}
+	a.setCompressedSummary("")
+}
+
+// effectiveModel returns the per-request routed model when middleware
+// installed one via runcontext.WithModel, otherwise the agent's own model.
+// Routing through the context keeps concurrent turns isolated.
+func (a *ReActAgent) effectiveModel(ctx context.Context) model.ChatModel {
+	if m := runcontext.Model(ctx); m != nil {
+		return m
+	}
+	return a.chatModel
+}
+
 func (a *ReActAgent) addUsage(u model.ChatUsage) {
 	a.Base.AddUsage(u)
 }
@@ -759,7 +780,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 	if _, _, err := a.fireStreamEvent(ctx, &hook.PreReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: time.Now(), Agent: a.Base.Name},
 		Messages:  append([]*message.Msg(nil), history...),
-		ModelName: a.chatModel.ModelName(),
+		ModelName: a.effectiveModel(ctx).ModelName(),
 	}); err != nil {
 		return nil, err
 	}
@@ -784,6 +805,9 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 	calledTools := make(map[string]bool)
 	breaker := newConsecutiveFailureBreaker(a.maxConsecutiveToolFailures)
 	var action loopAction
+	// replyUsage shadows the per-turn spend so the final message carries the
+	// whole reply's usage, not just the last model call (E8c).
+	var replyUsage model.ChatUsage
 	for i := 0; i < a.maxIterations; i++ {
 		select {
 		case <-ctx.Done():
@@ -823,9 +847,15 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 			if errors.Is(err, hook.ErrInterrupted) {
 				return nil, err
 			}
+			// A model call aborted by a mid-stream interrupt takes the normal
+			// interruption recovery path instead of surfacing a raw error (E4b).
+			if a.IsInterrupted() {
+				return a.handleInterrupt(ctx, msg, history, nil)
+			}
 			return nil, err
 		}
 		a.addUsage(extractUsage(response))
+		replyUsage = replyUsage.Add(extractUsage(response))
 
 		if err := a.CheckInterrupted(); err != nil {
 			return a.handleInterrupt(ctx, msg, history, response.GetToolUseCalls())
@@ -857,6 +887,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 		}
 		if isFinal {
 			finalResponse = response
+			finalResponse.Usage = tokenUsageFrom(replyUsage)
 			break
 		}
 
@@ -1059,7 +1090,7 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 				})
 			}
 			if name, count, reason := breaker.update(sigs); name != "" {
-				finalResponse = breakerFinalMessage(a.Base.AgentName(), name, count, reason)
+				finalResponse = a.withCurrentUsage(breakerFinalMessage(a.Base.AgentName(), name, count, reason))
 				break
 			}
 		}
@@ -1114,11 +1145,11 @@ func (a *ReActAgent) handleInterrupt(ctx context.Context, originalMsg *message.M
 		// agent was saying before the interruption (PyV2 #2209 parity).
 		recoveryText += " (before the interruption I was saying: " + truncateRunes(last, 80) + ")"
 	}
-	recoveryMsg := message.NewMsg().
+	recoveryMsg := a.withCurrentUsage(message.NewMsg().
 		Role(message.RoleAssistant).
 		Name(a.Name()).
 		TextContent(recoveryText).
-		Build()
+		Build())
 
 	_ = a.memory.Add(recoveryMsg)
 	return recoveryMsg, nil
@@ -1451,3 +1482,6 @@ func (a *ReActAgent) LoadState(st *agent.AgentState) error {
 // Ensure ReActAgent satisfies agent.Agent and agent.V2Agent (compile-time check)
 var _ agent.Agent = (*ReActAgent)(nil)
 var _ agent.V2Agent = (*ReActAgent)(nil)
+
+// ReActAgent can serve directly as a GoalPipeline executor or verifier.
+var _ pipeline.GoalRunner = (*ReActAgent)(nil)

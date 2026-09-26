@@ -73,7 +73,7 @@ func (r *ReadFileTool) Execute(ctx context.Context, input map[string]any) (*tool
 	filePath, _ := input["file_path"].(string)
 	ranges, _ := input["ranges"].(string)
 
-	path, err := validatePath(filePath, r.baseDir)
+	path, err := validatePath(filePath, r.baseDir, r.ws)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func (l *ListDirectoryTool) Spec() model.ToolSpec {
 // Execute runs the tool.
 func (l *ListDirectoryTool) Execute(ctx context.Context, input map[string]any) (*tool.Response, error) {
 	dirPath, _ := input["dir_path"].(string)
-	path, err := validatePath(dirPath, l.baseDir)
+	path, err := validatePath(dirPath, l.baseDir, l.ws)
 	if err != nil {
 		return nil, err
 	}

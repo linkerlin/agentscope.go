@@ -208,9 +208,24 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
+		// send delivers a chunk unless the caller cancelled the request; a
+		// cancelled consumer must not leak this goroutine and the HTTP body
+		// (E5d).
+		send := func(c *model.StreamChunk) bool {
+			select {
+			case ch <- c:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
 		scanner := bufio.NewScanner(resp.Body)
 		var usage model.ChatUsage
 		toolUses := map[int]*toolUseAccum{}
+		// thinkSig accumulates signature_delta fragments so the assembled
+		// thinking block carries the provider signature required for history
+		// replay (PyV2 #2495).
+		var thinkSig strings.Builder
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data: ") {
@@ -221,7 +236,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 				if usage.TotalTokens == 0 {
 					usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 				}
-				ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses)}
+				send(&model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses), ThinkingSignature: thinkSig.String()})
 				return
 			}
 			var ev map[string]any
@@ -234,6 +249,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 					if usage.CompletionTokens == 0 {
 						usage.CompletionTokens = intAny(u["output_tokens"])
 					}
+					accumulateCacheUsage(&usage, u)
 				}
 			}
 			if ev["type"] == "message_delta" {
@@ -242,6 +258,7 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 					if usage.PromptTokens == 0 {
 						usage.PromptTokens = intAny(u["input_tokens"])
 					}
+					accumulateCacheUsage(&usage, u)
 				}
 			}
 			switch ev["type"] {
@@ -267,17 +284,31 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 				}
 				text, _ := delta["text"].(string)
 				if text != "" {
-					ch <- &model.StreamChunk{Delta: text}
+					if !send(&model.StreamChunk{Delta: text}) {
+						return
+					}
+				}
+				// Route reasoning content through the IsThinking delta path so
+				// consumers accumulate it into the thinking block instead of
+				// dropping it (PyV2 #2495). Signature fragments are collected
+				// separately and delivered on the final chunk.
+				if dj, _ := delta["type"].(string); dj == "signature_delta" {
+					if sig, _ := delta["signature"].(string); sig != "" {
+						thinkSig.WriteString(sig)
+					}
+					continue
 				}
 				if thinking, ok := delta["thinking"].(string); ok && thinking != "" {
-					ch <- &model.StreamChunk{Content: []message.ContentBlock{message.NewThinkingBlock(thinking, "")}}
+					if !send(&model.StreamChunk{Delta: thinking, IsThinking: true}) {
+						return
+					}
 				}
 			case "message_stop":
 				// Anthropic 标准终止信号;[DONE] 分支保留作代理/网关兼容。
 				if usage.TotalTokens == 0 {
 					usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 				}
-				ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses)}
+				send(&model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses), ThinkingSignature: thinkSig.String()})
 				return
 			case "error":
 				// 流中途错误(超限/内容审核等),透传而不是静默空响应。
@@ -287,14 +318,14 @@ func (m *ChatModel) chatStreamOnce(ctx context.Context, messages []*message.Msg,
 						msg = m
 					}
 				}
-				ch <- &model.StreamChunk{Done: true, Error: fmt.Errorf("anthropic stream: %s", msg)}
+				send(&model.StreamChunk{Done: true, Error: fmt.Errorf("anthropic stream: %s", msg)})
 				return
 			}
 		}
 		if usage.TotalTokens == 0 {
 			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 		}
-		ch <- &model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses)}
+		send(&model.StreamChunk{Done: true, Usage: &usage, Content: finishToolBlocks(toolUses), ThinkingSignature: thinkSig.String()})
 	}()
 	return ch, nil
 }
@@ -356,6 +387,18 @@ func intAny(v any) int {
 		return int(n)
 	}
 	return 0
+}
+
+// accumulateCacheUsage folds Anthropic prompt-cache counters into usage. Only
+// positive readings are applied so a delta event that omits the cache fields
+// cannot zero out values seen on an earlier event.
+func accumulateCacheUsage(usage *model.ChatUsage, u map[string]any) {
+	if v := intAny(u["cache_creation_input_tokens"]); v > 0 {
+		usage.CacheCreationTokens = v
+	}
+	if v := intAny(u["cache_read_input_tokens"]); v > 0 {
+		usage.CachedPromptTokens = v
+	}
 }
 
 // toolUseAccum aggregates streaming tool_use content for a single content_block index.

@@ -153,6 +153,9 @@ func (a *ReActAgent) replyStreamInternal(
 	var finalResponse *message.Msg
 	breaker := newConsecutiveFailureBreaker(a.maxConsecutiveToolFailures)
 	var action loopAction
+	// replyUsage shadows the per-turn spend so the final message carries the
+	// whole reply's usage, not just the last model call (E8c).
+	var replyUsage model.ChatUsage
 	for i := 0; i < a.maxIterations; i++ {
 		select {
 		case <-ctx.Done():
@@ -210,10 +213,16 @@ func (a *ReActAgent) replyStreamInternal(
 			if errors.Is(err, hook.ErrInterrupted) {
 				return nil, err
 			}
+			// A model call aborted by a mid-stream interrupt takes the normal
+			// interruption recovery path instead of surfacing a raw error (E4b).
+			if a.IsInterrupted() {
+				return a.handleInterrupt(ctx, msg, history, nil)
+			}
 			out <- event.NewError(replyID, err)
 			return nil, err
 		}
 		a.addUsage(extractUsage(response))
+		replyUsage = replyUsage.Add(extractUsage(response))
 
 		if err := a.CheckInterrupted(); err != nil {
 			return a.handleInterrupt(ctx, msg, history, response.GetToolUseCalls())
@@ -253,6 +262,7 @@ func (a *ReActAgent) replyStreamInternal(
 		}
 		if isFinal {
 			finalResponse = response
+			finalResponse.Usage = tokenUsageFrom(replyUsage)
 			break
 		}
 
@@ -274,7 +284,7 @@ func (a *ReActAgent) replyStreamInternal(
 		// failing tool until maxIterations, and instead of surfacing the raw
 		// tool error as a turn-level error.
 		if name, count, reason := breaker.update(sigs); name != "" {
-			finalResponse = breakerFinalMessage(a.Base.AgentName(), name, count, reason)
+			finalResponse = a.withCurrentUsage(breakerFinalMessage(a.Base.AgentName(), name, count, reason))
 			// Surface the breaker message like a normal final answer: append to
 			// history + runtime state so Reply()/reconnect-resume and the UI see
 			// it instead of the model's last (tool-call) assistant message.
@@ -355,7 +365,7 @@ func (a *ReActAgent) resumeReplyStreamInternal(
 	}
 	toolCalls = applyConfirmDecisions(toolCalls, confirm.Decisions)
 	if len(toolCalls) == 0 {
-		finalResponse := message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build()
+		finalResponse := a.withCurrentUsage(message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build())
 		_ = a.memory.Add(msg)
 		_ = a.memory.Add(finalResponse)
 		return finalResponse, nil
@@ -438,7 +448,7 @@ func (a *ReActAgent) runModelStream(
 			Iteration: iter,
 		},
 		Messages:  append([]*message.Msg(nil), history...),
-		ModelName: a.chatModel.ModelName(),
+		ModelName: a.effectiveModel(ctx).ModelName(),
 		ChatOpts:  chatOpts,
 	}
 	if ev, _, err := a.fireStreamEvent(ctx, pre); err != nil {
@@ -447,18 +457,27 @@ func (a *ReActAgent) runModelStream(
 		chatOpts = preEv.ChatOpts
 	}
 
-	modelName := a.chatModel.ModelName()
+	modelName := a.effectiveModel(ctx).ModelName()
 	out <- event.NewModelCallStart(replyID, modelName)
 
 	// Always stream. Tool calls are accumulated by the model wrapper and
 	// delivered in the final chunk, so the UI still sees a typing effect for
 	// the text parts while ReAct gets the parsed tool calls it needs.
-	ch, err := a.chatModel.ChatStream(ctx, history, chatOpts...)
+	ch, err := a.effectiveModel(ctx).ChatStream(ctx, history, chatOpts...)
 	if err != nil {
 		out <- event.NewError(replyID, fmt.Errorf("react agent model stream: %w", err))
 		out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
 		return nil, fmt.Errorf("react agent model stream: %w", err)
 	}
+	if ch == nil {
+		out <- event.NewError(replyID, errEmptyModelResponse)
+		out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
+		return nil, errEmptyModelResponse
+	}
+	// If this consumer abandons the stream early (hook interruption,
+	// downstream error), keep draining in the background so the model
+	// producer can finish and release its HTTP body (E5d).
+	defer drainStreamAsync(ch)
 
 	var (
 		sb              strings.Builder
@@ -466,11 +485,23 @@ func (a *ReActAgent) runModelStream(
 		streamUsage     *model.ChatUsage
 		inTextBlock     bool
 		inThinkingBlock bool
+		thinkSig        string
 		toolBlocks      []message.ContentBlock
 	)
 	for chunk := range ch {
 		if chunk == nil {
 			continue
+		}
+		// Stop consuming as soon as an interrupt or cancellation arrives
+		// instead of reading the whole stream first (E4b). The deferred
+		// drain lets the producer finish in the background.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		if err := a.CheckInterrupted(); err != nil {
+			return nil, err
 		}
 		if chunk.Done {
 			if chunk.Error != nil {
@@ -480,6 +511,11 @@ func (a *ReActAgent) runModelStream(
 			}
 			if chunk.Usage != nil {
 				streamUsage = chunk.Usage
+			}
+			// Preserve the accumulated reasoning signature for history replay
+			// (PyV2 #2495).
+			if chunk.ThinkingSignature != "" {
+				thinkSig = chunk.ThinkingSignature
 			}
 			if len(chunk.Content) > 0 {
 				toolBlocks = append(toolBlocks, chunk.Content...)
@@ -527,18 +563,26 @@ func (a *ReActAgent) runModelStream(
 	}
 	content = append(content, toolBlocks...)
 	if thinkingSb.Len() > 0 {
-		content = append(content, message.NewThinkingBlock(thinkingSb.String(), ""))
+		content = append(content, message.NewThinkingBlock(thinkingSb.String(), thinkSig))
 	}
 	msg := message.NewMsg().Role(message.RoleAssistant).Content(content...).Build()
+	if isDegenerateResponse(msg) {
+		out <- event.NewError(replyID, errEmptyModelResponse)
+		out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
+		return nil, errEmptyModelResponse
+	}
 	if streamUsage != nil {
 		msg.Metadata["usage"] = *streamUsage
 	}
 	inputTokens, outputTokens := 0, 0
+	callEnd := event.NewModelCallEnd(replyID, modelName, inputTokens, outputTokens)
 	if streamUsage != nil {
-		inputTokens = streamUsage.PromptTokens
-		outputTokens = streamUsage.CompletionTokens
+		callEnd.InputTokens = streamUsage.PromptTokens
+		callEnd.OutputTokens = streamUsage.CompletionTokens
+		callEnd.CachedPromptTokens = streamUsage.CachedPromptTokens
+		callEnd.CacheCreationTokens = streamUsage.CacheCreationTokens
 	}
-	out <- event.NewModelCallEnd(replyID, modelName, inputTokens, outputTokens)
+	out <- callEnd
 	_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
 		BaseEvent: hook.BaseEvent{Type: hook.EventPostReasoning, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
 		Messages:  append([]*message.Msg(nil), history...),
@@ -613,7 +657,7 @@ func (a *ReActAgent) executeToolsStream(
 			// Apply decisions: filter out denied tool calls, apply modifications
 			toolCalls = applyConfirmDecisions(toolCalls, confirm.Decisions)
 			if len(toolCalls) == 0 {
-				return message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build(), nil, nil
+				return a.withCurrentUsage(message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build()), nil, nil
 			}
 			// Q2: session/always-scoped approvals register the matched rule
 			// class as an allow rule so same-class commands stop interrupting

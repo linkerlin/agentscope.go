@@ -235,3 +235,31 @@ func TestOpenAIFormatter_ParseChoice_ExtractsMultipleThinkingTags(t *testing.T) 
 		t.Fatalf("unexpected thinking: %q", thinking)
 	}
 }
+
+// TestOpenAIFormatter_ToolResults_PreservesMedia ensures images carried by
+// tool results are sent as message parts instead of being dropped (E8d).
+func TestOpenAIFormatter_ToolResults_PreservesMedia(t *testing.T) {
+	f := NewOpenAIFormatter()
+	tr := message.NewToolResultBlock("call_1", []message.ContentBlock{
+		message.NewTextBlock("see:"),
+		message.NewImageBlock("", "aGVsbG8=", "image/png"),
+	}, false)
+	msg := message.NewMsg().Role(message.RoleTool).Content(tr).Build()
+	out := f.FormatMessagesTyped([]*message.Msg{msg})
+	if len(out) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(out))
+	}
+	if len(out[0].MultiContent) != 2 {
+		t.Fatalf("expected text + image parts, got %+v", out[0].MultiContent)
+	}
+	if out[0].MultiContent[0].Type != goopenai.ChatMessagePartTypeText {
+		t.Fatalf("expected text part first, got %+v", out[0].MultiContent[0])
+	}
+	img := out[0].MultiContent[1]
+	if img.Type != goopenai.ChatMessagePartTypeImageURL || img.ImageURL == nil {
+		t.Fatalf("expected image part second, got %+v", img)
+	}
+	if img.ImageURL.URL != "data:image/png;base64,aGVsbG8=" {
+		t.Fatalf("unexpected image URL: %q", img.ImageURL.URL)
+	}
+}

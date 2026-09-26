@@ -72,7 +72,7 @@ func (w *WriteFileTool) Execute(ctx context.Context, input map[string]any) (*too
 	content, _ := input["content"].(string)
 	ranges, _ := input["ranges"].(string)
 
-	path, err := validatePath(filePath, w.baseDir)
+	path, err := validatePath(filePath, w.baseDir, w.ws)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +233,7 @@ func (i *InsertTextFileTool) Execute(ctx context.Context, input map[string]any) 
 		return nil, fmt.Errorf("invalid line number: %d", lineNumber)
 	}
 
-	path, err := validatePath(filePath, i.baseDir)
+	path, err := validatePath(filePath, i.baseDir, i.ws)
 	if err != nil {
 		return nil, err
 	}

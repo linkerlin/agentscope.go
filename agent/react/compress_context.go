@@ -136,6 +136,11 @@ func (a *ReActAgent) generateCompressionSummary(
 	toolSpecs []model.ToolSpec,
 	ctxSize int,
 ) (string, error) {
+	// Track compression LLM spend so context maintenance shows up in
+	// TotalUsage instead of vanishing (E8b). The tracker wraps every Chat
+	// call below, including repair retries inside the structured runner.
+	tracker := &usageTrackingModel{ChatModel: a.chatModel}
+	defer func() { a.AddUsage(tracker.totalUsage()) }()
 	toCompress = preTruncateToolResults(a.chatModel, toCompress, cfg.ToolResultLimit)
 	prompt := cfg.CompressionPrompt
 	if prompt == "" {
@@ -151,7 +156,7 @@ func (a *ReActAgent) generateCompressionSummary(
 	contextOverflow := estimated > ctxSize
 
 	var summary agent.CompressionSummary
-	runner := &output.StructuredRunner{Model: a.chatModel, MaxRetries: 2}
+	runner := &output.StructuredRunner{Model: tracker, MaxRetries: 2}
 	userText := formatMessagesForCompression(msgs)
 	err = runner.Run(ctx, userText, schema, &summary)
 	if err != nil && contextOverflow {
@@ -368,6 +373,7 @@ func (a *ReActAgent) maybeMetaCompressSummary(
 	if err != nil || resp == nil {
 		return truncateSummaryText(summaryText, cap)
 	}
+	addResponseUsage(a.AddUsage, resp)
 	text := resp.GetTextContent()
 	if text == "" {
 		return summaryText

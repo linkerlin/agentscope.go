@@ -53,8 +53,16 @@ func (f *GeminiFormatter) formatParts(blocks []message.ContentBlock) []map[strin
 	for _, b := range blocks {
 		switch block := b.(type) {
 		case *message.TextBlock:
+			// Gemini rejects empty parts with "contents.parts must not be empty" (PyV2 #2641).
+			if block.Text == "" {
+				continue
+			}
 			out = append(out, map[string]any{"text": block.Text})
 		case *message.ThinkingBlock:
+			// Empty thinking parts are likewise invalid (PyV2 #2013).
+			if block.Thinking == "" {
+				continue
+			}
 			out = append(out, map[string]any{"text": block.Thinking})
 		case *message.ImageBlock:
 			out = append(out, f.imagePart(block.URL, block.Base64, block.MimeType))
@@ -80,7 +88,21 @@ func (f *GeminiFormatter) formatParts(blocks []message.ContentBlock) []map[strin
 					text += tb.Text
 				}
 			}
-			out = append(out, map[string]any{"text": text})
+			if text != "" {
+				out = append(out, map[string]any{"text": text})
+			}
+			// Preserve images carried by tool results as inline data parts
+			// instead of dropping them (E8d).
+			for _, c := range block.Content {
+				switch v := c.(type) {
+				case *message.ImageBlock:
+					out = append(out, f.imagePart(v.URL, v.Base64, v.MimeType))
+				case *message.DataBlock:
+					if v.Source != nil && v.BlockType() == message.TypeImage {
+						out = append(out, f.imagePart(v.Source.URL, v.Source.Data, v.Source.MediaType))
+					}
+				}
+			}
 		}
 	}
 	return out
@@ -183,11 +205,15 @@ func (f *GeminiFormatter) ParseResponse(resp any) (*message.Msg, error) {
 
 	msg := builder.Build()
 	if meta, ok := body["usageMetadata"].(map[string]any); ok {
-		msg.Metadata["usage"] = model.ChatUsage{
+		usage := model.ChatUsage{
 			PromptTokens:     intAny(meta["promptTokenCount"]),
 			CompletionTokens: intAny(meta["candidatesTokenCount"]),
 			TotalTokens:      intAny(meta["totalTokenCount"]),
 		}
+		if v := intAny(meta["cachedContentTokenCount"]); v > 0 {
+			usage.CachedPromptTokens = v
+		}
+		msg.Metadata["usage"] = usage
 	}
 	return msg, nil
 }

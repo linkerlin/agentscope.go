@@ -71,3 +71,55 @@ func TestCompressToolResultBlocks_AddsReminder(t *testing.T) {
 		t.Fatalf("expected truncation reminder, got %q", blocksTextSummary(out))
 	}
 }
+
+// TestSplitToolResultForCompression_DoesNotMutateSource guards the deep-copy
+// requirement: a shallow block copy made every truncation pass write its own
+// prefix back into the tool result stored in memory.
+func TestSplitToolResultForCompression_DoesNotMutateSource(t *testing.T) {
+	long := strings.Repeat("z", 800)
+	block := message.NewToolResultBlock("t1", []message.ContentBlock{
+		message.NewTextBlock(long),
+	}, false)
+	before := blocksTextSummary(block.Content)
+
+	if _, _, err := SplitToolResultForCompression(&tokenCountModel{}, block, 50); err != nil {
+		t.Fatal(err)
+	}
+	if after := blocksTextSummary(block.Content); after != before {
+		t.Fatalf("source tool result was mutated: before %d chars, after %d chars", len(before), len(after))
+	}
+}
+
+func TestNewToolResultBlock_PreservesBlockFields(t *testing.T) {
+	src := &message.ToolResultBlock{
+		ID:        "id1",
+		Name:      "search",
+		ToolUseID: "tu1",
+		Content:   []message.ContentBlock{message.NewTextBlock("x")},
+		IsError:   true,
+		State:     "success",
+	}
+	got := newToolResultBlock(src, []message.ContentBlock{message.NewTextBlock("y")})
+	if got.ID != src.ID || got.Name != src.Name || got.ToolUseID != src.ToolUseID {
+		t.Fatalf("identity fields lost: %+v", got)
+	}
+	if !got.IsError || got.State != src.State {
+		t.Fatalf("state fields lost: %+v", got)
+	}
+}
+
+func TestCloneContentBlocks_DeepCopies(t *testing.T) {
+	src := message.NewTextBlock("original")
+	cloned := cloneContentBlocks([]message.ContentBlock{src})
+	text, ok := cloned[0].(*message.TextBlock)
+	if !ok {
+		t.Fatal("expected TextBlock")
+	}
+	if text == src {
+		t.Fatal("clone shares the same pointer as the source block")
+	}
+	text.Text = "mutated"
+	if src.Text != "original" {
+		t.Fatalf("source block mutated through clone: %q", src.Text)
+	}
+}

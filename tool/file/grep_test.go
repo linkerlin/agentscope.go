@@ -196,3 +196,41 @@ func TestGrepTool_HeadLimit(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d: %s", len(lines), resp.GetTextContent())
 	}
 }
+
+// TestGrepTool_NegativePagination guards against the slice-bounds panic on a
+// negative offset and the unbounded output caused by a negative head_limit
+// (PyV2 #1954).
+func TestGrepTool_NegativePagination(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.go"), []byte("func main() {}\n"), 0o644)
+
+	tool := NewGrepTool("")
+	base := map[string]any{
+		"pattern":     "func",
+		"path":        dir,
+		"output_mode": "files_with_matches",
+	}
+
+	negOffset := map[string]any{"offset": float64(-1)}
+	for k, v := range base {
+		negOffset[k] = v
+	}
+	if _, err := tool.Execute(context.Background(), negOffset); err == nil {
+		t.Fatal("expected error for negative offset")
+	}
+
+	negLimit := map[string]any{"head_limit": float64(-5)}
+	for k, v := range base {
+		negLimit[k] = v
+	}
+	if _, err := tool.Execute(context.Background(), negLimit); err == nil {
+		t.Fatal("expected error for negative head_limit")
+	}
+}
+
+func TestApplyPagination_NegativeOffset(t *testing.T) {
+	got := applyPagination([]string{"a", "b", "c"}, 2, -1)
+	if len(got) != 2 || got[0] != "a" {
+		t.Fatalf("expected first two items, got %v", got)
+	}
+}

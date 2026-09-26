@@ -149,13 +149,23 @@ func (m *OpenAIChatModel) chatOnce(ctx context.Context, messages []*message.Msg,
 	}
 	msg := m.formatter.ParseChoice(resp.Choices[0])
 	if resp.Usage.TotalTokens > 0 {
-		msg.Metadata["usage"] = model.ChatUsage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		}
+		msg.Metadata["usage"] = chatUsageFromSDK(resp.Usage)
 	}
 	return msg, nil
+}
+
+// chatUsageFromSDK converts the OpenAI SDK usage struct, preserving prompt
+// cache counters (E8a).
+func chatUsageFromSDK(u goopenai.Usage) model.ChatUsage {
+	out := model.ChatUsage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
+	}
+	if u.PromptTokensDetails != nil {
+		out.CachedPromptTokens = u.PromptTokensDetails.CachedTokens
+	}
+	return out
 }
 
 // ChatStream calls the OpenAI streaming API and returns a channel of StreamChunks
@@ -257,11 +267,7 @@ func (m *OpenAIChatModel) chatStreamOnce(ctx context.Context, messages []*messag
 			}
 			delta := resp.Choices[0].Delta
 			if resp.Usage != nil && resp.Usage.TotalTokens > 0 {
-				usage = model.ChatUsage{
-					PromptTokens:     resp.Usage.PromptTokens,
-					CompletionTokens: resp.Usage.CompletionTokens,
-					TotalTokens:      resp.Usage.TotalTokens,
-				}
+				usage = chatUsageFromSDK(*resp.Usage)
 			}
 			for _, tc := range delta.ToolCalls {
 				idx := 0

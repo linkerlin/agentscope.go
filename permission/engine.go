@@ -254,6 +254,20 @@ func (e *Engine) evaluateOne(tc *message.ToolUseBlock, grouped map[Decision]map[
 		}
 	}
 
+	// 1a. Auto-approved tools never prompt ("never asks to ask", e.g.
+	// AskUser). Hard denies above still win.
+	if t != nil {
+		if aa, ok := t.(tool.AutoApprovedChecker); ok && aa.IsAutoApproved() {
+			return Result{
+				ToolCallID: tc.ID,
+				ToolName:   tc.Name,
+				Decision:   DecisionAllow,
+				Message:    fmt.Sprintf("Permission granted for %s (auto-approved tool)", tc.Name),
+				Reason:     "tool declares itself auto-approved",
+			}
+		}
+	}
+
 	// 1b. Session-approved rule classes (Q2): a human approval for the class
 	// overrides the matching ask rule; hard denies still win above.
 	if r := e.matchApprovals(tc.Name, filePath, command, input, t); r != nil {

@@ -479,6 +479,66 @@ func drainStream(ch <-chan *model.StreamChunk) ([]string, *model.StreamChunk) {
 	return deltas, done
 }
 
+// TestChatStream_ThinkingAndSignature verifies that streaming reasoning content
+// is delivered on the IsThinking delta path (not dropped) and that signature
+// fragments are accumulated onto the final chunk for history replay (PyV2 #2495).
+func TestChatStream_ThinkingAndSignature(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, []string{
+			`data: {"type":"message_start","usage":{"input_tokens":3,"output_tokens":0}}`,
+			``,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"let me think"}}`,
+			``,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}`,
+			``,
+			`data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"final"}}`,
+			``,
+			`data: {"type":"message_stop"}`,
+			``,
+		})
+	}))
+	defer server.Close()
+
+	m, err := NewBuilder().APIKey("test-key").BaseURL(server.URL).Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	ch, err := m.ChatStream(context.Background(), []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent("hi").Build(),
+	})
+	if err != nil {
+		t.Fatalf("chat stream failed: %v", err)
+	}
+
+	var text, thinking string
+	var done *model.StreamChunk
+	for chunk := range ch {
+		if chunk.Done {
+			done = chunk
+			continue
+		}
+		if chunk.IsThinking {
+			thinking += chunk.Delta
+		} else {
+			text += chunk.Delta
+		}
+	}
+
+	if thinking != "let me think" {
+		t.Fatalf("expected thinking on the IsThinking path, got %q", thinking)
+	}
+	if text != "final" {
+		t.Fatalf("expected answer text, got %q", text)
+	}
+	if done == nil {
+		t.Fatal("expected done chunk")
+	}
+	if done.ThinkingSignature != "sig-abc" {
+		t.Fatalf("expected signature on done chunk, got %q", done.ThinkingSignature)
+	}
+}
+
 // TestChatStream_MessageStopTermination 验证 Anthropic 标准 message_stop 终止(不发 [DONE])。
 func TestChatStream_MessageStopTermination(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -734,5 +794,92 @@ func TestChatStream_Integration(t *testing.T) {
 	t.Logf("integration reply: %q", strings.Join(deltas, ""))
 	if done.Usage != nil {
 		t.Logf("usage: in=%d out=%d total=%d", done.Usage.PromptTokens, done.Usage.CompletionTokens, done.Usage.TotalTokens)
+	}
+}
+
+// TestChatStream_ContextCancelClosesStream verifies a cancelled consumer does
+// not leave the producer goroutine blocked forever: the stream must close
+// after the request context is cancelled (E5d).
+func TestChatStream_ContextCancelClosesStream(t *testing.T) {
+	block := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		_, _ = w.Write([]byte(`data: {"type":"content_block_delta","delta":{"text":"x"}}` + "\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+		<-block // keep the connection open until the test finishes
+	}))
+	defer server.Close()
+	defer close(block)
+
+	m, err := NewBuilder().APIKey("test-key").BaseURL(server.URL).Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := m.ChatStream(ctx, []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent("hi").Build(),
+	})
+	if err != nil {
+		t.Fatalf("chat stream failed: %v", err)
+	}
+	<-ch // consume the first delta
+	cancel()
+
+	closed := make(chan struct{})
+	go func() {
+		for range ch {
+		}
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("stream did not close after context cancellation (producer leak)")
+	}
+}
+
+// TestChatStream_CacheUsage verifies prompt-cache counters are preserved in
+// stream usage instead of being dropped at the accounting entry point (E8a).
+func TestChatStream_CacheUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeSSE(w, []string{
+			`data: {"type":"message_start","usage":{"input_tokens":100,"output_tokens":0,"cache_creation_input_tokens":40,"cache_read_input_tokens":30}}`,
+			``,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`,
+			``,
+			`data: {"type":"message_delta","usage":{"output_tokens":5}}`,
+			``,
+			`data: {"type":"message_stop"}`,
+			``,
+		})
+	}))
+	defer server.Close()
+
+	m, err := NewBuilder().APIKey("test-key").BaseURL(server.URL).Build()
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	ch, err := m.ChatStream(context.Background(), []*message.Msg{
+		message.NewMsg().Role(message.RoleUser).TextContent("hi").Build(),
+	})
+	if err != nil {
+		t.Fatalf("chat stream failed: %v", err)
+	}
+	deltas, done := drainStream(ch)
+	if len(deltas) != 1 {
+		t.Fatalf("expected 1 delta, got %v", deltas)
+	}
+	if done == nil || done.Usage == nil {
+		t.Fatal("expected done chunk with usage")
+	}
+	if done.Usage.CacheCreationTokens != 40 {
+		t.Fatalf("expected 40 cache creation tokens, got %+v", done.Usage)
+	}
+	if done.Usage.CachedPromptTokens != 30 {
+		t.Fatalf("expected 30 cached prompt tokens, got %+v", done.Usage)
 	}
 }

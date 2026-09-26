@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -18,6 +19,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/tool/askuser"
 )
 
 // Verbosity controls which stream events are rendered.
@@ -63,6 +65,7 @@ const (
 	phaseIdle phase = iota
 	phaseRunning
 	phaseConfirming
+	phaseAskUser
 )
 
 // eventMsg carries one agent event from the reply stream into the TUI loop.
@@ -106,6 +109,11 @@ type Model struct {
 	pending    *event.RequireUserConfirmEvent
 	confirmIdx int
 	decisions  []event.ConfirmDecision
+
+	askPending   *event.RequireExternalExecutionEvent
+	askQuestions []askuser.Question
+	askIdx       int
+	askAnswers   []askuser.Answer
 
 	input textarea.Model
 	vp    viewport.Model
@@ -189,6 +197,9 @@ func (m *Model) View() string {
 		status = m.spin.View() + " thinking…"
 	case phaseConfirming:
 		status = "waiting for confirmation (y/n/a)"
+	case phaseAskUser:
+		status = fmt.Sprintf("answering question %d/%d — pick number(s), comma-separated, or type free text",
+			m.askIdx+1, len(m.askQuestions))
 	default:
 		status = "enter send · alt+enter newline · exit/quit or ctrl+d leave · ctrl+c interrupt"
 	}
@@ -244,6 +255,37 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case phaseConfirming:
 		return m.handleConfirmKey(msg)
+
+	case phaseAskUser:
+		if msg.Type == tea.KeyCtrlC {
+			return m, m.cancelAskUser()
+		}
+		if msg.Type == tea.KeyEnter && !msg.Alt {
+			text := strings.TrimSpace(m.input.Value())
+			if text == "" {
+				return m, nil
+			}
+			m.input.Reset()
+			q := m.askQuestions[m.askIdx]
+			selected, other := interpretAnswer(q, text)
+			m.appendLine(styleUser(m.opts.UserName, text))
+			m.askAnswers = append(m.askAnswers, askuser.Answer{
+				Question: q.Question,
+				Selected: selected,
+				Other:    other,
+			})
+			m.askIdx++
+			if m.askIdx < len(m.askQuestions) {
+				m.renderAskQuestion()
+				m.refreshView()
+				return m, nil
+			}
+			return m, m.injectAskAnswers()
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.refreshView()
+		return m, cmd
 	}
 	return m, nil
 }
@@ -277,6 +319,10 @@ func (m *Model) handleEvent(ev event.AgentEvent) (tea.Model, tea.Cmd) {
 		m.renderConfirmRequest(c)
 		m.refreshView()
 		return m, nil
+	}
+
+	if e, ok := ev.(*event.RequireExternalExecutionEvent); ok {
+		return m.startAskUser(e)
 	}
 
 	m.renderEvent(ev)
@@ -343,8 +389,6 @@ func (m *Model) renderEvent(ev event.AgentEvent) {
 		if v >= Default {
 			m.appendLine(styleDim(fmt.Sprintf("· model %s · %d→%d tokens", e.ModelName, e.InputTokens, e.OutputTokens)))
 		}
-	case *event.RequireExternalExecutionEvent:
-		m.appendLine(styleError("external execution required (not supported in console)"))
 	case *event.ExceedMaxItersEvent:
 		m.appendLine(styleError(fmt.Sprintf("reached max iterations (%d) without a final answer", e.MaxIters)))
 	case *event.ErrorEvent:
@@ -431,6 +475,136 @@ func (m *Model) injectDecisions() tea.Cmd {
 		return nil
 	}
 	m.pending = nil
+	m.phase = phaseRunning
+	m.refreshView()
+	return waitForEvent(m.evCh)
+}
+
+// startAskUser begins the ask_user flow: parse the questions from the pending
+// external call, render the first one, and collect answers one by one.
+func (m *Model) startAskUser(e *event.RequireExternalExecutionEvent) (tea.Model, tea.Cmd) {
+	m.flushPartial()
+	var questions []askuser.Question
+	for _, tc := range e.ToolCalls {
+		if qs := parseAskQuestions(tc.Input); len(qs) > 0 {
+			questions = qs
+			break
+		}
+	}
+	m.askPending = e
+	m.askQuestions = questions
+	m.askIdx = 0
+	m.askAnswers = nil
+	if len(questions) == 0 {
+		// Unknown external tool: fail fast so the agent does not hang.
+		m.appendLine(styleError("external execution required but no ask_user questions found"))
+		return m, m.injectAskFailure("no questions found")
+	}
+	m.phase = phaseAskUser
+	m.renderAskQuestion()
+	m.refreshView()
+	return m, nil
+}
+
+func parseAskQuestions(input map[string]any) []askuser.Question {
+	if input == nil {
+		return nil
+	}
+	raw, err := json.Marshal(input["questions"])
+	if err != nil {
+		return nil
+	}
+	var questions []askuser.Question
+	if err := json.Unmarshal(raw, &questions); err != nil {
+		return nil
+	}
+	return questions
+}
+
+func (m *Model) renderAskQuestion() {
+	q := m.askQuestions[m.askIdx]
+	m.appendLine(styleConfirm(fmt.Sprintf("[%s] %s", q.Header, q.Question)))
+	if q.Context != "" {
+		m.appendLine(styleDim(q.Context))
+	}
+	for i, o := range q.Options {
+		m.appendLine(fmt.Sprintf("  %d) %s — %s", i+1, o.Label, o.Description))
+	}
+	if q.MultiSelect {
+		m.appendLine(styleDim("  (multi-select: comma-separate numbers)"))
+	}
+}
+
+// interpretAnswer maps free text to selected option labels: numbers pick
+// options positionally, anything else becomes typed ("Other") input.
+func interpretAnswer(q askuser.Question, text string) ([]string, string) {
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		return r == ',' || r == '，' || r == ' ' || r == '\t'
+	})
+	var selected []string
+	var others []string
+	for _, f := range fields {
+		if n, err := strconv.Atoi(f); err == nil && n >= 1 && n <= len(q.Options) {
+			selected = append(selected, q.Options[n-1].Label)
+			if !q.MultiSelect {
+				break
+			}
+			continue
+		}
+		others = append(others, f)
+	}
+	return selected, strings.Join(others, " ")
+}
+
+func (m *Model) injectAskAnswers() tea.Cmd {
+	payload, err := json.Marshal(askuser.Metadata{Answers: m.askAnswers})
+	if err != nil {
+		return m.injectAskFailure("failed to encode answers: " + err.Error())
+	}
+	results := make([]event.ExternalExecutionResult, 0, len(m.askPending.ToolCalls))
+	for _, tc := range m.askPending.ToolCalls {
+		results = append(results, event.ExternalExecutionResult{
+			ToolCallID: tc.ID,
+			Success:    true,
+			Output:     string(payload),
+		})
+	}
+	return m.resumeExternal(results)
+}
+
+// cancelAskUser reports a cancelled external execution so the agent resumes
+// with an error tool result instead of hanging.
+func (m *Model) cancelAskUser() tea.Cmd {
+	m.appendLine(styleConfirm("ask_user cancelled"))
+	return m.injectAskFailure("user cancelled")
+}
+
+func (m *Model) injectAskFailure(reason string) tea.Cmd {
+	if m.askPending == nil {
+		m.phase = phaseIdle
+		return nil
+	}
+	results := make([]event.ExternalExecutionResult, 0, len(m.askPending.ToolCalls))
+	for _, tc := range m.askPending.ToolCalls {
+		results = append(results, event.ExternalExecutionResult{
+			ToolCallID: tc.ID,
+			Success:    false,
+			Error:      reason,
+		})
+	}
+	return m.resumeExternal(results)
+}
+
+func (m *Model) resumeExternal(results []event.ExternalExecutionResult) tea.Cmd {
+	ev := event.NewExternalExecutionResult(m.askPending.ReplyID(), m.askPending.ConfirmID, results)
+	if err := m.ag.InjectEvent(m.ctx, ev); err != nil {
+		m.appendLine(styleError("resume failed: " + err.Error()))
+		m.askPending = nil
+		m.phase = phaseIdle
+		m.refreshView()
+		return nil
+	}
+	m.askPending = nil
 	m.phase = phaseRunning
 	m.refreshView()
 	return waitForEvent(m.evCh)

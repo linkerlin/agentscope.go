@@ -176,6 +176,47 @@ func (b *consecutiveFailureBreaker) update(sigs []failureSignal) (tripped string
 	return "", 0, ""
 }
 
+// hintThreshold is the consecutive-failure count at which the agent gets a
+// nudge before the breaker trips: one below the breaker threshold, at least 2
+// so single failures stay quiet.
+func (b *consecutiveFailureBreaker) hintThreshold() int {
+	if b == nil || b.threshold <= 0 {
+		return 0
+	}
+	if b.threshold > 2 {
+		return b.threshold - 1
+	}
+	return 2
+}
+
+// hintNeeded reports a tool approaching the breaker threshold so the loop can
+// nudge the model toward a different approach (PyV2 tool_retries_hint). It
+// returns empty once the breaker itself tripped.
+func (b *consecutiveFailureBreaker) hintNeeded() (tool string, count int, reason string) {
+	if b == nil || b.threshold <= 0 {
+		return "", 0, ""
+	}
+	ht := b.hintThreshold()
+	for name, c := range b.consecutive {
+		if c >= ht && c < b.threshold {
+			return name, c, b.lastErr[name]
+		}
+	}
+	return "", 0, ""
+}
+
+// toolRetriesHintText builds the <system-reminder> nudge for a repeatedly
+// failing tool.
+func toolRetriesHintText(toolName string, count int, reason string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<system-reminder>Tool '%s' has failed %d times in a row", toolName, count)
+	if strings.TrimSpace(reason) != "" {
+		fmt.Fprintf(&sb, " (latest error: %s)", truncateRunes(reason, 200))
+	}
+	sb.WriteString(". Try a different approach instead of repeating the same call.</system-reminder>")
+	return sb.String()
+}
+
 // breakerFinalMessage builds the graceful assistant message shown when the
 // breaker trips, so the turn ends with actionable text instead of either an
 // opaque "max iterations reached" error or a raw tool error surfacing as a
@@ -212,6 +253,9 @@ type ReActAgent struct {
 	memory          memory.Memory
 	maxIterations   int
 	maxTurnDuration time.Duration // Q8: 单回合墙钟上限（0=不限）
+	// raiseCancelledOnInterrupt propagates user interrupts as context.Canceled
+	// instead of a recovery message (PyV2 interruption_raise_cancelled_error).
+	raiseCancelledOnInterrupt bool
 	// maxConsecutiveToolFailures stops the loop after the same tool fails N
 	// times in a row, preventing the model from hammering a broken/rate-limited
 	// tool until maxIterations. 0 = default (set via breakerThreshold); only
@@ -266,6 +310,7 @@ type ReActAgentBuilder struct {
 	maxIterations              int
 	maxTurnDuration            time.Duration // Q8: 单回合墙钟上限（0=不限）
 	maxConsecutiveToolFailures int           // 同一工具连续失败上限（0=沿用默认）
+	raiseCancelledOnInterrupt  bool
 	hooks                      []hook.Hook
 	streamHooks                []hook.StreamHook
 	middlewares                []middleware.Middleware
@@ -356,6 +401,14 @@ func (b *ReActAgentBuilder) MaxIterations(n int) *ReActAgentBuilder {
 // When the cap expires the turn is cancelled the same way a context abort is.
 func (b *ReActAgentBuilder) MaxTurnDuration(d time.Duration) *ReActAgentBuilder {
 	b.maxTurnDuration = d
+	return b
+}
+
+// RaiseCancelledOnInterrupt makes user interrupts surface as context.Canceled
+// instead of a recovery message (PyV2 interruption_raise_cancelled_error
+// parity). Useful when the caller drives cancellation semantics itself.
+func (b *ReActAgentBuilder) RaiseCancelledOnInterrupt() *ReActAgentBuilder {
+	b.raiseCancelledOnInterrupt = true
 	return b
 }
 
@@ -527,6 +580,7 @@ func (b *ReActAgentBuilder) Build() (*ReActAgent, error) {
 		maxIterations:              b.maxIterations,
 		maxTurnDuration:            b.maxTurnDuration,
 		maxConsecutiveToolFailures: breakerThreshold(b.maxConsecutiveToolFailures),
+		raiseCancelledOnInterrupt:  b.raiseCancelledOnInterrupt,
 		toolResultLabels:           b.toolResultLabels,
 		toolResultScreener:         b.toolResultScreener,
 		toolMap:                    toolMap,
@@ -1093,6 +1147,13 @@ func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (final
 				finalResponse = a.withCurrentUsage(breakerFinalMessage(a.Base.AgentName(), name, count, reason))
 				break
 			}
+			// Nudge before the breaker trips: feed the repeated failure back
+			// so the model changes course instead of hammering the same call
+			// (PyV2 tool_retries_hint).
+			if name, count, reason := breaker.hintNeeded(); name != "" {
+				history = append(history, message.NewMsg().Role(message.RoleSystem).
+					TextContent(toolRetriesHintText(name, count, reason)).Build())
+			}
 		}
 	}
 
@@ -1137,6 +1198,12 @@ func (a *ReActAgent) handleInterrupt(ctx context.Context, originalMsg *message.M
 			}
 		}
 		return nil, fmt.Errorf("%w: source=%s", ErrAgentClosed, ic.Source)
+	}
+
+	// Configured callers observe user interrupts as cancellation instead of a
+	// recovery message (PyV2 interruption_raise_cancelled_error parity).
+	if a.raiseCancelledOnInterrupt {
+		return nil, context.Canceled
 	}
 
 	recoveryText := "I noticed that you have interrupted me. What can I do for you?"

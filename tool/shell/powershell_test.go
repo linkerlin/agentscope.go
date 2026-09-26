@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -76,5 +77,67 @@ func TestPowerShellTool_IsReadOnly(t *testing.T) {
 	tool := NewPowerShellTool()
 	if tool.IsReadOnly() {
 		t.Fatal("PowerShell should not be read-only")
+	}
+}
+
+// fakeBackend records invocations and returns scripted output.
+type fakeBackend struct {
+	lastName string
+	lastArgs []string
+	lastDir  string
+	stdout   []byte
+	stderr   []byte
+	exitCode int
+	err      error
+}
+
+func (f *fakeBackend) Run(ctx context.Context, name string, args []string, dir string) ([]byte, []byte, int, error) {
+	f.lastName = name
+	f.lastArgs = append([]string(nil), args...)
+	f.lastDir = dir
+	return f.stdout, f.stderr, f.exitCode, f.err
+}
+
+func TestPowerShellTool_BackendExecution(t *testing.T) {
+	fb := &fakeBackend{stdout: []byte("hi"), exitCode: 0}
+	tool := NewPowerShellTool().WithBaseDir("/tmp").WithBackend(fb)
+	resp, err := tool.Execute(context.Background(), map[string]any{"command": "echo hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp.GetTextContent(), "<returncode>0</returncode>") {
+		t.Fatalf("unexpected response: %s", resp.GetTextContent())
+	}
+	if fb.lastDir != "/tmp" {
+		t.Fatalf("expected dir /tmp, got %q", fb.lastDir)
+	}
+	found := false
+	for i, a := range fb.lastArgs {
+		if a == "-EncodedCommand" && i+1 < len(fb.lastArgs) && fb.lastArgs[i+1] != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected -EncodedCommand argument, got %v", fb.lastArgs)
+	}
+}
+
+func TestPowerShellTool_BackendError(t *testing.T) {
+	fb := &fakeBackend{stderr: []byte("boom"), exitCode: 1, err: errors.New("exit status 1")}
+	tool := NewPowerShellTool().WithBackend(fb)
+	resp, err := tool.Execute(context.Background(), map[string]any{"command": "bad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resp.GetTextContent()
+	if !strings.Contains(text, "<returncode>1</returncode>") || !strings.Contains(text, "boom") {
+		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestPowerShellTool_DefaultBackend(t *testing.T) {
+	tool := NewPowerShellTool()
+	if _, ok := tool.backend().(LocalBackend); !ok {
+		t.Fatalf("expected LocalBackend default, got %T", tool.backend())
 	}
 }

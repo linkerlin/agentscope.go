@@ -196,7 +196,7 @@ func (a *ReActAgent) invokeModelChat(
 ) (*message.Msg, error) {
 	chain := a.Base.MiddlewareChain()
 	if chain == nil || len(chain.ModelCall) == 0 {
-		return a.effectiveModel(ctx).Chat(ctx, history, chatOpts...)
+		return a.effectiveModel(ctx).Chat(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)
 	}
 	input := &middleware.ModelCallInput{
 		Messages:  append([]*message.Msg(nil), history...),
@@ -206,7 +206,7 @@ func (a *ReActAgent) invokeModelChat(
 	// Final closure reads from input so on_model_call middleware can mutate
 	// Messages/ChatOpts and affect the actual Chat call.
 	handler := middleware.ChainModelCall(chain, a.Base, input, func(ctx context.Context) (*message.Msg, error) {
-		return a.effectiveModel(ctx).Chat(ctx, input.Messages, input.ChatOpts...)
+		return a.effectiveModel(ctx).Chat(ctx, limitImages(input.Messages, a.contextConfig.MaxImageNum), input.ChatOpts...)
 	})
 	return handler(ctx)
 }
@@ -219,7 +219,7 @@ func (a *ReActAgent) invokeModelChatStream(
 	iter int,
 ) (<-chan *model.StreamChunk, error) {
 	final := func(ctx context.Context) (<-chan *model.StreamChunk, error) {
-		return a.effectiveModel(ctx).ChatStream(ctx, history, chatOpts...)
+		return a.effectiveModel(ctx).ChatStream(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)
 	}
 	chain := a.Base.MiddlewareChain()
 	if chain == nil || len(chain.ModelCall) == 0 {

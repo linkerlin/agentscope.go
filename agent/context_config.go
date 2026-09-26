@@ -16,6 +16,10 @@ type ContextConfig struct {
 	// SummaryTokenRatio caps the summary length as a fraction of context size (default 0.15).
 	// When the accumulated summary exceeds this ratio, meta-compression shortens it.
 	SummaryTokenRatio float64
+	// MaxImageNum caps image blocks sent to the model per turn (0 = unlimited).
+	// Surplus images become text placeholders so visual token usage stays
+	// bounded (PyV2 ContextConfig.max_image_num parity).
+	MaxImageNum int
 }
 
 // CompressionSummary is the structured summary payload for context compression.

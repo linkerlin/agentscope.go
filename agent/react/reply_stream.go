@@ -297,6 +297,16 @@ func (a *ReActAgent) replyStreamInternal(
 			a.runtimeMu.Unlock()
 			break
 		}
+		// Nudge before the breaker trips: emit a hint event for the UI and
+		// feed the repeated failure back into history so the model changes
+		// course instead of hammering the same call (PyV2 tool_retries_hint).
+		if name, count, reason := breaker.hintNeeded(); name != "" {
+			hintText := toolRetriesHintText(name, count, reason)
+			out <- event.NewHintBlockStart(replyID, 0)
+			out <- event.NewHintBlockDelta(replyID, 0, hintText)
+			out <- event.NewHintBlockEnd(replyID, 0)
+			history = append(history, message.NewMsg().Role(message.RoleSystem).TextContent(hintText).Build())
+		}
 	}
 
 	if finalResponse == nil {
@@ -463,7 +473,7 @@ func (a *ReActAgent) runModelStream(
 	// Always stream. Tool calls are accumulated by the model wrapper and
 	// delivered in the final chunk, so the UI still sees a typing effect for
 	// the text parts while ReAct gets the parsed tool calls it needs.
-	ch, err := a.effectiveModel(ctx).ChatStream(ctx, history, chatOpts...)
+	ch, err := a.effectiveModel(ctx).ChatStream(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)
 	if err != nil {
 		out <- event.NewError(replyID, fmt.Errorf("react agent model stream: %w", err))
 		out <- event.NewModelCallEnd(replyID, modelName, 0, 0)

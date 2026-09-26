@@ -27,3 +27,12 @@ react_coverage_func.txt
 **/*coverage*
 !memory/TEST_COVERAGE.md
 **/coverage/
+
+# Node (examples/web_ui 零构建，此 package.json 仅本地实验)
+node_modules/
+
+# 本地 AI 工具状态与产物
+.mimosa/
+.v2c/
+.video_agent/
+out/

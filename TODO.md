@@ -11,9 +11,6 @@
 - [ ] **16.3** 可选 CostRouter：无配置时与现有 `Router` 相同；`RouteDecision` 进 tracing；默认关
 - [ ] **16.4** 治理热路径：绑定 Goal 的 session 自动 Writeback / Spend；未绑定零变化；失败不 spend
 - [ ] **16.5** `schema_migrations`：service 与 controlplane 共用；SQLite + Postgres 双绿
-- [ ] **16.6** 发布卫生：`node_modules` 移出 git 并忽略；`AGENTS.md` 手写行数表停止冒充现状
-- [ ] **16.8** `memory` 里的 CLIP / Whisper 假嵌入改为返回错误或删除；真路径留在 `embedding/onnx`
-- [ ] **17.6** console 余项：工具 call/result 配对分组 + diff 统计（AskUser 已完成）
 
 ## P1 · v2.8 渠道与多副本
 
@@ -54,7 +51,7 @@
 ## P2 · v3.0
 
 - [ ] **21.1** web_ui 补 Hub 安装、Channel 管理、workspace git status；studio 标记 deprecated
-- [ ] **21.2** 全功能 TUI：语音、表单、工具分组在同一终端（排在 17.6 之后）
+- [ ] **21.2** 全功能 TUI：语音、表单、工具分组在同一终端（在 16.1 稳定后评估）
 - [ ] **21.3** 本地 Gene 仓库，无外部 MCP 可演示 Run / Reflect / Solidify
 - [ ] **21.4** 主热路径基准进 CI，超阈值失败
 - [ ] **21.5** Team `Mode=peer` 接到 worker（`integrations/coordbuslease` 已有）

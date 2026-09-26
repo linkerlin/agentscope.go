@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/linkerlin/agentscope.go/model"
 )
@@ -137,93 +136,6 @@ func (o *OpenAIVisionEmbedding) EmbedMultimodal(ctx context.Context, contents []
 		}
 	}
 	return o.embed.Embed(ctx, combinedText)
-}
-
-// CLIPImageEmbedding CLIP 风格图像嵌入（占位实现，实际需 ONNX Runtime）
-type CLIPImageEmbedding struct {
-	dim int
-	mu  sync.RWMutex
-	// 实际实现需要 ONNX Runtime 或 TensorFlow Lite
-}
-
-// NewCLIPImageEmbedding 创建 CLIP 图像嵌入器
-func NewCLIPImageEmbedding(dim int) *CLIPImageEmbedding {
-	return &CLIPImageEmbedding{dim: dim}
-}
-
-// EmbedImage 嵌入图像（占位实现）
-func (c *CLIPImageEmbedding) EmbedImage(ctx context.Context, imageURL string, base64 string) ([]float32, error) {
-	// 占位实现：返回随机向量
-	// 实际生产环境应加载 CLIP 模型并通过 ONNX Runtime 推理
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	vec := make([]float32, c.dim)
-	for i := range vec {
-		vec[i] = float32(i) / float32(c.dim) // 占位值
-	}
-	return vec, nil
-}
-
-// EmbedImageBatch 批量嵌入图像
-func (c *CLIPImageEmbedding) EmbedImageBatch(ctx context.Context, imageURLs []string) ([][]float32, error) {
-	results := make([][]float32, len(imageURLs))
-	for i, url := range imageURLs {
-		vec, err := c.EmbedImage(ctx, url, "")
-		if err != nil {
-			return nil, err
-		}
-		results[i] = vec
-	}
-	return results, nil
-}
-
-// Dimension 返回嵌入维度
-func (c *CLIPImageEmbedding) Dimension() int {
-	return c.dim
-}
-
-// WhisperAudioEmbedding Whisper 风格音频嵌入（占位实现）
-type WhisperAudioEmbedding struct {
-	dim int
-	mu  sync.RWMutex
-}
-
-// NewWhisperAudioEmbedding 创建 Whisper 音频嵌入器
-func NewWhisperAudioEmbedding(dim int) *WhisperAudioEmbedding {
-	return &WhisperAudioEmbedding{dim: dim}
-}
-
-// EmbedAudio 嵌入音频（占位实现）
-func (w *WhisperAudioEmbedding) EmbedAudio(ctx context.Context, audioURL string, base64 string) ([]float32, error) {
-	// 占位实现：返回基于音频时长/文件名的代理向量
-	// 实际生产环境应调用 Whisper API 获取嵌入
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-
-	vec := make([]float32, w.dim)
-	for i := range vec {
-		vec[i] = float32(i) / float32(w.dim) // 占位值
-	}
-	return vec, nil
-}
-
-// EmbedAudioBatch 批量嵌入音频
-func (w *WhisperAudioEmbedding) EmbedAudioBatch(ctx context.Context, audioURLs []string) ([][]float32, error) {
-	results := make([][]float32, len(audioURLs))
-	for i, url := range audioURLs {
-		vec, err := w.EmbedAudio(ctx, url, "")
-		if err != nil {
-			return nil, err
-		}
-		results[i] = vec
-	}
-	return results, nil
-}
-
-// Dimension 返回嵌入维度
-func (w *WhisperAudioEmbedding) Dimension() int {
-	return w.dim
 }
 
 // MultimodalMemoryNode 多模态记忆节点

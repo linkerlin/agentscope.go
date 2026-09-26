@@ -85,7 +85,7 @@ make lint
 ## 获得帮助
 
 - 阅读 [README.md](./README.md) 和 [docs/](./docs/)
-- 查看仓库根目录 [演进方案.md](https://github.com/linkerlin/agentscope.go/blob/main/演进方案.md) 了解现行路线图
+- 查看仓库根目录 [TODO.md](https://github.com/linkerlin/agentscope.go/blob/main/TODO.md) 了解未完成项，[演进方案.md](https://github.com/linkerlin/agentscope.go/blob/main/演进方案.md) 了解顺序与验收
 - 在 Issue 中 `@` maintainer
 
 再次感谢你的贡献！

@@ -5,7 +5,7 @@
 
 ## 项目概述
 
-本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.6.0**（Phase 5–15 已落地；现行路线见根目录 `演进方案.md`）。
+本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.6.0**。未完成项见根目录 [TODO.md](TODO.md)，顺序与验收见 [演进方案.md](演进方案.md)。
 
 ## V2 架构总览
 
@@ -64,6 +64,8 @@ Agent 层   agent/         V1/V2 接口 + Base 基类 + ReActAgent (事件流 + 
 ```
 
 ## 核心模块与代码量（非测试行 / 测试行 / 测试文件数）
+
+> 下表是历史快照，行数已落后于仓库。判断缺口以 [TODO.md](TODO.md) 为准，行数以 `go` 工具重新统计为准。
 
 | 模块 | 非测试行 | 测试行 | 测试文件 | 说明 |
 |------|----------|--------|----------|------|
@@ -213,19 +215,6 @@ make test   # 或 make ci
 49. **KB 可观测性 + 工具增强**（对标 PyV2 #2372/#2114/#2378）：`VectorStore.ListChunks`（doc_id+filter 聚合、chunk_index 排序、vector 剥离）+ `GET /kb/{id}/documents/{doc}/chunks|raw` 端点（Worker 索引时把 `blob_uri` 注入 chunk metadata 实现 blob 溯源）+ KB 列表 documents/chunks 计数富化 + web_ui 分块浏览/原文链接。read_file 对非有效 UTF-8 内容返回 base64 `DataBlock`（http.DetectContentType 嗅探 media_type + 说明文本块）；`tool.WithInputSchema(schema)` 覆盖自动生成的参数 schema（typed handler 不受影响）。核查确认 #2366（host OS 选 shell）在 Go 架构下不存在——shell 选择由各 Workspace 后端自决（Docker/K8s 容器内 `sh -c`，Local 即宿主）
 50. **on_reply 续循环 + Team 失败通知 + 治理指标**：`middleware.ErrContinueReply` 哨兵（OnReply 返回即请求再跑一轮，对齐 PyV2 #2322 吞 ReplyEndEvent）+ `Base.Call` 有界续循环（中间回复回灌 `ReplyInput.Messages`，3 轮上界防死循环，超界保留最后一轮）。worker turn 失败 → `watchRunFailure` 检测 ErrorEvent → `<team-error>` 推入 leader inbox + wakeup（对齐 #2386）。`observability.ControlPlaneCollector` 把 Kernel 9 个治理计数器导出为 `agentscope_controlplane_*_total` Prometheus counter（scrape 拉快照零 goroutine）+ `Server.WithMetricsRegistry` 自动接线 `/metrics`
 
-## 已知代码质量问题（审阅发现，待修复）
+## 已知代码质量问题
 
-| # | 模块 | 问题 | 严重度 |
-|---|------|------|--------|
-| 1 | `memory/graph/` | ~~`DeleteNode` 删除节点后边未清理~~ → 已修复 | ✅ 已修复 |
-| 2 | `memory/` | ~~`MemoryType` 常量不一致~~ → 已统一到 vector 包 | ✅ 已修复 |
-| 3 | `formatter/` | ~~Anthropic/Gemini Formatter 不实现 `Formatter` 接口~~ → 已统一签名，全部实现 | ✅ 已修复 |
-| 4 | `model/` | ~~Router circuit-breaker 虚假描述~~ → 已修正注释 | ✅ 已修复 |
-| 5 | `a2a/` | ~~AuthMiddleware JWT 手动 base64 解码，无过期检查/算法验证~~ → 已改用 `golang-jwt/jwt/v5`，支持 HS256/384/512 + 过期 + claims 提取 | ✅ 已修复 |
-| 6 | `a2a/` | ~~WebSocket CheckOrigin 允许所有来源~~ → 已改为可配置 | ✅ 已修复 |
-| 7 | `rag/` | ~~`sortScores` 冒泡排序 O(n²)~~ → 已改 sort.Slice | ✅ 已修复 |
-| 8 | `credential/` | ~~10 个 Type 常量但仅 3 个 provider 有实现~~ → 已补齐全部 10 个 provider (DashScope/DeepSeek/Moonshot/xAI/Ollama/OpenAIResp/vLLM) | ✅ 已修复 |
-| 9 | `agent/` | ~~`agent.AgentState` 与 `react.AgentState` 同名冲突~~ → 已改名 ConfigSnapshot | ✅ 已修复 |
-| 10 | `memory/vector/` | ~~ES/Pgvector 占位桩静默 no-op~~ → 已改为返回 ErrNotImplemented + 新增 SQLiteVec 完整实现作为替代 | ✅ 已修复 |
-| 11 | `embedding/` | ~~Gemini Dimensions() 硬编码 768~~ → 已改为可配置 | ✅ 已修复 |
-| 12 | `agent/react/` | ~~ReActAgent 缺少 V2Agent 编译断言~~ → 已添加 | ✅ 已修复 |
+这一节原先的 12 条都已修复，已从备忘录删除。现行未完成项见 [TODO.md](TODO.md)。

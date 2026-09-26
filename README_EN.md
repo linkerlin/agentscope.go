@@ -8,7 +8,7 @@ AgentScope.Go — a production-grade AI Agent development framework that lets yo
 
 AgentScope.Go provides everything needed to build intelligent agents using the ReAct (reason + act) paradigm: tool calling, memory management, multi-agent collaboration, a **terminal TUI**, a **long-horizon control plane**, **multi-platform chatbots (Webhook / Discord / Feishu)**, and an **ecosystem marketplace (MCP / Skill)** — all in idiomatic Go.
 
-Current release: **v2.6.0**. Roadmap: [演进方案.md](演进方案.md) (Chinese).
+Current release: **v2.6.0**. Open work: [TODO.md](TODO.md). Roadmap: [演进方案.md](演进方案.md) (Chinese).
 
 ## What's New (v2.6.0)
 
@@ -798,6 +798,7 @@ We welcome all forms of contribution!
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Code of conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - Security vulnerability reporting: [SECURITY.md](SECURITY.md)
+- Open work: [TODO.md](TODO.md)
 - Roadmap: [演进方案.md](演进方案.md) (Chinese)
 
 If you run into issues, check [docs/](docs/) and [examples/](examples/) first, then file an Issue.

@@ -4,9 +4,9 @@
 
 | 版本 | 支持状态 |
 |------|----------|
-| v2.0.x | ✅  actively supported |
-| v2.0.0-rc.x | ⚠️  best-effort, upgrade recommended |
-| v1.x | ❌  no longer supported |
+| v2.6.x | ✅ 当前发布，接受安全修复 |
+| v2.0.x – v2.5.x | ⚠️ 请升级到 v2.6.x |
+| v1.x | ❌ 不再支持 |
 
 ## 报告安全漏洞
 

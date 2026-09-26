@@ -40,7 +40,8 @@ AgentScope.Go 是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 
 | [Studio](STUDIO.md) | 纯 Go 轻量管理面板 |
 | [迁移指南](MIGRATION.md) | 从 Python AgentScope 迁移 |
 | [API 参考](api-reference.md) | Go API 文档 |
-| [演进方案](../演进方案.md) | 现行路线图（Phase 16+） |
+| [TODO](../TODO.md) | 未完成项清单 |
+| [演进方案](../演进方案.md) | 现行路线图（只保留未完成项） |
 
 ## 版本信息
 

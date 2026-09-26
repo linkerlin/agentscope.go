@@ -85,7 +85,7 @@ make lint
 ## 获得帮助
 
 - 阅读 [README.md](./README.md) 和 [docs/](./docs/)
-- 查看 [演进方案.md](./演进方案.md) 了解现行路线图
+- 查看 [TODO.md](./TODO.md) 了解未完成项，[演进方案.md](./演进方案.md) 了解顺序与验收
 - 在 Issue 中 `@` maintainer
 
 再次感谢你的贡献！

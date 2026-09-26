@@ -8,7 +8,7 @@ AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 
 
 AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作、**终端 TUI**、**长时序治理平面**、**多平台聊天机器人（Webhook/Discord/飞书）**、**生态市场（MCP/Skill）** 等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
-当前版本 **v2.6.0**。现行路线图见 [演进方案.md](演进方案.md)。
+当前版本 **v2.6.0**。未完成项见 [TODO.md](TODO.md)，顺序与验收见 [演进方案.md](演进方案.md)。
 
 ## 新增能力（v2.6.0）
 
@@ -797,6 +797,7 @@ hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Categ
 - 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 行为准则：[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - 安全漏洞报告：[SECURITY.md](SECURITY.md)
+- 未完成项：[TODO.md](TODO.md)
 - 现行路线图：[演进方案.md](演进方案.md)
 
 如果你在使用过程中遇到问题，请先查看 [docs/](docs/) 和 [examples/](examples/)，然后提交 Issue。

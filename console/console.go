@@ -101,8 +101,12 @@ type Model struct {
 	partial  strings.Builder // streaming reply text of the current text block
 	thinkBuf strings.Builder
 	hintBuf  strings.Builder
-	toolBuf  strings.Builder
-	toolName string
+
+	// toolCalls accumulates one entry per tool call, keyed by ToolCallID.
+	// Call arguments and result body are paired here and rendered as a single
+	// group when the result completes, so interleaved parallel calls cannot
+	// bleed into each other.
+	toolCalls map[string]*toolBlock
 
 	evCh <-chan event.AgentEvent
 
@@ -128,12 +132,13 @@ func newModel(ctx context.Context, ag agent.V2Agent, opts Options) *Model {
 	ta.MaxHeight = 3
 	ta.Focus()
 	return &Model{
-		ctx:   ctx,
-		ag:    ag,
-		opts:  opts,
-		input: ta,
-		vp:    viewport.New(80, 20),
-		spin:  spinner.New(spinner.WithSpinner(spinner.Dot)),
+		ctx:       ctx,
+		ag:        ag,
+		opts:      opts,
+		toolCalls: make(map[string]*toolBlock),
+		input:     ta,
+		vp:        viewport.New(80, 20),
+		spin:      spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
 }
 
@@ -330,6 +335,11 @@ func (m *Model) handleEvent(ev event.AgentEvent) (tea.Model, tea.Cmd) {
 	switch ev.(type) {
 	case *event.ReplyEndEvent, *event.ErrorEvent, *event.InterruptEvent, *event.ExceedMaxItersEvent:
 		m.flushPartial()
+		// Drop any unpaired tool blocks so a stale call cannot leak into the
+		// next turn.
+		for id := range m.toolCalls {
+			delete(m.toolCalls, id)
+		}
 		m.phase = phaseIdle
 		m.refreshView()
 		return m, nil
@@ -372,19 +382,35 @@ func (m *Model) renderEvent(ev event.AgentEvent) {
 			m.appendLine(styleToolLine(fmt.Sprintf("· data block (%s)", e.MediaType)))
 		}
 	case *event.ToolCallStartEvent:
-		if v >= Default {
-			m.appendLine(styleToolLine("· tool call: " + e.ToolName))
+		m.toolCalls[e.ToolCallID] = &toolBlock{name: e.ToolName}
+	case *event.ToolCallDeltaEvent:
+		if tb, ok := m.toolCalls[e.ToolCallID]; ok {
+			tb.args.WriteString(e.Delta)
 		}
 	case *event.ToolResultStartEvent:
-		m.toolName = e.ToolName
-		m.toolBuf.Reset()
-	case *event.ToolResultTextDeltaEvent:
-		m.toolBuf.WriteString(e.Delta)
-	case *event.ToolResultEndEvent:
-		if v >= Default && m.toolBuf.Len() > 0 {
-			m.appendLine(styleToolResult(m.toolName, truncateLines(m.toolBuf.String(), m.opts.MaxToolResultLines)))
+		// A result without a preceding call event (e.g. replayed streams)
+		// still gets a pairing block named from the result event.
+		tb := m.toolCalls[e.ToolCallID]
+		if tb == nil {
+			tb = &toolBlock{name: e.ToolName}
+			m.toolCalls[e.ToolCallID] = tb
+		} else if tb.name == "" {
+			tb.name = e.ToolName
 		}
-		m.toolBuf.Reset()
+	case *event.ToolResultTextDeltaEvent:
+		if tb, ok := m.toolCalls[e.ToolCallID]; ok {
+			tb.body.WriteString(e.Delta)
+		}
+	case *event.ToolResultDataDeltaEvent:
+		if tb, ok := m.toolCalls[e.ToolCallID]; ok {
+			tb.data = true
+			tb.dataType = e.MediaType
+		}
+	case *event.ToolResultEndEvent:
+		if tb, ok := m.toolCalls[e.ToolCallID]; ok {
+			m.renderToolBlock(tb)
+			delete(m.toolCalls, e.ToolCallID)
+		}
 	case *event.ModelCallEndEvent:
 		if v >= Default {
 			m.appendLine(styleDim(fmt.Sprintf("· model %s · %d→%d tokens", e.ModelName, e.InputTokens, e.OutputTokens)))
@@ -616,6 +642,41 @@ func (m *Model) flushPartial() {
 	}
 	m.appendLine(styleAgent(m.partial.String()))
 	m.partial.Reset()
+}
+
+// toolBlock pairs one tool call with its result. Arguments accumulate from
+// ToolCallDelta events, the body from ToolResultTextDelta events.
+type toolBlock struct {
+	name     string
+	args     strings.Builder
+	body     strings.Builder
+	data     bool
+	dataType string
+}
+
+// renderToolBlock renders a completed call+result pair as one grouped block:
+// the call line with compacted arguments, the indented result body, and — when
+// the body looks like a unified diff — added/removed line counts.
+func (m *Model) renderToolBlock(tb *toolBlock) {
+	if m.opts.Verbosity < Default {
+		return
+	}
+	var b strings.Builder
+	b.WriteString(styleToolLine("┌ tool " + tb.name + " " + compactArgs(tb.args.String())))
+	switch {
+	case tb.body.Len() > 0:
+		b.WriteString("\n" + styleToolResultBody(truncateLines(tb.body.String(), m.opts.MaxToolResultLines)))
+	case tb.data:
+		b.WriteString("\n" + styleToolResultBody(fmt.Sprintf("(binary result: %s)", tb.dataType)))
+	default:
+		b.WriteString("\n" + styleToolResultBody("(no result captured)"))
+	}
+	if added, removed, ok := diffStats(tb.body.String()); ok {
+		b.WriteString(styleToolLine(fmt.Sprintf("\n└ diff: +%d -%d lines", added, removed)))
+	} else {
+		b.WriteString(styleToolLine("\n└"))
+	}
+	m.appendLine(b.String())
 }
 
 func (m *Model) appendLine(s string) { m.lines = append(m.lines, s) }

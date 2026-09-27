@@ -114,6 +114,16 @@ func NewApp(cfg AppConfig) *Server {
 	} else if cfg.Storage != nil {
 		srv.WithSessionManager(NewSessionManager().WithStorage(cfg.Storage))
 	}
+	if srv.sessionMgr != nil {
+		// Session coordination (18.1/18.2): activate cross-replica semantics
+		// when the configured bus carries coordination primitives; otherwise
+		// the coordinator degrades to the in-process manager.
+		coord := NewSessionCoordinator(srv.sessionMgr)
+		if cfg.MessageBus != nil {
+			coord.WithBus(cfg.MessageBus)
+		}
+		srv.WithSessionCoordinator(coord)
+	}
 	if cfg.BackgroundTaskMgr != nil {
 		srv.WithBackgroundTaskManager(cfg.BackgroundTaskMgr)
 	} else if cfg.Storage != nil {

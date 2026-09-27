@@ -219,7 +219,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		var evCh <-chan event.AgentEvent
 		var err error
 		if s.sessionMgr != nil && sessionID != "" {
-			evCh, err = s.sessionMgr.Run(streamCtx, sessionID, a, msg)
+			evCh, err = s.runSession(streamCtx, sessionID, a, msg)
 		} else {
 			evCh, err = v2.ReplyStream(streamCtx, msg)
 		}

@@ -247,6 +247,83 @@ func (c *SessionCoordinator) Purge(ctx context.Context, sessionID string) error 
 // IsActive reports whether the session currently runs on this replica.
 func (c *SessionCoordinator) IsActive(sessionID string) bool { return c.sm.IsActive(sessionID) }
 
+// --- Status (18.2) ---
+
+// SessionStatus is the observable lifecycle state of a session.
+type SessionStatus string
+
+const (
+	// StatusRunning: a turn is executing on this or another replica.
+	StatusRunning SessionStatus = "running"
+	// StatusParked: the session is suspended awaiting a human-in-the-loop
+	// decision (tool confirmation or external execution).
+	StatusParked SessionStatus = "parked"
+	// StatusIdle: the session has history but nothing is running or parked.
+	StatusIdle SessionStatus = "idle"
+	// StatusUnknown: no record of this session anywhere.
+	StatusUnknown SessionStatus = "unknown"
+)
+
+// Status resolves the session's lifecycle state (18.2). Running wins over
+// parked: a replica actively executing beats the parked marker of a stale
+// suspension. Parked is detected locally via the agent's suspended runtime
+// state, or remotely via the last logged event being a HITL request.
+func (c *SessionCoordinator) Status(ctx context.Context, sessionID string) SessionStatus {
+	if c.sm.IsActive(sessionID) {
+		if c.sm.Suspended(sessionID) {
+			return StatusParked
+		}
+		return StatusRunning
+	}
+	if c.coordinated() {
+		// Another replica may hold the run.
+		if _, err := c.cb.RegistryGet(ctx, c.keys.SessionRunRegistryNS(), sessionID); err == nil {
+			return StatusRunning
+		}
+		// A finished turn that ended on a HITL request parks the session.
+		switch c.lastLoggedEventType(ctx, sessionID) {
+		case event.TypeRequireUserConfirm, event.TypeRequireExternalExecution:
+			return StatusParked
+		}
+		if c.hasLoggedEvents(ctx, sessionID) {
+			return StatusIdle
+		}
+	}
+	if c.sm.HasCompleted(sessionID) {
+		return StatusIdle
+	}
+	return StatusUnknown
+}
+
+// lastLoggedEventType walks the session's event log to its tail and returns
+// the type of the final entry ("" when absent). Pages of 100 keep the walk
+// cheap; 1000 pages is a hard stop against pathological logs.
+func (c *SessionCoordinator) lastLoggedEventType(ctx context.Context, sessionID string) string {
+	ns := c.keys.SessionEventLogNS(sessionID)
+	var cursor int64
+	var last string
+	for i := 0; i < 1000; i++ {
+		entries, next, err := c.cb.LogRead(ctx, ns, cursor, 100)
+		if err != nil || len(entries) == 0 {
+			return last
+		}
+		if ev, uerr := event.UnmarshalEvent(entries[len(entries)-1]); uerr == nil {
+			last = ev.EventType()
+		}
+		if next <= cursor || len(entries) < 100 {
+			break
+		}
+		cursor = next
+	}
+	return last
+}
+
+// hasLoggedEvents reports whether the session's event log holds anything.
+func (c *SessionCoordinator) hasLoggedEvents(ctx context.Context, sessionID string) bool {
+	entries, _, err := c.cb.LogRead(ctx, c.keys.SessionEventLogNS(sessionID), 0, 1)
+	return err == nil && len(entries) > 0
+}
+
 // --- BgTask registry ---
 
 // BgTask records one background task spawned by a session run (the turn

@@ -16,6 +16,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/channel"
 	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/evolver"
 	"github.com/linkerlin/agentscope.go/hub"
 	"github.com/linkerlin/agentscope.go/message"
@@ -81,6 +82,7 @@ type Server struct {
 	// Multi-agent & session management (V2 service layer)
 	registry            *AgentRegistry
 	sessionMgr          *SessionManager
+	sessionCoord        *SessionCoordinator
 	backgroundTaskMgr   *BackgroundTaskManager
 	modelCardsDir       string
 	toolOffload         *ToolOffloadManager
@@ -187,6 +189,23 @@ func (s *Server) MessageBus() messagebus.Bus { return s.messageBus }
 func (s *Server) WithSessionManager(m *SessionManager) *Server {
 	s.sessionMgr = m
 	return s
+}
+
+// WithSessionCoordinator attaches the cross-replica session coordinator
+// (18.1/18.2). When set, HTTP session runs go through it (run lock, event
+// log, cross-process cancel) and the status endpoint reads its data plane.
+func (s *Server) WithSessionCoordinator(c *SessionCoordinator) *Server {
+	s.sessionCoord = c
+	return s
+}
+
+// runSession routes one session turn through the coordinator when wired, so
+// the run lock / event log / cross-replica semantics apply on HTTP paths.
+func (s *Server) runSession(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
+	if s.sessionCoord != nil {
+		return s.sessionCoord.Run(ctx, sessionID, a, msg)
+	}
+	return s.sessionMgr.Run(ctx, sessionID, a, msg)
 }
 
 // WithToolOffloadManager attaches a tool offload manager for background tool hints.

@@ -331,6 +331,47 @@ func (sm *SessionManager) ActiveCount() int {
 	return count
 }
 
+// HasCompleted reports whether a finished run's replay buffer is still kept
+// for the session.
+func (sm *SessionManager) HasCompleted(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	buf, ok := sm.completed[sessionID]
+	return ok && len(buf) > 0
+}
+
+// Suspended reports whether the session's active run is parked at a
+// human-in-the-loop suspension (agent runtime state SuspendedAt set, 18.2).
+// Agents without state reporting are never considered suspended.
+func (sm *SessionManager) Suspended(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	sm.mu.RLock()
+	run, ok := sm.runs[sessionID]
+	sm.mu.RUnlock()
+	if !ok || run == nil {
+		return false
+	}
+	run.mu.RLock()
+	done, ag := run.done, run.agent
+	run.mu.RUnlock()
+	if done || ag == nil {
+		return false
+	}
+	ss, ok := ag.(interface {
+		SaveState() (*agent.AgentState, error)
+	})
+	if !ok {
+		return false
+	}
+	st, err := ss.SaveState()
+	return err == nil && st != nil && st.SuspendedAt != nil
+}
+
 // getLock returns (creating if necessary) the per-session serialisation lock.
 func (sm *SessionManager) getLock(sessionID string) *sync.Mutex {
 	sm.mu.Lock()

@@ -209,7 +209,7 @@ func (s *Server) startAgentEventStream(
 ) (<-chan event.AgentEvent, error) {
 	ctx := s.enrichContextWithWorkspaceTools(r.Context(), agentID, sessionID)
 	if s.sessionMgr != nil && sessionID != "" {
-		return s.sessionMgr.Run(ctx, sessionID, a, msg)
+		return s.runSession(ctx, sessionID, a, msg)
 	}
 	return v2.ReplyStream(ctx, msg)
 }

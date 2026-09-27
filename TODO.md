@@ -4,7 +4,6 @@
 
 ## P0 · v2.6.1 生产边界
 
-- [ ] **22.3** 流式 HTTP 兼容：审计与 OTel 包装器透明转发 SSE / WebSocket 所需接口，组合启用时保持流式与升级可用
 - [ ] **22.4** Session Agent 隔离：禁止跨 session 共享有状态 ReActAgent，修复订阅写锁、回放顺序与并发压力下的事件串扰
 - [ ] **22.5** 发布完整性：补齐 v2.6.0 的 tag、CHANGELOG 与 release 记录；建立版本、tag、release notes 一致性门禁
 

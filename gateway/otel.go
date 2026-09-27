@@ -1,6 +1,9 @@
 package gateway
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"time"
 
@@ -67,6 +70,12 @@ func (m *OTelMiddleware) Wrap(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the status code.
+// It is shared by the OTel, audit, and request-logging middlewares, so it
+// must stay transparent for the optional interfaces streaming endpoints
+// depend on (22.3): http.Flusher for SSE incremental delivery and
+// http.Hijacker for the WebSocket upgrade. Without these forwards, a
+// wrapped server would break SSE (handlers abort with "streaming not
+// supported") and every WebSocket upgrade.
 type statusRecorder struct {
 	http.ResponseWriter
 	statusCode int
@@ -76,6 +85,28 @@ func (rec *statusRecorder) WriteHeader(code int) {
 	rec.statusCode = code
 	rec.ResponseWriter.WriteHeader(code)
 }
+
+// Flush forwards to the wrapped writer when it supports flushing, keeping
+// SSE incremental delivery working through the recorder.
+func (rec *statusRecorder) Flush() {
+	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack forwards to the wrapped writer when it supports hijacking, keeping
+// the WebSocket upgrade working through the recorder.
+func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := rec.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("statusRecorder: wrapped ResponseWriter does not implement http.Hijacker")
+	}
+	return hj.Hijack()
+}
+
+// Unwrap lets http.NewResponseController reach the underlying writer's
+// optional interfaces through the standard unwrapping mechanism.
+func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
 // WithOTelTracing wraps the gateway server with OpenTelemetry tracing on all routes.
 func (s *Server) WithOTelTracing(tracer trace.Tracer, meter metric.Meter) error {

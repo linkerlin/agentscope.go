@@ -57,12 +57,19 @@ func channelTypeOf(c channel.Channel) string {
 	case *channel.WebhookChannel:
 		return "webhook"
 	default:
+		// Self-describing adapters (18.3 dingtalk et al.) report their own
+		// kind so this root package need not import every adapter.
+		if self, ok := c.(interface{ ChannelKind() string }); ok {
+			return self.ChannelKind()
+		}
 		return fmt.Sprintf("%T", c)
 	}
 }
 
-// handleWebhookDelivery is the inbound HTTP endpoint for a webhook channel.
-// The webhook channel is looked up by id and its ServeHTTP is invoked.
+// handleWebhookDelivery is the inbound HTTP endpoint for HTTP-pull channels
+// (webhook, 18.3 dingtalk outgoing callback / card callback). The channel is
+// looked up by id and, when it exposes an HTTP handler, the request is
+// delegated. Routes stay in the gateway root per the 16.2 cluster table.
 func (s *Server) handleWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	c := s.channelRegistry.Get(id)
@@ -70,10 +77,10 @@ func (s *Server) handleWebhookDelivery(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "channel not found", http.StatusNotFound)
 		return
 	}
-	wh, ok := c.(*channel.WebhookChannel)
+	httpHandler, ok := c.(http.Handler)
 	if !ok {
-		http.Error(w, "channel is not a webhook", http.StatusBadRequest)
+		http.Error(w, "channel has no HTTP receiver", http.StatusBadRequest)
 		return
 	}
-	wh.ServeHTTP(w, r)
+	httpHandler.ServeHTTP(w, r)
 }

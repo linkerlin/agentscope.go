@@ -13,7 +13,7 @@
 先 18.3 渠道，16.2 剩余簇的动作挂在 18.5 之后（见下方复选框）。Webhook / Discord / 飞书 Webhook 已有。18.1/18.2 完成（会话协调 + 状态端点 + HTTP 入口收口：busy 409、DELETE 跨进程 cancel、跨副本 parked）；16.2 已拆出知识库（kbapi）与会话 HTTP（sessionapi）两个子包。
 
 - [ ] **16.2** 拆 `gateway/` 剩余簇（排在 18.5 长连接 worker 之前）：知识库（kbapi）与会话 HTTP（sessionapi：流式/WS/DELETE/status/steer/resume）已注册函数化；剩余动作=渠道/wakeup/定时任务跟 18.5 改调用点后收包、工作区/团队等会话包稳定后再看、controlplane/CRUD/Hub/认证/模型/音频留根包（18.3–18.6、18.9 还要加路由）；外部 URL 不变；根包留 `Server` + `AppConfig`
-- [ ] **18.3** 钉钉：OpenAPI、流式卡片、卡片回调 → HITL、wiki 工具
+- [ ] **18.3 余项** 钉钉增强：凭证绑定式企业应用配置（依赖 18.4）、卡片回调→HITL 的 session 注入桥接 gateway 接线（ConfirmDecisionFromCallback 归一化已就位）、流式卡片增量写（Stream API）
 - [ ] **18.4** 凭证绑定状态机，状态放 message bus，多副本可恢复
 - [ ] **18.5** 长连接 worker：与 API 副本分离、对账、心跳、断连重连
 - [ ] **18.6** 渠道能力表；飞书升级 WebSocket 长连接；长消息拆分、reaction、列会话

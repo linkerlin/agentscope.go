@@ -253,6 +253,9 @@ func (btm *BackgroundTaskManager) runOnce(ctx context.Context, job *schedule.Job
 	}
 
 	if btm.sessionMgr != nil && sessionID != "" {
+		// Single-replica note (18.1/18.5): this entry point bypasses the session
+		// run lock — runs here serialize only within this process. Cross-replica
+		// serialization for this path lands with the 18.5 worker.
 		ch, err := btm.sessionMgr.Run(ctx, sessionID, a, msg)
 		if err != nil {
 			return fmt.Errorf("background_task: session run: %w", err)

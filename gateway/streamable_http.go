@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -124,6 +125,12 @@ func (s *Server) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts c
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(injectOffloadHints(s, params.sessionID, params.text)).Build()
 	ch, err := s.startAgentEventStream(r, a, v2, params.agentID, params.sessionID, msg)
 	if err != nil {
+		// Cross-replica busy (18.1): another replica holds the session run
+		// lock — surface as 409 instead of a generic 500.
+		if errors.Is(err, ErrSessionBusy) {
+			http.Error(w, "session already running on another replica", http.StatusConflict)
+			return
+		}
 		http.Error(w, fmt.Sprintf("reply stream error: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -186,6 +193,16 @@ func (s *Server) handleV2ChatDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	terminated := s.sessionMgr.Terminate(sessionID)
+	if !terminated && s.sessionCoord != nil {
+		// Cross-process cancel (18.1): the run may live on another replica.
+		// Publish the cancel request; the owning replica terminates the run
+		// and performs its own cleanup, so no local state is touched here.
+		if cerr := s.sessionCoord.Cancel(r.Context(), sessionID); cerr == nil {
+			w.Header().Set(HeaderAgentSessionID, sessionID)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+	}
 	if !terminated {
 		http.Error(w, "no active run for session", http.StatusNotFound)
 		return

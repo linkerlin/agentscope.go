@@ -127,7 +127,12 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 			acquireCancel()
 		}
 		lockCancel()
-		return nil, fmt.Errorf("%w: %s", ErrSessionBusy, sessionID)
+		// Only a genuine acquire timeout means "another replica is running";
+		// bus failures (closed, Redis down) must NOT masquerade as busy.
+		if c.acquireTimeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("%w: %s", ErrSessionBusy, sessionID)
+		}
+		return nil, fmt.Errorf("session coordinator: run lock: %w", err)
 	}
 
 	taskID, _ := c.bg.Register(sessionID, "turn")
@@ -147,6 +152,9 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 	if err != nil {
 		cancelCancel()
 		cancelSubCancel()
+		if acquireCancel != nil {
+			acquireCancel()
+		}
 		_ = c.cb.RegistryDelete(context.Background(), c.keys.SessionRunRegistryNS(), sessionID)
 		c.bg.MarkDone(taskID, err)
 		release()
@@ -276,11 +284,20 @@ func (c *SessionCoordinator) Status(ctx context.Context, sessionID string) Sessi
 		return StatusRunning
 	}
 	if c.coordinated() {
-		// Another replica may hold the run.
-		if _, err := c.cb.RegistryGet(ctx, c.keys.SessionRunRegistryNS(), sessionID); err == nil {
+		// Another replica may hold the run. If its event log already ends on
+		// a HITL request, the run is parked there: the registry marker stays
+		// until the run exits, so the log tail must be consulted before
+		// declaring plain running.
+		_, rerr := c.cb.RegistryGet(ctx, c.keys.SessionRunRegistryNS(), sessionID)
+		if rerr == nil {
+			switch c.lastLoggedEventType(ctx, sessionID) {
+			case event.TypeRequireUserConfirm, event.TypeRequireExternalExecution:
+				return StatusParked
+			}
 			return StatusRunning
 		}
-		// A finished turn that ended on a HITL request parks the session.
+		// No live run anywhere: a finished turn that ended on a HITL request
+		// still parks the session.
 		switch c.lastLoggedEventType(ctx, sessionID) {
 		case event.TypeRequireUserConfirm, event.TypeRequireExternalExecution:
 			return StatusParked

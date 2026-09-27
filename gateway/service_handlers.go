@@ -28,7 +28,6 @@ func (s *Server) RegisterServiceRoutes() {
 	s.mux.HandleFunc("GET /api/v1/sessions", s.requireAuth(s.handleListSessions))
 	s.mux.HandleFunc("POST /api/v1/sessions", s.requireAuth(s.handleCreateSession))
 	s.mux.HandleFunc("GET /api/v1/sessions/{id}", s.requireAuth(s.handleGetSession))
-	s.registerSessionStatusRoutes()
 	s.mux.HandleFunc("PATCH /api/v1/sessions/{id}", s.requireAuth(s.handleUpdateSession))
 	s.mux.HandleFunc("GET /api/v1/sessions/{id}/messages", s.requireAuth(s.handleListSessionMessages))
 	s.mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.requireAuth(s.handleDeleteSession))

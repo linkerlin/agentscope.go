@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -224,7 +225,13 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 			evCh, err = v2.ReplyStream(streamCtx, msg)
 		}
 		if err != nil {
-			_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"%v"}`, err))})
+			// WS frames have no status code: a cross-replica busy is flagged
+			// in the error payload so clients can react (retry/subscribe).
+			payload := fmt.Sprintf(`{"error":"%v"}`, err)
+			if errors.Is(err, ErrSessionBusy) {
+				payload = fmt.Sprintf(`{"error":"%v","busy":true}`, err)
+			}
+			_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(payload)})
 			return
 		}
 

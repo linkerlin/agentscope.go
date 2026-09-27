@@ -80,6 +80,9 @@ func (r *ChannelRunner) runAndReply(ctx context.Context, sessionID string, a age
 		r.mu.Unlock()
 	}()
 
+	// Single-replica note (18.1/18.5): this entry point bypasses the session
+	// run lock — runs here serialize only within this process. Cross-replica
+	// serialization for this path lands with the 18.5 worker.
 	stream, err := r.Sessions.Run(ctx, sessionID, a, msg)
 	if err != nil {
 		return

@@ -18,6 +18,9 @@ import (
 type smMockAgent struct {
 	events []event.AgentEvent
 	delay  time.Duration
+	// holdLast keeps the stream open after emitting the events — simulating
+	// a turn parked at a HITL request (no ReplyEnd, channel not closed).
+	holdLast bool
 }
 
 func (m *smMockAgent) Name() string { return "mock" }
@@ -56,6 +59,9 @@ func (m *smMockAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan
 			case <-ctx.Done():
 				return
 			}
+		}
+		if m.holdLast {
+			<-ctx.Done()
 		}
 	}()
 	return ch, nil

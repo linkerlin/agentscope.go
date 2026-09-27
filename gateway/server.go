@@ -310,6 +310,9 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 // These routes are protected if an authenticator is configured.
 func (s *Server) RegisterV2Routes() {
 	s.mux.HandleFunc("/v2/chat", s.requireAuth(s.handleV2Chat))
+	// Session coordination surface (18.1/18.2): status joins the V2 family
+	// (stream / ws / delete / steer / resume / status).
+	s.registerSessionStatusRoutes()
 	s.mux.HandleFunc("/v2/chat/stream", s.requireAuth(s.handleV2ChatStream))
 	s.mux.HandleFunc("/v2/chat/ws", s.requireAuth(s.handleChatWSV2))
 	s.mux.HandleFunc("/v2/resume", s.requireAuth(s.handleV2Resume))

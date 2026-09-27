@@ -157,6 +157,9 @@ func (d *WakeupDispatcher) drainAndRun(ctx context.Context, sessionID string) {
 	}
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(sb.String()).Build()
 	// Fire and forget: SessionManager serialises per-session and persists the reply.
+	// Single-replica note (18.1/18.5): this entry point bypasses the session
+	// run lock — runs here serialize only within this process. Cross-replica
+	// serialization for this path lands with the 18.5 worker.
 	ch, err := d.sessionMgr.Run(ctx, sessionID, ag, msg)
 	if err == nil && ch != nil {
 		// A failed worker turn must reach the leader (PyV2 #2386 parity).

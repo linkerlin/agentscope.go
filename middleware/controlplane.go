@@ -114,6 +114,10 @@ func (m *ControlPlaneMiddleware) accountTurn(ctx context.Context, goalID, agentI
 		logging.Default().Warn("controlplane middleware: writeback failed (no spend)", "error", err)
 		return
 	}
+	// Known limitation: with WithTicketEnforcement enabled this SpendSlot
+	// has no turn ticket (the auto path does not run ShouldRunTurn) and will
+	// fail — ticket-enforced deployments must do accounting explicitly. The
+	// default (enforcement off) path is the one exercised by the tests.
 	if _, err := m.Kernel.SpendSlot(ctx, goalID, turnID, controlplane.SpendOpts{
 		Execute: true,
 		Reason:  "auto: turn delivered",

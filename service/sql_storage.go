@@ -368,7 +368,7 @@ func (s *SQLStorage) SaveCredential(ctx context.Context, cred *Credential) error
 	cred.UpdatedAt = time.Now().UTC()
 	return s.upsert(ctx, "credentials",
 		[]string{"id", "user_id", "provider", "payload", "created_at", "updated_at"},
-		[]any{cred.ID, cred.UserID, cred.Provider, marshalJSON(cred), nowUTC2(cred.CreatedAt), nowUTC2(cred.UpdatedAt)})
+		[]any{cred.ID, cred.UserID, cred.Provider, marshalJSON(credentialToPersist(cred)), nowUTC2(cred.CreatedAt), nowUTC2(cred.UpdatedAt)})
 }
 
 func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential, error) {
@@ -380,11 +380,11 @@ func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential,
 	if err != nil {
 		return nil, err
 	}
-	var cred Credential
-	if err := json.Unmarshal([]byte(payload), &cred); err != nil {
+	var row credentialPersist
+	if err := json.Unmarshal([]byte(payload), &row); err != nil {
 		return nil, err
 	}
-	return &cred, nil
+	return row.toCredential(), nil
 }
 
 func (s *SQLStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*Credential, error) {
@@ -393,7 +393,15 @@ func (s *SQLStorage) ListCredentialsByUser(ctx context.Context, userID string) (
 		return nil, err
 	}
 	defer rows.Close()
-	return scanRows[*Credential](rows)
+	persisted, err := scanRows[*credentialPersist](rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Credential, 0, len(persisted))
+	for _, p := range persisted {
+		out = append(out, p.toCredential())
+	}
+	return out, nil
 }
 
 func (s *SQLStorage) DeleteCredential(ctx context.Context, id string) error {

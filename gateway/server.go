@@ -49,6 +49,14 @@ type Server struct {
 	otelHandler   http.Handler
 	mu            sync.RWMutex
 
+	// Auth wiring (22.1): jwtAuth is remembered from NewApp so the auth
+	// routes can register without re-passing it; production switches the
+	// fail-closed defaults (credentials require a cipher, no identity source
+	// means a rejecting authenticator instead of anonymous routes).
+	jwtAuth              *service.JWTAuthenticator
+	production           bool
+	authRoutesRegistered bool
+
 	// Multi-agent & session management (V2 service layer)
 	registry            *AgentRegistry
 	sessionMgr          *SessionManager
@@ -251,6 +259,24 @@ func (s *Server) DefaultSessionDeps() SessionAgentDeps {
 // WithCipher attaches an AES-GCM cipher for credential encryption.
 func (s *Server) WithCipher(c *service.Cipher) *Server {
 	s.cipher = c
+	return s
+}
+
+// WithJWTAuth remembers the JWT authenticator so RegisterAuthRoutes and
+// RegisterAppRoutes can be called without re-passing it (22.1). It does not
+// enable request authentication by itself — pair with WithAuthenticator or
+// let NewApp assemble the chain.
+func (s *Server) WithJWTAuth(j *service.JWTAuthenticator) *Server {
+	s.jwtAuth = j
+	return s
+}
+
+// WithProduction switches the server to production semantics (22.1):
+// credential writes require a cipher. Pair with NewApp, which also installs
+// a rejecting authenticator when production mode has no identity source, so
+// business routes fail closed instead of staying anonymous.
+func (s *Server) WithProduction(on bool) *Server {
+	s.production = on
 	return s
 }
 

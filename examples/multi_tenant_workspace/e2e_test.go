@@ -74,8 +74,8 @@ func TestE2E_MultiTenantWorkspace(t *testing.T) {
 		t.Fatalf("/me: %d %s", meResp.StatusCode, readBody(meResp))
 	}
 
-	// 3. Login -> JWT
-	loginBody := `{"user_id":"` + reg.UserID + `"}`
+	// 3. Login -> JWT (proving possession of the API key, 22.1)
+	loginBody := `{"api_key":"` + reg.APIKey + `"}`
 	loginResp := postJSON(t, ts.URL+"/api/v1/auth/login", loginBody, "")
 	if loginResp.StatusCode != http.StatusOK {
 		t.Fatalf("login: %d %s", loginResp.StatusCode, readBody(loginResp))

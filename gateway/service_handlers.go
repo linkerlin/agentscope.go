@@ -449,6 +449,13 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 
 	userID := service.UserIDFromContext(r.Context())
 
+	// Production mode refuses plaintext credential storage (22.1): without a
+	// cipher the value would be readable by anyone with database access.
+	if s.production && s.cipher == nil {
+		http.Error(w, "credential storage requires a cipher in production mode (configure AppConfig.Cipher)", http.StatusBadRequest)
+		return
+	}
+
 	var cred *service.Credential
 
 	if len(req.Data) > 0 {
@@ -540,6 +547,11 @@ func (s *Server) handleUpdateCredential(w http.ResponseWriter, r *http.Request) 
 	var req updateCredentialRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Production mode refuses plaintext credential writes (22.1).
+	if s.production && s.cipher == nil && req.Value != nil {
+		http.Error(w, "credential storage requires a cipher in production mode (configure AppConfig.Cipher)", http.StatusBadRequest)
 		return
 	}
 	if req.Label != nil {

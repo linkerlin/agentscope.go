@@ -83,8 +83,8 @@ func TestE2E_FullAuthFlow(t *testing.T) {
 		t.Fatal("register: expected user_id")
 	}
 
-	// Step 2: Login to get JWT token.
-	loginBody, _ := json.Marshal(map[string]string{"user_id": regResp.UserID})
+	// Step 2: Login to get JWT token (proving possession of the API key, 22.1).
+	loginBody, _ := json.Marshal(map[string]string{"api_key": regResp.APIKey})
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
 	loginRec := httptest.NewRecorder()
 	srv.ServeHTTP(loginRec, loginReq)
@@ -136,7 +136,11 @@ func TestE2E_SSE_WithAuthAndSessionID(t *testing.T) {
 	ctx := context.Background()
 	user := &service.User{ID: "u-sse", Name: "sse-user"}
 	storage.SaveUser(ctx, user)
-	cred := &service.Credential{ID: "c-tok", UserID: "u-sse", Provider: "api_key", Label: "sse", Encrypted: "sse-key"}
+	sseKey, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cred := &service.Credential{ID: "c-tok", UserID: "u-sse", Provider: "api_key", Label: "sse", Encrypted: service.HashAPIKey(sseKey)}
 	storage.SaveCredential(ctx, cred)
 
 	sm := NewSessionManager()
@@ -148,7 +152,7 @@ func TestE2E_SSE_WithAuthAndSessionID(t *testing.T) {
 
 	body, _ := json.Marshal(v2ChatRequest{Text: "hello", SessionID: "sess-sse"})
 	req := httptest.NewRequest(http.MethodPost, "/v2/chat/stream", bytes.NewReader(body))
-	req.Header.Set("X-API-Key", "sse-key")
+	req.Header.Set("X-API-Key", sseKey)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
@@ -233,12 +237,16 @@ func TestE2E_AGUI_ProtocolWithContentNegotiation(t *testing.T) {
 	ctx := context.Background()
 	user := &service.User{ID: "u-agui", Name: "tester"}
 	storage.SaveUser(ctx, user)
+	aguiKey, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	cred := &service.Credential{
 		ID:        "c-agui",
 		UserID:    "u-agui",
 		Provider:  "api_key",
 		Label:     "default",
-		Encrypted: "test-api-key-xyz",
+		Encrypted: service.HashAPIKey(aguiKey),
 	}
 	storage.SaveCredential(ctx, cred)
 
@@ -250,7 +258,7 @@ func TestE2E_AGUI_ProtocolWithContentNegotiation(t *testing.T) {
 	// Send authenticated AG-UI request.
 	body, _ := json.Marshal(chatRequest{Text: "hi"})
 	req := httptest.NewRequest(http.MethodPost, "/v2/chat/stream?protocol=agui", bytes.NewReader(body))
-	req.Header.Set("X-API-Key", "test-api-key-xyz")
+	req.Header.Set("X-API-Key", aguiKey)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

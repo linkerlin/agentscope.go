@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"strings"
@@ -43,34 +42,20 @@ func NewAPIKeyAuthenticator(storage Storage, header string) *APIKeyAuthenticator
 }
 
 // Authenticate extracts the API key, looks up the credential, and validates it.
+// Verification goes through FindUserByAPIKey, which only accepts hashed
+// storage ("sha256:..."); legacy plaintext credentials never authenticate.
 func (a *APIKeyAuthenticator) Authenticate(r *http.Request) (context.Context, error) {
 	key := r.Header.Get(a.header)
 	if key == "" {
 		return r.Context(), fmt.Errorf("missing API key header: %s", a.header)
 	}
-
-	ctx := r.Context()
-	// Look up credential by provider "api_key" and label matching the key.
-	// In production, credentials should be indexed by key hash for O(1) lookup.
-	// This implementation does a linear scan (suitable for MemoryStorage dev/test).
-	users, err := a.storage.ListUsers(ctx)
+	u, err := FindUserByAPIKey(r.Context(), a.storage, key)
 	if err != nil {
-		return ctx, fmt.Errorf("auth: list users failed: %w", err)
+		return r.Context(), err
 	}
-	for _, u := range users {
-		creds, err := a.storage.ListCredentialsByUser(ctx, u.ID)
-		if err != nil {
-			continue
-		}
-		for _, c := range creds {
-			if c.Provider == "api_key" && subtle.ConstantTimeCompare([]byte(c.Encrypted), []byte(key)) == 1 {
-				ctx = context.WithValue(ctx, ContextKeyUserID, u.ID)
-				ctx = context.WithValue(ctx, ContextKeyUser, u)
-				return ctx, nil
-			}
-		}
-	}
-	return ctx, fmt.Errorf("invalid API key")
+	ctx := context.WithValue(r.Context(), ContextKeyUserID, u.ID)
+	ctx = context.WithValue(ctx, ContextKeyUser, u)
+	return ctx, nil
 }
 
 // JWTAuthenticator validates requests using a JWT Bearer token.

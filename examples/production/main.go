@@ -73,10 +73,13 @@ func main() {
 	// 更多自动装配：BTM (schedule restore)、WorkspaceManager、StandardTools（file+task+web+json）、ToolOffload、默认权限等。
 	// 初始 static agent 也使用了相同的 auto tools 逻辑。
 	appCfg := gateway.AppConfig{
-		Agent:                 baseAgent,
-		Storage:               storage,
-		Authenticator:         jwtAuth,
-		JWTAuth:               jwtAuth,
+		Agent:         baseAgent,
+		Storage:       storage,
+		Authenticator: jwtAuth,
+		JWTAuth:       jwtAuth,
+		// Production 语义（22.1）：无身份源时业务路由 fail-closed（401 而非匿名）；
+		// 无 Cipher 时凭据写入被拒绝。真实部署还应配置 Cipher 用于 provider 凭据加密。
+		Production:            true,
 		WorkspaceBaseDir:      "./workspaces",
 		AutoStandardTools:     true,
 		AutoToolOffload:       true,

@@ -262,7 +262,7 @@ func (s *RedisStorage) DeleteAgentConfig(ctx context.Context, id string) error {
 
 func (s *RedisStorage) SaveCredential(ctx context.Context, cred *Credential) error {
 	cred.UpdatedAt = time.Now()
-	data, err := json.Marshal(cred)
+	data, err := json.Marshal(credentialToPersist(cred))
 	if err != nil {
 		return fmt.Errorf("redis: marshal credential: %w", err)
 	}
@@ -284,11 +284,11 @@ func (s *RedisStorage) GetCredential(ctx context.Context, id string) (*Credentia
 	if err != nil {
 		return nil, fmt.Errorf("redis: get credential: %w", err)
 	}
-	var c Credential
-	if err := json.Unmarshal([]byte(data), &c); err != nil {
+	var row credentialPersist
+	if err := json.Unmarshal([]byte(data), &row); err != nil {
 		return nil, fmt.Errorf("redis: unmarshal credential: %w", err)
 	}
-	return &c, nil
+	return row.toCredential(), nil
 }
 
 func (s *RedisStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*Credential, error) {
@@ -308,9 +308,9 @@ func (s *RedisStorage) ListCredentialsByUser(ctx context.Context, userID string)
 		if v == nil {
 			continue
 		}
-		var c Credential
-		if err := json.Unmarshal([]byte(v.(string)), &c); err == nil {
-			out = append(out, &c)
+		var row credentialPersist
+		if err := json.Unmarshal([]byte(v.(string)), &row); err == nil {
+			out = append(out, row.toCredential())
 		}
 	}
 	return out, nil

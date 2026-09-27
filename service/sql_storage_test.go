@@ -134,6 +134,15 @@ func TestSQLStorage_CredentialCRUD(t *testing.T) {
 		t.Fatalf("ListCredentialsByUser: %v len=%d", err, len(list))
 	}
 
+	// 22.1: the secret must survive the persistence round trip even though
+	// the wire type omits it from JSON (storage uses credentialPersist).
+	if got.Encrypted != "enc123" {
+		t.Fatalf("Encrypted lost in round trip: %q", got.Encrypted)
+	}
+	if list[0].Encrypted != "enc123" {
+		t.Fatalf("Encrypted lost in list round trip: %q", list[0].Encrypted)
+	}
+
 	if err := s.DeleteCredential(ctx, "c1"); err != nil {
 		t.Fatalf("DeleteCredential: %v", err)
 	}

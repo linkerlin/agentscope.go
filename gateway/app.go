@@ -30,11 +30,18 @@ import (
 // See examples/full_service and examples/production for complete production bootstrap.
 
 type AppConfig struct {
-	Agent              agent.Agent
-	Storage            service.Storage
-	Authenticator      service.Authenticator
-	JWTAuth            *service.JWTAuthenticator
-	Cipher             *service.Cipher
+	Agent         agent.Agent
+	Storage       service.Storage
+	Authenticator service.Authenticator
+	JWTAuth       *service.JWTAuthenticator
+	Cipher        *service.Cipher
+
+	// Production switches the server to production semantics (22.1): when no
+	// identity source is configured (neither Authenticator nor JWTAuth), a
+	// rejecting authenticator is installed so business routes return 401
+	// instead of staying anonymous; credential writes require a cipher.
+	// Development deployments (default false) keep the anonymous passthrough.
+	Production         bool
 	Registry           *AgentRegistry
 	SessionManager     *SessionManager
 	BackgroundTaskMgr  *BackgroundTaskManager
@@ -97,8 +104,27 @@ func NewApp(cfg AppConfig) *Server {
 	if cfg.Storage != nil {
 		srv.WithStorage(cfg.Storage)
 	}
-	if cfg.Authenticator != nil {
-		srv.WithAuthenticator(cfg.Authenticator)
+	// Auth assembly (22.1): JWTAuth joins the chain alongside an explicit
+	// Authenticator instead of being ignored; production mode fails closed.
+	auth := cfg.Authenticator
+	if cfg.JWTAuth != nil {
+		if auth != nil {
+			auth = service.NewAnyAuthenticator(auth, cfg.JWTAuth)
+		} else {
+			auth = cfg.JWTAuth
+		}
+	}
+	if auth != nil {
+		srv.WithAuthenticator(auth)
+	}
+	if cfg.JWTAuth != nil {
+		srv.WithJWTAuth(cfg.JWTAuth)
+	}
+	if cfg.Production {
+		srv.WithProduction(true)
+		if srv.authenticator == nil {
+			srv.WithAuthenticator(service.RejectingAuthenticator{})
+		}
 	}
 	if cfg.Cipher != nil {
 		srv.WithCipher(cfg.Cipher)

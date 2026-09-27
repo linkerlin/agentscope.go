@@ -13,13 +13,17 @@ func TestAnyAuthenticator_APIKeyOrJWT(t *testing.T) {
 	if err := storage.SaveUser(ctx, user); err != nil {
 		t.Fatal(err)
 	}
+	key, err := GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := storage.SaveCredential(ctx, &Credential{
-		ID: "c1", UserID: "u1", Provider: "api_key", Encrypted: "key-abc",
+		ID: "c1", UserID: "u1", Provider: "api_key", Encrypted: HashAPIKey(key),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	jwtAuth := NewJWTAuthenticator([]byte("secret"), "test")
+	jwtAuth := NewJWTAuthenticator([]byte("unit-test-signing-secret"), "test")
 	token, err := jwtAuth.GenerateToken("u1", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +35,7 @@ func TestAnyAuthenticator_APIKeyOrJWT(t *testing.T) {
 	)
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-API-Key", "key-abc")
+	req.Header.Set("X-API-Key", key)
 	outCtx, err := auth.Authenticate(req)
 	if err != nil {
 		t.Fatalf("api key auth: %v", err)

@@ -183,7 +183,7 @@ func (e *env) registerAndLogin(name string) {
 	if err := json.Unmarshal([]byte(body), &reg); err != nil {
 		e.t.Fatal(err)
 	}
-	code, body = e.do(http.MethodPost, "/api/v1/auth/login", map[string]string{"user_id": reg.UserID}, "")
+	code, body = e.do(http.MethodPost, "/api/v1/auth/login", map[string]string{"api_key": reg.APIKey}, "")
 	if code != http.StatusOK {
 		e.t.Fatalf("login: %d %s", code, body)
 	}

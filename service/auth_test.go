@@ -15,9 +15,13 @@ func TestAPIKeyAuthenticator(t *testing.T) {
 	storage := NewMemoryStorage()
 	ctx := context.Background()
 
-	// Create a user with an API key credential.
+	// Create a user with an API key credential (hashed storage, 22.1).
 	user := &User{ID: "u1", Name: "Alice"}
 	if err := storage.SaveUser(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	key, err := GenerateAPIKey()
+	if err != nil {
 		t.Fatal(err)
 	}
 	cred := &Credential{
@@ -25,7 +29,7 @@ func TestAPIKeyAuthenticator(t *testing.T) {
 		UserID:    "u1",
 		Provider:  "api_key",
 		Label:     "test-key",
-		Encrypted: "secret-key-123",
+		Encrypted: HashAPIKey(key),
 	}
 	if err := storage.SaveCredential(ctx, cred); err != nil {
 		t.Fatal(err)
@@ -35,7 +39,7 @@ func TestAPIKeyAuthenticator(t *testing.T) {
 
 	// Valid key.
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-API-Key", "secret-key-123")
+	req.Header.Set("X-API-Key", key)
 	actx, err := auth.Authenticate(req)
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
@@ -117,11 +121,15 @@ func TestAuthMiddleware(t *testing.T) {
 	ctx := context.Background()
 	user := &User{ID: "u1", Name: "Alice"}
 	storage.SaveUser(ctx, user)
+	key, err := GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	storage.SaveCredential(ctx, &Credential{
 		ID:        "c1",
 		UserID:    "u1",
 		Provider:  "api_key",
-		Encrypted: "key-123",
+		Encrypted: HashAPIKey(key),
 	})
 
 	auth := NewAPIKeyAuthenticator(storage, "")
@@ -132,7 +140,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 	// Valid request.
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-API-Key", "key-123")
+	req.Header.Set("X-API-Key", key)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

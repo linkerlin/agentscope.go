@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,23 +14,28 @@ import (
 )
 
 func setupServiceServer(t *testing.T) (*Server, *service.MemoryStorage, string) {
+	t.Helper()
 	storage := service.NewMemoryStorage()
 	ctx := context.Background()
 	user := &service.User{ID: "u1", Name: "Alice"}
 	if err := storage.SaveUser(ctx, user); err != nil {
 		t.Fatal(err)
 	}
+	key, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 	storage.SaveCredential(ctx, &service.Credential{
 		ID:        "c1",
 		UserID:    "u1",
 		Provider:  "api_key",
-		Encrypted: "key-123",
+		Encrypted: service.HashAPIKey(key),
 	})
 
 	apiAuth := service.NewAPIKeyAuthenticator(storage, "")
 	srv := NewServer(&mockAgent{name: "test"}).WithStorage(storage).WithAuthenticator(apiAuth)
 	srv.RegisterServiceRoutes()
-	return srv, storage, "key-123"
+	return srv, storage, key
 }
 
 func TestServiceHandlers_AgentCRUD(t *testing.T) {
@@ -221,6 +227,79 @@ func TestServiceHandlers_CredentialCRUD(t *testing.T) {
 	}
 }
 
+// TestServiceHandlers_CredentialResponseRedacted locks the 22.1 rule: no
+// credential endpoint response contains the stored secret.
+func TestServiceHandlers_CredentialResponseRedacted(t *testing.T) {
+	srv, _, key := setupServiceServer(t)
+
+	providerValue, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]string{"provider": "openai", "label": "default", "value": providerValue})
+	req := httptest.NewRequest("POST", "/api/v1/credentials", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", key)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if resp := rec.Body.String(); strings.Contains(resp, "encrypted") || strings.Contains(resp, providerValue) {
+		t.Fatalf("create response leaks secret: %s", resp)
+	}
+
+	var cred service.Credential
+	json.Unmarshal(rec.Body.Bytes(), &cred)
+
+	for _, tc := range []struct{ name, path string }{
+		{"get", "/api/v1/credentials/" + cred.ID},
+		{"list", "/api/v1/credentials"},
+	} {
+		req := httptest.NewRequest("GET", tc.path, nil)
+		req.Header.Set("X-API-Key", key)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", tc.name, rec.Code)
+		}
+		if resp := rec.Body.String(); strings.Contains(resp, "encrypted") || strings.Contains(resp, providerValue) {
+			t.Fatalf("%s response leaks secret: %s", tc.name, resp)
+		}
+	}
+}
+
+// TestServiceHandlers_ProductionRequiresCipher locks the 22.1 rule: in
+// production mode credential writes are refused without a cipher.
+func TestServiceHandlers_ProductionRequiresCipher(t *testing.T) {
+	storage := service.NewMemoryStorage()
+	ctx := context.Background()
+	storage.SaveUser(ctx, &service.User{ID: "u1", Name: "Alice"})
+	key, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage.SaveCredential(ctx, &service.Credential{
+		ID: "c1", UserID: "u1", Provider: "api_key", Encrypted: service.HashAPIKey(key),
+	})
+
+	apiAuth := service.NewAPIKeyAuthenticator(storage, "")
+	srv := NewServer(&mockAgent{name: "test"}).
+		WithStorage(storage).
+		WithAuthenticator(apiAuth).
+		WithProduction(true)
+	srv.RegisterServiceRoutes()
+
+	providerValue, _ := service.GenerateAPIKey()
+	body, _ := json.Marshal(map[string]string{"provider": "openai", "label": "default", "value": providerValue})
+	req := httptest.NewRequest("POST", "/api/v1/credentials", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", key)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 in production mode without cipher, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestServiceHandlers_Forbidden(t *testing.T) {
 	storage := service.NewMemoryStorage()
 	ctx := context.Background()
@@ -228,8 +307,16 @@ func TestServiceHandlers_Forbidden(t *testing.T) {
 	user2 := &service.User{ID: "u2", Name: "Bob"}
 	storage.SaveUser(ctx, user1)
 	storage.SaveUser(ctx, user2)
-	storage.SaveCredential(ctx, &service.Credential{ID: "c1", UserID: "u1", Provider: "api_key", Encrypted: "key-1"})
-	storage.SaveCredential(ctx, &service.Credential{ID: "c2", UserID: "u2", Provider: "api_key", Encrypted: "key-2"})
+	key1, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key2, err := service.GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage.SaveCredential(ctx, &service.Credential{ID: "c1", UserID: "u1", Provider: "api_key", Encrypted: service.HashAPIKey(key1)})
+	storage.SaveCredential(ctx, &service.Credential{ID: "c2", UserID: "u2", Provider: "api_key", Encrypted: service.HashAPIKey(key2)})
 
 	// Create an agent owned by u1
 	storage.SaveAgentConfig(ctx, &service.AgentConfig{ID: "a1", UserID: "u1", Name: "agent1"})
@@ -240,7 +327,7 @@ func TestServiceHandlers_Forbidden(t *testing.T) {
 
 	// u2 tries to access u1's agent
 	req := httptest.NewRequest("GET", "/api/v1/agents/a1", nil)
-	req.Header.Set("X-API-Key", "key-2")
+	req.Header.Set("X-API-Key", key2)
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {

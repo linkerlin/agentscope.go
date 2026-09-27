@@ -103,13 +103,46 @@ type AgentConfig struct {
 
 // Credential stores an encrypted API key for a model provider.
 type Credential struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Provider  string    `json:"provider"` // openai, anthropic, etc.
-	Label     string    `json:"label"`
-	Encrypted string    `json:"encrypted"` // AES-GCM encrypted API key
+	ID       string `json:"id"`
+	UserID   string `json:"user_id"`
+	Provider string `json:"provider"` // openai, anthropic, etc.
+	Label    string `json:"label"`
+	// Encrypted never leaves the server: it holds an AES-GCM ciphertext (or a
+	// "sha256:" API-key digest) and is omitted from every JSON response so
+	// GET/LIST credentials cannot leak secrets (22.1).
+	Encrypted string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// credentialPersist mirrors Credential with the secret included in its
+// serialized form. Storage backends (SQL payload column, Redis values) use it
+// for persistence only — the wire type omits Encrypted, so routing storage
+// through json.Marshal(Credential) would silently drop the secret. The
+// serialized shape matches the historical payload, so existing rows load
+// unchanged.
+type credentialPersist struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Provider  string    `json:"provider"`
+	Label     string    `json:"label"`
+	Encrypted string    `json:"encrypted"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func credentialToPersist(c *Credential) credentialPersist {
+	return credentialPersist{
+		ID: c.ID, UserID: c.UserID, Provider: c.Provider, Label: c.Label,
+		Encrypted: c.Encrypted, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
+}
+
+func (p credentialPersist) toCredential() *Credential {
+	return &Credential{
+		ID: p.ID, UserID: p.UserID, Provider: p.Provider, Label: p.Label,
+		Encrypted: p.Encrypted, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+	}
 }
 
 // StoredMessage is a persisted message within a session.

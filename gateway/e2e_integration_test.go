@@ -342,28 +342,36 @@ func TestE2E_MultipleSessionsIsolation(t *testing.T) {
 	go srv.ServeHTTP(bRec, bReq)
 	time.Sleep(20 * time.Millisecond)
 
+	// 22.4: both sessions resolve to the SAME shared stateful agent (the
+	// server default), so execution is serialized across sessions — while
+	// sess-a holds the agent, sess-b queues (not yet running) instead of
+	// concurrently mutating shared agent state.
 	if !sm.IsActive("sess-a") {
 		t.Fatal("sess-a should be active")
 	}
-	if !sm.IsActive("sess-b") {
-		t.Fatal("sess-b should be active")
-	}
-	if sm.ActiveCount() != 2 {
-		t.Fatalf("expected 2 active sessions, got %d", sm.ActiveCount())
+	if sm.IsActive("sess-b") {
+		t.Fatal("sess-b must queue behind sess-a (shared-agent serialization, 22.4)")
 	}
 
-	// Terminate session A.
+	// Terminate session A: sess-b takes the agent over.
 	sm.Terminate("sess-a")
 
-	// Wait for termination.
-	for i := 0; i < 50 && sm.IsActive("sess-a"); i++ {
+	// Wait for termination and sess-b takeover.
+	for i := 0; i < 100 && !sm.IsActive("sess-b"); i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if sm.IsActive("sess-a") {
 		t.Fatal("sess-a should be terminated")
 	}
 	if !sm.IsActive("sess-b") {
-		t.Fatal("sess-b should still be active")
+		t.Fatal("sess-b should take over after sess-a terminates")
+	}
+	sm.Terminate("sess-b")
+	for i := 0; i < 100 && sm.IsActive("sess-b"); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sm.IsActive("sess-b") {
+		t.Fatal("sess-b should be terminated")
 	}
 }
 

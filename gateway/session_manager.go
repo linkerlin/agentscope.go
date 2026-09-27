@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/linkerlin/agentscope.go/agent"
@@ -25,11 +26,12 @@ import (
 //   - Lifecycle: the buffer and subscriber list are created when a run
 //     starts and discarded when it ends, keeping memory bounded.
 type SessionManager struct {
-	locks     map[string]*sync.Mutex        // session_id -> serialisation lock
-	runs      map[string]*sessionRun        // session_id -> in-flight run state
-	completed map[string][]event.AgentEvent // session_id -> final buffer after run ends
-	mu        sync.RWMutex
-	storage   service.Storage // optional persistence layer for Msg upsert
+	locks      map[string]*sync.Mutex        // session_id -> serialisation lock
+	agentLocks sync.Map                      // agent identity -> execution mutex (22.4)
+	runs       map[string]*sessionRun        // session_id -> in-flight run state
+	completed  map[string][]event.AgentEvent // session_id -> final buffer after run ends
+	mu         sync.RWMutex
+	storage    service.Storage // optional persistence layer for Msg upsert
 }
 
 // NewSessionManager creates a new SessionManager.
@@ -78,6 +80,17 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 		return nil, fmt.Errorf("session_manager: agent does not support V2 streaming")
 	}
 
+	// Cross-session agent isolation (22.4): stateful agents (e.g. a shared
+	// ReActAgent resolved from the registry or the server default) are not
+	// safe to run concurrently — the interrupt flag, pending-event queue and
+	// memory belong to a single turn. Sessions already serialize per ID;
+	// this additionally serializes execution on the SAME agent instance
+	// across different sessions, for the whole turn (released when the
+	// event stream ends, alongside the session lock). Distinct agents never
+	// contend. Acquire order is always session-lock -> agent-lock.
+	agentLock := sm.getAgentLock(a)
+	agentLock.Lock()
+
 	// Persist input message before starting the stream.
 	if sm.storage != nil && msg != nil && sessionID != "" {
 		storedMsg := service.MsgToStored(msg, sessionID)
@@ -87,6 +100,7 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 	runCtx, cancel := context.WithCancel(ContextWithSessionID(ctx, sessionID))
 	ch, err := v2.ReplyStream(runCtx, msg)
 	if err != nil {
+		agentLock.Unlock()
 		cancel()
 		lock.Unlock()
 		return nil, fmt.Errorf("session_manager: reply stream error: %w", err)
@@ -115,6 +129,7 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 		replyMsg := message.NewMsg().Role(message.RoleAssistant).Build()
 
 		defer cancel()
+		defer agentLock.Unlock() // release in reverse acquire order
 		defer lock.Unlock()
 		defer func() {
 			run.mu.Lock()
@@ -193,15 +208,20 @@ func (sm *SessionManager) Subscribe(sessionID string) <-chan event.AgentEvent {
 		return sub
 	}
 
-	run.mu.RLock()
-	// Copy buffer and check done status while holding read lock.
+	// Subscription must hold the WRITE lock (22.4): appending to
+	// run.subscribers under the read lock let concurrent subscribers append
+	// over each other, and the overwritten channel was never closed by the
+	// fan-out goroutine — its reader hung forever. The buffer copy rides the
+	// same critical section so replay order cannot interleave with the
+	// fan-out's buffer append.
+	run.mu.Lock()
 	buf := make([]event.AgentEvent, len(run.buffer))
 	copy(buf, run.buffer)
-	done := run.done
-	if !done {
+	if !run.done {
 		run.subscribers = append(run.subscribers, sub)
 	}
-	run.mu.RUnlock()
+	done := run.done
+	run.mu.Unlock()
 
 	if done {
 		// Run already finished inside the critical section (rare race):
@@ -382,4 +402,22 @@ func (sm *SessionManager) getLock(sessionID string) *sync.Mutex {
 	m := &sync.Mutex{}
 	sm.locks[sessionID] = m
 	return m
+}
+
+// getAgentLock returns the per-agent execution mutex (22.4). Agents are keyed
+// by interface identity: pointer-backed agents (the stateful ones this lock
+// exists for) compare equal when they are the same instance. Agents of a
+// non-comparable dynamic type (typically stateless value fakes) get a fresh
+// mutex each call — they cannot share identity, so they cannot share state
+// either.
+func (sm *SessionManager) getAgentLock(a agent.Agent) *sync.Mutex {
+	if !reflect.TypeOf(a).Comparable() {
+		return &sync.Mutex{}
+	}
+	if m, ok := sm.agentLocks.Load(a); ok {
+		return m.(*sync.Mutex)
+	}
+	m := &sync.Mutex{}
+	actual, _ := sm.agentLocks.LoadOrStore(a, m)
+	return actual.(*sync.Mutex)
 }

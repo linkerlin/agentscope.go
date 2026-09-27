@@ -11,8 +11,20 @@ import (
 	"github.com/linkerlin/agentscope.go/gateway"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/model"
+	"github.com/linkerlin/agentscope.go/service"
 	"github.com/linkerlin/agentscope.go/tool"
 )
+
+// mustPersistSession registers a session record owned by the env user so
+// tests referencing a fixed session ID pass the 22.2 known-session check.
+func mustPersistSession(t *testing.T, e *env, sessionID string) {
+	t.Helper()
+	if err := e.storage.SaveSession(context.Background(), &service.Session{
+		ID: sessionID, UserID: e.userID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // scriptedModel returns a tool call on the first Chat, then a final answer.
 type scriptedModel struct {
@@ -85,6 +97,9 @@ func TestE2E_InterruptActiveTurn(t *testing.T) {
 	e := newEnv(t, func(_ *gateway.AppConfig, ag *streamAgent) {
 		ag.delay = 1500 * time.Millisecond
 	})
+
+	// With storage configured, the referenced session must exist (22.2).
+	mustPersistSession(t, e, "slow-sess")
 
 	done := make(chan struct{})
 	go func() {

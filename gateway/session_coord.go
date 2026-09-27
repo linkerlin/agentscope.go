@@ -15,6 +15,7 @@ import (
 	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 // SessionCoordinator layers cross-replica coordination (18.1) on top of the
@@ -106,12 +107,33 @@ func (c *SessionCoordinator) BgTasks() *BgTaskRegistry { return c.bg }
 // coordinated reports whether cross-replica mode is active.
 func (c *SessionCoordinator) coordinated() bool { return c.cb != nil }
 
+// coordScope derives the tenant segment for coordination keys (22.2): with an
+// authenticated requester, lock/registry/log/cancel keys are tenant-scoped so
+// two tenants referencing the same external session ID can never contend.
+// Anonymous or internal callers share a single "-" namespace (matching the
+// pre-tenant behavior).
+func coordScope(ctx context.Context) string {
+	if uid := service.UserIDFromContext(ctx); uid != "" {
+		return uid
+	}
+	return "-"
+}
+
+// scopedSessionID namespaces a session ID by its coordinating tenant.
+func scopedSessionID(ctx context.Context, sessionID string) string {
+	return coordScope(ctx) + ":" + sessionID
+}
+
 // Run executes a session turn under the coordination protocol. See the type
 // documentation for the lock / log / cancel semantics.
 func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	if !c.coordinated() {
 		return c.sm.Run(ctx, sessionID, a, msg)
 	}
+	// Tenant-scoped coordination identity (22.2): derived once from the
+	// request context and reused for every key below, including the detached
+	// contexts whose user info would otherwise be lost.
+	coordID := scopedSessionID(ctx, sessionID)
 
 	// Acquire the distributed lock on a detached context: the run must keep
 	// its lock even when the triggering HTTP request goes away (SSE drop);
@@ -123,7 +145,7 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 	if c.acquireTimeout > 0 {
 		lockCtx, acquireCancel = context.WithTimeout(lockCtx, c.acquireTimeout)
 	}
-	release, err := c.cb.Lock(lockCtx, c.keys.SessionRunLockKey(sessionID), c.lockTTL)
+	release, err := c.cb.Lock(lockCtx, c.keys.SessionRunLockKey(coordID), c.lockTTL)
 	if err != nil {
 		if acquireCancel != nil {
 			acquireCancel()
@@ -144,11 +166,11 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 		"started_at": time.Now().UTC().Format(time.RFC3339),
 		"task_id":    taskID,
 	})
-	_ = c.cb.RegistrySet(context.Background(), c.keys.SessionRunRegistryNS(), sessionID, marker)
+	_ = c.cb.RegistrySet(context.Background(), c.keys.SessionRunRegistryNS(), coordID, marker)
 
 	// Subscribe to the cross-process cancel channel for the whole run.
 	cancelSubCtx, cancelSubCancel := context.WithCancel(context.Background())
-	cancelCh, cancelCancel, _ := c.bus.Subscribe(cancelSubCtx, c.keys.SessionCancelChannel(sessionID))
+	cancelCh, cancelCancel, _ := c.bus.Subscribe(cancelSubCtx, c.keys.SessionCancelChannel(coordID))
 
 	ch, err := c.sm.Run(ctx, sessionID, a, msg)
 	if err != nil {
@@ -157,7 +179,7 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 		if acquireCancel != nil {
 			acquireCancel()
 		}
-		_ = c.cb.RegistryDelete(context.Background(), c.keys.SessionRunRegistryNS(), sessionID)
+		_ = c.cb.RegistryDelete(context.Background(), c.keys.SessionRunRegistryNS(), coordID)
 		c.bg.MarkDone(taskID, err)
 		release()
 		lockCancel()
@@ -170,7 +192,7 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 		defer func() {
 			cancelCancel()
 			cancelSubCancel()
-			_ = c.cb.RegistryDelete(context.Background(), c.keys.SessionRunRegistryNS(), sessionID)
+			_ = c.cb.RegistryDelete(context.Background(), c.keys.SessionRunRegistryNS(), coordID)
 			c.bg.MarkDone(taskID, nil)
 			release()
 			if acquireCancel != nil {
@@ -187,7 +209,7 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 			}
 		}()
 
-		logNS := c.keys.SessionEventLogNS(sessionID)
+		logNS := c.keys.SessionEventLogNS(coordID)
 		for ev := range ch {
 			if ev != nil {
 				if data, merr := event.MarshalEvent(ev); merr == nil {
@@ -210,7 +232,7 @@ func (c *SessionCoordinator) Cancel(ctx context.Context, sessionID string) error
 	if c.bus == nil {
 		return fmt.Errorf("session coordinator: no local run for session %s", sessionID)
 	}
-	return c.bus.Publish(ctx, c.keys.SessionCancelChannel(sessionID), []byte("cancel"))
+	return c.bus.Publish(ctx, c.keys.SessionCancelChannel(scopedSessionID(ctx, sessionID)), []byte("cancel"))
 }
 
 // ReplayEvents returns up to limit logged events of the session starting at
@@ -221,7 +243,7 @@ func (c *SessionCoordinator) ReplayEvents(ctx context.Context, sessionID string,
 		// Local fallback: replay whatever the in-process buffers hold.
 		return nil, 0, errors.New("session coordinator: event replay requires a coordination bus")
 	}
-	entries, next, err := c.cb.LogRead(ctx, c.keys.SessionEventLogNS(sessionID), cursor, limit)
+	entries, next, err := c.cb.LogRead(ctx, c.keys.SessionEventLogNS(scopedSessionID(ctx, sessionID)), cursor, limit)
 	if err != nil {
 		return nil, cursor, err
 	}
@@ -243,10 +265,11 @@ func (c *SessionCoordinator) ReplayEvents(ctx context.Context, sessionID string,
 // must not be running.
 func (c *SessionCoordinator) Purge(ctx context.Context, sessionID string) error {
 	if c.coordinated() {
-		if err := c.cb.RegistryDelete(ctx, c.keys.SessionRunRegistryNS(), sessionID); err != nil {
+		coordID := scopedSessionID(ctx, sessionID)
+		if err := c.cb.RegistryDelete(ctx, c.keys.SessionRunRegistryNS(), coordID); err != nil {
 			return err
 		}
-		if err := c.cb.LogPurge(ctx, c.keys.SessionEventLogNS(sessionID)); err != nil {
+		if err := c.cb.LogPurge(ctx, c.keys.SessionEventLogNS(coordID)); err != nil {
 			return err
 		}
 	}
@@ -291,9 +314,10 @@ func (c *SessionCoordinator) Status(ctx context.Context, sessionID string) Sessi
 		// a HITL request, the run is parked there: the registry marker stays
 		// until the run exits, so the log tail must be consulted before
 		// declaring plain running.
-		_, rerr := c.cb.RegistryGet(ctx, c.keys.SessionRunRegistryNS(), sessionID)
+		coordID := scopedSessionID(ctx, sessionID)
+		_, rerr := c.cb.RegistryGet(ctx, c.keys.SessionRunRegistryNS(), coordID)
 		if rerr == nil {
-			switch c.lastLoggedEventType(ctx, sessionID) {
+			switch c.lastLoggedEventType(ctx, coordID) {
 			case event.TypeRequireUserConfirm, event.TypeRequireExternalExecution:
 				return StatusParked
 			}
@@ -301,11 +325,11 @@ func (c *SessionCoordinator) Status(ctx context.Context, sessionID string) Sessi
 		}
 		// No live run anywhere: a finished turn that ended on a HITL request
 		// still parks the session.
-		switch c.lastLoggedEventType(ctx, sessionID) {
+		switch c.lastLoggedEventType(ctx, coordID) {
 		case event.TypeRequireUserConfirm, event.TypeRequireExternalExecution:
 			return StatusParked
 		}
-		if c.hasLoggedEvents(ctx, sessionID) {
+		if c.hasLoggedEvents(ctx, coordID) {
 			return StatusIdle
 		}
 	}

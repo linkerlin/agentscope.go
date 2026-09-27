@@ -9,6 +9,7 @@ import (
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
+	"github.com/linkerlin/agentscope.go/service/access"
 	"github.com/linkerlin/agentscope.go/state"
 	"github.com/linkerlin/agentscope.go/tool"
 )
@@ -41,7 +42,13 @@ type AppConfig struct {
 	// rejecting authenticator is installed so business routes return 401
 	// instead of staying anonymous; credential writes require a cipher.
 	// Development deployments (default false) keep the anonymous passthrough.
-	Production         bool
+	Production bool
+
+	// AccessPolicy governs cross-tenant resource sharing (22.2): which
+	// non-owner users may use shared agent configs. nil = deny all
+	// cross-user access; owners always keep full access to their own
+	// resources. See service/access.
+	AccessPolicy       access.Policy
 	Registry           *AgentRegistry
 	SessionManager     *SessionManager
 	BackgroundTaskMgr  *BackgroundTaskManager
@@ -125,6 +132,9 @@ func NewApp(cfg AppConfig) *Server {
 		if srv.authenticator == nil {
 			srv.WithAuthenticator(service.RejectingAuthenticator{})
 		}
+	}
+	if cfg.AccessPolicy != nil {
+		srv.WithAccessPolicy(cfg.AccessPolicy)
 	}
 	if cfg.Cipher != nil {
 		srv.WithCipher(cfg.Cipher)

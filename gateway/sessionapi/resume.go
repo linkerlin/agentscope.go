@@ -41,11 +41,14 @@ func (h *Handlers) handleV2Resume(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session_id is required", http.StatusBadRequest)
 		return
 	}
-	if req.ConfirmID == "" {
-		http.Error(w, "confirm_id is required", http.StatusBadRequest)
+	// Ownership is checked before body validation details (22.2): unknown or
+	// foreign sessions get a uniform 404 regardless of what else the request
+	// contains.
+	if !h.checkSessionAccess(w, r, req.SessionID) {
 		return
 	}
-	if !h.checkSessionAccess(w, r, req.SessionID) {
+	if req.ConfirmID == "" {
+		http.Error(w, "confirm_id is required", http.StatusBadRequest)
 		return
 	}
 

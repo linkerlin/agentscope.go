@@ -136,7 +136,9 @@ func (h *Handlers) handleChatWS(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := r.URL.Query().Get("session")
 	if sessionID == "" {
-		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
+		// Connection-local label for the legacy broadcast room; minted
+		// server-side for unguessability (22.2).
+		sessionID = newSessionID()
 	}
 	room := r.URL.Query().Get("room")
 
@@ -242,7 +244,14 @@ func (h *Handlers) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sessionID == "" {
-		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
+		// Server-side mint (22.2): unguessable ID, persisted with ownership
+		// when storage is configured.
+		minted, err := h.ensureSession(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sessionID = minted
 	}
 	if !h.checkSessionAccess(w, r, sessionID) {
 		return

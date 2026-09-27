@@ -22,6 +22,7 @@ import (
 	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/service"
+	"github.com/linkerlin/agentscope.go/service/access"
 )
 
 // chatRequest is the expected JSON body for /chat and /chat/stream.
@@ -56,6 +57,11 @@ type Server struct {
 	jwtAuth              *service.JWTAuthenticator
 	production           bool
 	authRoutesRegistered bool
+
+	// Cross-tenant resource sharing (22.2): nil = deny all cross-user access
+	// (DenyAllPolicy semantics); owners always keep full access to their own
+	// resources.
+	accessPolicy access.Policy
 
 	// Multi-agent & session management (V2 service layer)
 	registry            *AgentRegistry
@@ -277,6 +283,14 @@ func (s *Server) WithJWTAuth(j *service.JWTAuthenticator) *Server {
 // business routes fail closed instead of staying anonymous.
 func (s *Server) WithProduction(on bool) *Server {
 	s.production = on
+	return s
+}
+
+// WithAccessPolicy attaches the cross-tenant resource-sharing policy (22.2).
+// Without one, cross-user access to agent configs is denied (owners keep
+// full access to their own resources).
+func (s *Server) WithAccessPolicy(p access.Policy) *Server {
+	s.accessPolicy = p
 	return s
 }
 

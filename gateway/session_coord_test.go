@@ -190,14 +190,18 @@ func TestSessionCoordinator_RunningRegistryMarker(t *testing.T) {
 	ch, err := c.Run(context.Background(), "s1", a, turnMsg())
 	require.NoError(t, err)
 
+	// Anonymous context coordinates under the "-" scope (22.2): the registry
+	// key is the tenant-scoped session ID.
+	scopedKey := scopedSessionID(context.Background(), "s1")
+
 	// While running, the registry holds the marker.
 	time.Sleep(5 * time.Millisecond)
-	raw, err := cb.RegistryGet(context.Background(), messagebus.Keys.SessionRunRegistryNS(), "s1")
+	raw, err := cb.RegistryGet(context.Background(), messagebus.Keys.SessionRunRegistryNS(), scopedKey)
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(raw), "task_id"), "marker must carry metadata: %s", raw)
 
 	drain(ch)
 	// After the run the marker is gone.
-	_, err = cb.RegistryGet(context.Background(), messagebus.Keys.SessionRunRegistryNS(), "s1")
+	_, err = cb.RegistryGet(context.Background(), messagebus.Keys.SessionRunRegistryNS(), scopedKey)
 	assert.ErrorIs(t, err, messagebus.ErrNotFound)
 }

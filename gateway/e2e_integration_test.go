@@ -150,6 +150,10 @@ func TestE2E_SSE_WithAuthAndSessionID(t *testing.T) {
 		WithSessionManager(sm)
 	srv.RegisterV2Routes()
 
+	// With storage configured, a referenced session must exist and belong to
+	// the caller (22.2) — persist it first, then chat.
+	storage.SaveSession(ctx, &service.Session{ID: "sess-sse", UserID: "u-sse", CreatedAt: time.Now()})
+
 	body, _ := json.Marshal(v2ChatRequest{Text: "hello", SessionID: "sess-sse"})
 	req := httptest.NewRequest(http.MethodPost, "/v2/chat/stream", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", sseKey)

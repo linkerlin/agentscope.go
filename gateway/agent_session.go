@@ -14,6 +14,7 @@ import (
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 	"github.com/linkerlin/agentscope.go/service"
+	"github.com/linkerlin/agentscope.go/service/access"
 	"github.com/linkerlin/agentscope.go/skill"
 	"github.com/linkerlin/agentscope.go/state"
 	"github.com/linkerlin/agentscope.go/tool"
@@ -294,6 +295,15 @@ func (s *Server) buildSessionAgentFromStorage(ctx context.Context, agentID, sess
 	if err != nil {
 		return nil, err
 	}
+	// 22.2: the requester must own the agent config, or hold an explicit
+	// Access Policy grant. Execution uses the session owner's credentials,
+	// so an untrusted requester must not be able to trigger them by naming
+	// someone else's agent ID.
+	if requester := service.UserIDFromContext(ctx); requester != "" && cfg.UserID != "" && requester != cfg.UserID {
+		if !s.agentConfigAccessible(ctx, requester, cfg.UserID, agentID) {
+			return nil, fmt.Errorf("agent config not found: %s", agentID)
+		}
+	}
 	se, err := s.storage.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -346,4 +356,16 @@ func (s *Server) buildSessionAgentFromStorage(ctx context.Context, agentID, sess
 	}
 
 	return s.registry.factory.BuildSessionAgent(cfg, matched, sw, deps)
+}
+
+// agentConfigAccessible reports whether a non-owner viewer may use an agent
+// config: only through an explicit Access Policy grant (22.2). With no policy
+// configured, cross-tenant use is denied — the owner always passes before
+// this helper is called.
+func (s *Server) agentConfigAccessible(ctx context.Context, viewer, owner, agentID string) bool {
+	if s.accessPolicy == nil {
+		return false
+	}
+	ok, err := s.accessPolicy.CanEdit(viewer, owner, agentID, access.KindAgent)
+	return err == nil && ok
 }

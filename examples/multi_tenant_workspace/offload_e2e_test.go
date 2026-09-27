@@ -62,7 +62,17 @@ func TestE2E_OffloadHintInjection(t *testing.T) {
 	var reg registerResponse
 	decodeJSON(t, regResp, &reg)
 
-	sessionID := "offload-e2e-session"
+	// With storage configured, a referenced session must exist first (22.2):
+	// create it via the service API and use the server-generated ID.
+	sessResp := postJSON(t, ts.URL+"/api/v1/sessions", `{"title":"offload"}`, reg.APIKey)
+	if sessResp.StatusCode != http.StatusCreated {
+		t.Fatalf("create session: %d %s", sessResp.StatusCode, readBody(sessResp))
+	}
+	var sess struct {
+		ID string `json:"id"`
+	}
+	decodeJSON(t, sessResp, &sess)
+	sessionID := sess.ID
 	toolOffload.PushResult(sessionID, "<system-notification>\nBackground task completed.\nResult:\noffload-e2e-ok\n</system-notification>")
 
 	chatBody := `{"text":"continue","session_id":"` + sessionID + `"}`

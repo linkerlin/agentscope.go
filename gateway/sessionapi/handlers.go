@@ -135,7 +135,10 @@ func (h *Handlers) run(ctx context.Context, sessionID string, a agent.Agent, msg
 }
 
 // checkSessionAccess verifies that a session belongs to the authenticated
-// user when storage is available. It writes 404 (not 403, to avoid leaking
+// user when storage is available. With storage configured, an unknown session
+// ID is refused (22.2): server-side IDs are persisted at creation, so an
+// unknown ID is either forged or deleted, and accepting it would let a
+// tenant claim an arbitrary ID. It writes 404 (not 403, to avoid leaking
 // session existence) and returns false when access is denied. Without storage
 // there is nothing to enforce against and access is allowed.
 func (h *Handlers) checkSessionAccess(w http.ResponseWriter, r *http.Request, sessionID string) bool {
@@ -144,7 +147,9 @@ func (h *Handlers) checkSessionAccess(w http.ResponseWriter, r *http.Request, se
 	}
 	se, err := h.d.Storage.GetSession(r.Context(), sessionID)
 	if err != nil {
-		return true // session not persisted; nothing to enforce against
+		// Unknown session: refuse instead of treating it as a fresh session.
+		http.Error(w, "session not found", http.StatusNotFound)
+		return false
 	}
 	userID := service.UserIDFromContext(r.Context())
 	if se.UserID != "" && userID != "" && se.UserID != userID {
@@ -206,15 +211,24 @@ func (h *Handlers) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts
 	}
 
 	sessionID := firstNonEmpty(req.SessionID, r.Header.Get(HeaderAgentSessionID))
+	if !h.checkSessionAccess(w, r, sessionID) {
+		return
+	}
+	if sessionID == "" {
+		// New session: the server mints the ID (22.2) — clients cannot claim
+		// arbitrary IDs — and persists ownership when storage is configured.
+		minted, err := h.ensureSession(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sessionID = minted
+	}
 	params := chatStreamParams{
 		sessionID: sessionID,
 		agentID:   req.AgentID,
 		text:      req.Text,
 		useAGUI:   useAGUIProtocol(r),
-	}
-
-	if !h.checkSessionAccess(w, r, sessionID) {
-		return
 	}
 
 	a, err := h.d.ResolveAgent(r, params.agentID, params.sessionID)

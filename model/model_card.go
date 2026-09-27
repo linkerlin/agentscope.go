@@ -8,6 +8,13 @@ import (
 )
 
 // ModelCard describes a model provider configuration (PyV2 model/_model_card.py).
+// ModelPricing is the optional per-token price carried by a ModelCard,
+// in dollars per million tokens (consumed by CostRouter, 16.3).
+type ModelPricing struct {
+	InputPerMTok  float64 `yaml:"input_per_mtok" json:"input_per_mtok"`
+	OutputPerMTok float64 `yaml:"output_per_mtok" json:"output_per_mtok"`
+}
+
 type ModelCard struct {
 	ID              string         `yaml:"id" json:"id"`
 	Provider        string         `yaml:"provider" json:"provider"`
@@ -18,6 +25,10 @@ type ModelCard struct {
 	OutputTypes     []string       `yaml:"output_types" json:"output_types"`
 	ParameterSchema map[string]any `yaml:"parameter_schema" json:"parameter_schema,omitempty"`
 	Deprecated      bool           `yaml:"deprecated" json:"deprecated"`
+	// Tier optionally labels the cost/perf class (e.g. flagship/standard/lite).
+	Tier string `yaml:"tier,omitempty" json:"tier,omitempty"`
+	// Pricing optionally carries per-token prices for cost routing.
+	Pricing *ModelPricing `yaml:"pricing,omitempty" json:"pricing,omitempty"`
 }
 
 // LoadModelCard reads a single YAML model card from disk.

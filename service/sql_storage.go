@@ -8,6 +8,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/linkerlin/agentscope.go/internal/migration"
 )
 
 // SQLStorage implements Storage using a SQL database (SQLite by default).
@@ -41,92 +43,93 @@ func (s *SQLStorage) Close() error { return s.db.Close() }
 // DB exposes the underlying *sql.DB for advanced use (migrations, inspection).
 func (s *SQLStorage) DB() *sql.DB { return s.db }
 
-const schemaSQL = `
-CREATE TABLE IF NOT EXISTS users (
-	id         TEXT PRIMARY KEY,
-	email      TEXT,
-	name       TEXT,
-	api_key    TEXT,
-	payload    TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
-CREATE TABLE IF NOT EXISTS sessions (
-	id         TEXT PRIMARY KEY,
-	user_id    TEXT NOT NULL,
-	agent_id   TEXT,
-	team_id    TEXT,
-	source     TEXT,
-	payload    TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_team ON sessions(team_id);
-
-CREATE TABLE IF NOT EXISTS agents (
-	id         TEXT PRIMARY KEY,
-	user_id    TEXT NOT NULL,
-	name       TEXT,
-	source     TEXT,
-	payload    TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id);
-
-CREATE TABLE IF NOT EXISTS credentials (
-	id         TEXT PRIMARY KEY,
-	user_id    TEXT NOT NULL,
-	provider   TEXT,
-	payload    TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_creds_user ON credentials(user_id);
-
-CREATE TABLE IF NOT EXISTS messages (
-	id         TEXT PRIMARY KEY,
-	session_id TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	payload    TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_msgs_session ON messages(session_id, created_at);
-
-CREATE TABLE IF NOT EXISTS snapshots (
-	session_id TEXT PRIMARY KEY,
-	reply_id   TEXT,
-	payload    TEXT NOT NULL,
-	created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS schedules (
-	id         TEXT PRIMARY KEY,
-	user_id    TEXT NOT NULL,
-	enabled    INTEGER NOT NULL DEFAULT 1,
-	payload    TEXT NOT NULL,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sched_user ON schedules(user_id);
-
-CREATE TABLE IF NOT EXISTS teams (
-	id                TEXT PRIMARY KEY,
-	user_id           TEXT NOT NULL,
-	leader_session_id TEXT,
-	payload           TEXT NOT NULL,
-	created_at        TEXT NOT NULL,
-	updated_at        TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_teams_user ON teams(user_id);
-CREATE INDEX IF NOT EXISTS idx_teams_leader ON teams(leader_session_id);
-`
+// migrations is the versioned schema (16.5). Schema changes go here as new
+// ordered entries; the base tables live in 0001_initial exactly as the
+// pre-migration schemaSQL created them, so existing databases upgrade in
+// place (CREATE TABLE IF NOT EXISTS keeps the step idempotent on them).
+var migrations = []migration.Migration{
+	{
+		ID: "0001_initial",
+		Up: []string{
+			`CREATE TABLE IF NOT EXISTS users (
+				id         TEXT PRIMARY KEY,
+				email      TEXT,
+				name       TEXT,
+				api_key    TEXT,
+				payload    TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);`,
+			`CREATE TABLE IF NOT EXISTS sessions (
+				id         TEXT PRIMARY KEY,
+				user_id    TEXT NOT NULL,
+				agent_id   TEXT,
+				team_id    TEXT,
+				source     TEXT,
+				payload    TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_sessions_team ON sessions(team_id);`,
+			`CREATE TABLE IF NOT EXISTS agents (
+				id         TEXT PRIMARY KEY,
+				user_id    TEXT NOT NULL,
+				name       TEXT,
+				source     TEXT,
+				payload    TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_agents_user ON agents(user_id);`,
+			`CREATE TABLE IF NOT EXISTS credentials (
+				id         TEXT PRIMARY KEY,
+				user_id    TEXT NOT NULL,
+				provider   TEXT,
+				payload    TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_creds_user ON credentials(user_id);`,
+			`CREATE TABLE IF NOT EXISTS messages (
+				id         TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				payload    TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_msgs_session ON messages(session_id, created_at);`,
+			`CREATE TABLE IF NOT EXISTS snapshots (
+				session_id TEXT PRIMARY KEY,
+				reply_id   TEXT,
+				payload    TEXT NOT NULL,
+				created_at TEXT NOT NULL
+			);`,
+			`CREATE TABLE IF NOT EXISTS schedules (
+				id         TEXT PRIMARY KEY,
+				user_id    TEXT NOT NULL,
+				enabled    INTEGER NOT NULL DEFAULT 1,
+				payload    TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_sched_user ON schedules(user_id);`,
+			`CREATE TABLE IF NOT EXISTS teams (
+				id                TEXT PRIMARY KEY,
+				user_id           TEXT NOT NULL,
+				leader_session_id TEXT,
+				payload           TEXT NOT NULL,
+				created_at        TEXT NOT NULL,
+				updated_at        TEXT NOT NULL
+			);`,
+			`CREATE INDEX IF NOT EXISTS idx_teams_user ON teams(user_id);`,
+			`CREATE INDEX IF NOT EXISTS idx_teams_leader ON teams(leader_session_id);`,
+		},
+	},
+}
 
 func (s *SQLStorage) initSchema(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, schemaSQL)
-	return err
+	return migration.Migrate(ctx, s.db, migration.DialectSQLite, migrations)
 }
 
 // --- helpers ---

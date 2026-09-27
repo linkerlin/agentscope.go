@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/linkerlin/agentscope.go/internal/migration"
 )
 
 // txCtxKey carries a *sql.Tx through context so SQL store methods can enlist in
@@ -46,122 +48,238 @@ type queryer interface {
 // stores lost all goals on restart, defeating the "lifetime goal" invariant.
 // Use NewSQLKernel(db) to wire a Kernel whose state survives process restarts.
 
-// InitSchema creates the control-plane tables on db if they do not exist. Safe
-// to call multiple times. Dialect is SQLite; the column types are generic
-// enough for Postgres/MySQL with minor tweaks.
+// InitSchema creates the control-plane tables on db through the shared
+// versioned migrator (16.5): schema changes go into cpMigrations, and
+// applied steps are recorded in schema_migrations. Safe to call multiple
+// times. Statements are SQLite dialect; cp_events/cp_spend carry an explicit
+// Postgres variant (AUTOINCREMENT → GENERATED AS IDENTITY), everything else
+// is valid on both dialects.
 func InitSchema(db *sql.DB) error {
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS cp_goals (
-			id TEXT PRIMARY KEY,
-			owner_user_id TEXT NOT NULL DEFAULT '',
-			capability_id TEXT NOT NULL DEFAULT '',
-			objective TEXT NOT NULL DEFAULT '',
-			scope TEXT NOT NULL DEFAULT '[]',
-			registered_agents TEXT NOT NULL DEFAULT '[]',
-			authority TEXT NOT NULL DEFAULT '[]',
-			state TEXT NOT NULL DEFAULT 'active',
-			current_todo_id TEXT NOT NULL DEFAULT '',
-			quota TEXT NOT NULL DEFAULT '{}',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_goals_owner ON cp_goals(owner_user_id)`,
-		`CREATE TABLE IF NOT EXISTS cp_todos (
-			id TEXT NOT NULL,
-			goal_id TEXT NOT NULL,
-			owner_user_id TEXT NOT NULL DEFAULT '',
-			description TEXT NOT NULL DEFAULT '',
-			task_class TEXT NOT NULL DEFAULT 'advancement_task',
-			stage_id TEXT NOT NULL DEFAULT '',
-			state TEXT NOT NULL DEFAULT 'open',
-			claimed_by TEXT NOT NULL DEFAULT '',
-			continuation TEXT NOT NULL DEFAULT '',
-			"order" INTEGER NOT NULL DEFAULT 0,
-			evidence_ids TEXT NOT NULL DEFAULT '[]',
-			evidence TEXT NOT NULL DEFAULT '[]',
-			supersedes TEXT NOT NULL DEFAULT '',
-			superseded_by TEXT NOT NULL DEFAULT '',
-			created_at TEXT NOT NULL,
-			updated_at TEXT NOT NULL,
-			PRIMARY KEY (goal_id, id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_todos_owner ON cp_todos(owner_user_id)`,
-		`CREATE TABLE IF NOT EXISTS cp_gates (
-			gate_id TEXT NOT NULL,
-			goal_id TEXT NOT NULL,
-			todo_id TEXT NOT NULL DEFAULT '',
-			question TEXT NOT NULL DEFAULT '',
-			scope TEXT NOT NULL DEFAULT '{}',
-			fallback TEXT NOT NULL DEFAULT '',
-			outcome TEXT NOT NULL DEFAULT '',
-			resolvers TEXT NOT NULL DEFAULT '[]',
-			created_at TEXT NOT NULL,
-			resolved_at TEXT NOT NULL DEFAULT '',
-			PRIMARY KEY (goal_id, gate_id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS cp_events (
-			seq INTEGER PRIMARY KEY AUTOINCREMENT,
-			goal_id TEXT NOT NULL,
-			kind TEXT NOT NULL DEFAULT '',
-			type TEXT NOT NULL DEFAULT '',
-			todo_id TEXT NOT NULL DEFAULT '',
-			turn_id TEXT NOT NULL DEFAULT '',
-			gate_id TEXT NOT NULL DEFAULT '',
-			outcome TEXT NOT NULL DEFAULT '',
-			detail TEXT NOT NULL DEFAULT '{}',
-			at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_events_goal ON cp_events(goal_id, seq)`,
-		`CREATE TABLE IF NOT EXISTS cp_spend (
-			seq INTEGER PRIMARY KEY AUTOINCREMENT,
-			goal_id TEXT NOT NULL,
-			turn_id TEXT NOT NULL DEFAULT '',
-			slots INTEGER NOT NULL DEFAULT 0,
-			reason TEXT NOT NULL DEFAULT '',
-			spent_at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_spend_goal ON cp_spend(goal_id, spent_at)`,
-		`CREATE TABLE IF NOT EXISTS cp_tickets (
-			goal_id TEXT NOT NULL,
-			turn_id TEXT NOT NULL,
-			token TEXT NOT NULL,
-			consumed INTEGER NOT NULL DEFAULT 0,
-			minted_at TEXT NOT NULL,
-			PRIMARY KEY (goal_id, turn_id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_tickets_reap ON cp_tickets(consumed, minted_at)`,
-		`CREATE TABLE IF NOT EXISTS cp_rewards (
-			id TEXT NOT NULL DEFAULT '',
-			goal_id TEXT NOT NULL,
-			class TEXT NOT NULL,
-			source TEXT NOT NULL DEFAULT '',
-			scope TEXT NOT NULL DEFAULT '{}',
-			authority TEXT NOT NULL DEFAULT '',
-			confidence TEXT NOT NULL DEFAULT 'low',
-			lifecycle TEXT NOT NULL DEFAULT 'active',
-			content TEXT NOT NULL DEFAULT '',
-			at TEXT NOT NULL
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_rewards_goal ON cp_rewards(goal_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_rewards_id ON cp_rewards(goal_id, id)`,
-		`CREATE TABLE IF NOT EXISTS cp_deliveries (
-			goal_id TEXT NOT NULL,
-			turn_id TEXT NOT NULL,
-			todo_id TEXT NOT NULL DEFAULT '',
-			outcome TEXT NOT NULL DEFAULT '',
-			slots INTEGER NOT NULL DEFAULT 1,
-			spent INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT NOT NULL,
-			PRIMARY KEY (goal_id, turn_id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_cp_deliveries_reap ON cp_deliveries(spent, created_at)`,
-	}
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			return fmt.Errorf("controlplane: init schema: %w", err)
-		}
-	}
-	return nil
+	return InitSchemaDialect(db, migration.DialectSQLite)
+}
+
+// InitSchemaDialect runs the control-plane migrations with an explicit SQL
+// dialect ("sqlite" or "postgres"). Use it when db is a Postgres connection.
+func InitSchemaDialect(db *sql.DB, dialect string) error {
+	return migration.Migrate(context.Background(), db, dialect, cpMigrations)
+}
+
+var cpMigrations = []migration.Migration{
+	{
+		ID: "0001_controlplane_base",
+		Up: []string{
+			`CREATE TABLE IF NOT EXISTS cp_goals (
+				id TEXT PRIMARY KEY,
+				owner_user_id TEXT NOT NULL DEFAULT '',
+				capability_id TEXT NOT NULL DEFAULT '',
+				objective TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '[]',
+				registered_agents TEXT NOT NULL DEFAULT '[]',
+				authority TEXT NOT NULL DEFAULT '[]',
+				state TEXT NOT NULL DEFAULT 'active',
+				current_todo_id TEXT NOT NULL DEFAULT '',
+				quota TEXT NOT NULL DEFAULT '{}',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_goals_owner ON cp_goals(owner_user_id)`,
+			`CREATE TABLE IF NOT EXISTS cp_todos (
+				id TEXT NOT NULL,
+				goal_id TEXT NOT NULL,
+				owner_user_id TEXT NOT NULL DEFAULT '',
+				description TEXT NOT NULL DEFAULT '',
+				task_class TEXT NOT NULL DEFAULT 'advancement_task',
+				stage_id TEXT NOT NULL DEFAULT '',
+				state TEXT NOT NULL DEFAULT 'open',
+				claimed_by TEXT NOT NULL DEFAULT '',
+				continuation TEXT NOT NULL DEFAULT '',
+				"order" INTEGER NOT NULL DEFAULT 0,
+				evidence_ids TEXT NOT NULL DEFAULT '[]',
+				evidence TEXT NOT NULL DEFAULT '[]',
+				supersedes TEXT NOT NULL DEFAULT '',
+				superseded_by TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY (goal_id, id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_todos_owner ON cp_todos(owner_user_id)`,
+			`CREATE TABLE IF NOT EXISTS cp_gates (
+				gate_id TEXT NOT NULL,
+				goal_id TEXT NOT NULL,
+				todo_id TEXT NOT NULL DEFAULT '',
+				question TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '{}',
+				fallback TEXT NOT NULL DEFAULT '',
+				outcome TEXT NOT NULL DEFAULT '',
+				resolvers TEXT NOT NULL DEFAULT '[]',
+				created_at TEXT NOT NULL,
+				resolved_at TEXT NOT NULL DEFAULT '',
+				PRIMARY KEY (goal_id, gate_id)
+			)`,
+			`CREATE TABLE IF NOT EXISTS cp_events (
+				seq INTEGER PRIMARY KEY AUTOINCREMENT,
+				goal_id TEXT NOT NULL,
+				kind TEXT NOT NULL DEFAULT '',
+				type TEXT NOT NULL DEFAULT '',
+				todo_id TEXT NOT NULL DEFAULT '',
+				turn_id TEXT NOT NULL DEFAULT '',
+				gate_id TEXT NOT NULL DEFAULT '',
+				outcome TEXT NOT NULL DEFAULT '',
+				detail TEXT NOT NULL DEFAULT '{}',
+				at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_events_goal ON cp_events(goal_id, seq)`,
+			`CREATE TABLE IF NOT EXISTS cp_spend (
+				seq INTEGER PRIMARY KEY AUTOINCREMENT,
+				goal_id TEXT NOT NULL,
+				turn_id TEXT NOT NULL DEFAULT '',
+				slots INTEGER NOT NULL DEFAULT 0,
+				reason TEXT NOT NULL DEFAULT '',
+				spent_at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_spend_goal ON cp_spend(goal_id, spent_at)`,
+			`CREATE TABLE IF NOT EXISTS cp_tickets (
+				goal_id TEXT NOT NULL,
+				turn_id TEXT NOT NULL,
+				token TEXT NOT NULL,
+				consumed INTEGER NOT NULL DEFAULT 0,
+				minted_at TEXT NOT NULL,
+				PRIMARY KEY (goal_id, turn_id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_tickets_reap ON cp_tickets(consumed, minted_at)`,
+			`CREATE TABLE IF NOT EXISTS cp_rewards (
+				id TEXT NOT NULL DEFAULT '',
+				goal_id TEXT NOT NULL,
+				class TEXT NOT NULL,
+				source TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '{}',
+				authority TEXT NOT NULL DEFAULT '',
+				confidence TEXT NOT NULL DEFAULT 'low',
+				lifecycle TEXT NOT NULL DEFAULT 'active',
+				content TEXT NOT NULL DEFAULT '',
+				at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_rewards_goal ON cp_rewards(goal_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_rewards_id ON cp_rewards(goal_id, id)`,
+			`CREATE TABLE IF NOT EXISTS cp_deliveries (
+				goal_id TEXT NOT NULL,
+				turn_id TEXT NOT NULL,
+				todo_id TEXT NOT NULL DEFAULT '',
+				outcome TEXT NOT NULL DEFAULT '',
+				slots INTEGER NOT NULL DEFAULT 1,
+				spent INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (goal_id, turn_id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_deliveries_reap ON cp_deliveries(spent, created_at)`,
+		},
+		UpPG: []string{
+			`CREATE TABLE IF NOT EXISTS cp_goals (
+				id TEXT PRIMARY KEY,
+				owner_user_id TEXT NOT NULL DEFAULT '',
+				capability_id TEXT NOT NULL DEFAULT '',
+				objective TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '[]',
+				registered_agents TEXT NOT NULL DEFAULT '[]',
+				authority TEXT NOT NULL DEFAULT '[]',
+				state TEXT NOT NULL DEFAULT 'active',
+				current_todo_id TEXT NOT NULL DEFAULT '',
+				quota TEXT NOT NULL DEFAULT '{}',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_goals_owner ON cp_goals(owner_user_id)`,
+			`CREATE TABLE IF NOT EXISTS cp_todos (
+				id TEXT NOT NULL,
+				goal_id TEXT NOT NULL,
+				owner_user_id TEXT NOT NULL DEFAULT '',
+				description TEXT NOT NULL DEFAULT '',
+				task_class TEXT NOT NULL DEFAULT 'advancement_task',
+				stage_id TEXT NOT NULL DEFAULT '',
+				state TEXT NOT NULL DEFAULT 'open',
+				claimed_by TEXT NOT NULL DEFAULT '',
+				continuation TEXT NOT NULL DEFAULT '',
+				"order" INTEGER NOT NULL DEFAULT 0,
+				evidence_ids TEXT NOT NULL DEFAULT '[]',
+				evidence TEXT NOT NULL DEFAULT '[]',
+				supersedes TEXT NOT NULL DEFAULT '',
+				superseded_by TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY (goal_id, id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_todos_owner ON cp_todos(owner_user_id)`,
+			`CREATE TABLE IF NOT EXISTS cp_gates (
+				gate_id TEXT NOT NULL,
+				goal_id TEXT NOT NULL,
+				todo_id TEXT NOT NULL DEFAULT '',
+				question TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '{}',
+				fallback TEXT NOT NULL DEFAULT '',
+				outcome TEXT NOT NULL DEFAULT '',
+				resolvers TEXT NOT NULL DEFAULT '[]',
+				created_at TEXT NOT NULL,
+				resolved_at TEXT NOT NULL DEFAULT '',
+				PRIMARY KEY (goal_id, gate_id)
+			)`,
+			`CREATE TABLE IF NOT EXISTS cp_events (
+				seq INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+				goal_id TEXT NOT NULL,
+				kind TEXT NOT NULL DEFAULT '',
+				type TEXT NOT NULL DEFAULT '',
+				todo_id TEXT NOT NULL DEFAULT '',
+				turn_id TEXT NOT NULL DEFAULT '',
+				gate_id TEXT NOT NULL DEFAULT '',
+				outcome TEXT NOT NULL DEFAULT '',
+				detail TEXT NOT NULL DEFAULT '{}',
+				at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_events_goal ON cp_events(goal_id, seq)`,
+			`CREATE TABLE IF NOT EXISTS cp_spend (
+				seq INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+				goal_id TEXT NOT NULL,
+				turn_id TEXT NOT NULL DEFAULT '',
+				slots INTEGER NOT NULL DEFAULT 0,
+				reason TEXT NOT NULL DEFAULT '',
+				spent_at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_spend_goal ON cp_spend(goal_id, spent_at)`,
+			`CREATE TABLE IF NOT EXISTS cp_tickets (
+				goal_id TEXT NOT NULL,
+				turn_id TEXT NOT NULL,
+				token TEXT NOT NULL,
+				consumed INTEGER NOT NULL DEFAULT 0,
+				minted_at TEXT NOT NULL,
+				PRIMARY KEY (goal_id, turn_id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_tickets_reap ON cp_tickets(consumed, minted_at)`,
+			`CREATE TABLE IF NOT EXISTS cp_rewards (
+				id TEXT NOT NULL DEFAULT '',
+				goal_id TEXT NOT NULL,
+				class TEXT NOT NULL,
+				source TEXT NOT NULL DEFAULT '',
+				scope TEXT NOT NULL DEFAULT '{}',
+				authority TEXT NOT NULL DEFAULT '',
+				confidence TEXT NOT NULL DEFAULT 'low',
+				lifecycle TEXT NOT NULL DEFAULT 'active',
+				content TEXT NOT NULL DEFAULT '',
+				at TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_rewards_goal ON cp_rewards(goal_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_rewards_id ON cp_rewards(goal_id, id)`,
+			`CREATE TABLE IF NOT EXISTS cp_deliveries (
+				goal_id TEXT NOT NULL,
+				turn_id TEXT NOT NULL,
+				todo_id TEXT NOT NULL DEFAULT '',
+				outcome TEXT NOT NULL DEFAULT '',
+				slots INTEGER NOT NULL DEFAULT 1,
+				spent INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (goal_id, turn_id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_cp_deliveries_reap ON cp_deliveries(spent, created_at)`,
+		},
+	},
 }
 
 // SQLStores bundles the five SQL-backed stores sharing one db. Build via

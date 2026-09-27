@@ -9,7 +9,6 @@
 - [ ] **16.2** 拆 `gateway/`：会话、知识库、团队、工作区子包；URL 不变；根包留 `Server` + `AppConfig`
 - [ ] **16.3** 可选 CostRouter：无配置时与现有 `Router` 相同；`RouteDecision` 进 tracing；默认关
 - [ ] **16.4** 治理热路径：绑定 Goal 的 session 自动 Writeback / Spend；未绑定零变化；失败不 spend
-- [ ] **16.5** `schema_migrations`：service 与 controlplane 共用；SQLite + Postgres 双绿
 
 ## P1 · v2.8 渠道与多副本
 

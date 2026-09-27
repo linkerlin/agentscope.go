@@ -182,4 +182,11 @@ func (b *RedisBus) LogRead(ctx context.Context, ns string, cursor int64, limit i
 	return out, cursor + int64(len(out)), nil
 }
 
+func (b *RedisBus) LogPurge(ctx context.Context, ns string) error {
+	if b.client == nil {
+		return ErrClosed
+	}
+	return b.client.Del(ctx, b.logKey(ns)).Err()
+}
+
 var _ CoordBus = (*RedisBus)(nil)

@@ -38,6 +38,8 @@ type CoordBus interface {
 	// plus the next cursor (== cursor+len(entries)). Use limit<=0 for a
 	// reasonable default.
 	LogRead(ctx context.Context, ns string, cursor int64, limit int) ([][]byte, int64, error)
+	// LogPurge removes every entry of the named log (session purge, 18.1).
+	LogPurge(ctx context.Context, ns string) error
 }
 
 // ErrNotFound is returned by registry lookups for missing keys.
@@ -297,6 +299,19 @@ func (b *LocalBus) LogRead(ctx context.Context, ns string, cursor int64, limit i
 		out = append(out, append([]byte(nil), entries[i]...))
 	}
 	return out, end, nil
+}
+
+func (b *LocalBus) LogPurge(ctx context.Context, ns string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return ErrClosed
+	}
+	delete(b.logs, ns)
+	return nil
 }
 
 var _ CoordBus = (*LocalBus)(nil)

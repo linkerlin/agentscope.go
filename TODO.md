@@ -10,11 +10,10 @@
 
 ## P1 · v2.8 渠道与多副本
 
-先 18.1、18.2，再渠道。Webhook / Discord / 飞书 Webhook 已有。
+先 18.2、16.2，再渠道。Webhook / Discord / 飞书 Webhook 已有。
 
-- [ ] **18.1** 会话协调：`SessionRun` 锁、事件日志、cancel、purge、`BgTask` 注册表
-- [ ] **16.2** 拆 `gateway/`（排在 18.1 之后、18.5 长连接 worker 之前）：按 18.1 落定后的切割面分注册函数化的子包；外部 URL 不变；根包留 `Server` + `AppConfig`；知识库注册函数化已完成，是其余簇的样板
-- [ ] **18.2** `GET /sessions/{id}/status`：running / parked / idle / unknown
+- [ ] **18.2** `GET /sessions/{id}/status`：running / parked / idle / unknown（数据面：SessionCoordinator 的 registry 标记 + BgTask 注册表已就绪）
+- [ ] **16.2** 拆 `gateway/`（18.1 已完成，排在 18.5 长连接 worker 之前）：按会话协调落定后的切割面分注册函数化的子包；外部 URL 不变；根包留 `Server` + `AppConfig`；知识库注册函数化已完成（`gateway/kbapi`），是其余簇的样板
 - [ ] **18.3** 钉钉：OpenAPI、流式卡片、卡片回调 → HITL、wiki 工具
 - [ ] **18.4** 凭证绑定状态机，状态放 message bus，多副本可恢复
 - [ ] **18.5** 长连接 worker：与 API 副本分离、对账、心跳、断连重连

@@ -42,7 +42,13 @@ func (m *smMockAgent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan
 	go func() {
 		defer close(ch)
 		if m.delay > 0 {
-			time.Sleep(m.delay)
+			// Cancel-aware delay: a real backend aborts the turn when its
+			// context is cancelled mid-generation.
+			select {
+			case <-time.After(m.delay):
+			case <-ctx.Done():
+				return
+			}
 		}
 		for _, ev := range m.events {
 			select {

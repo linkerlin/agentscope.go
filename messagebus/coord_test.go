@@ -160,6 +160,26 @@ func TestLocalCoord_Log(t *testing.T) {
 	}
 }
 
+func TestLocalCoord_LogPurge(t *testing.T) {
+	b := NewLocalBus()
+	ctx := context.Background()
+	_, _ = b.LogAppend(ctx, "purge-me", []byte("a"))
+	_, _ = b.LogAppend(ctx, "purge-me", []byte("b"))
+	if err := b.LogPurge(ctx, "purge-me"); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	entries, next, _ := b.LogRead(ctx, "purge-me", 0, 10)
+	if len(entries) != 0 || next != 0 {
+		t.Fatalf("expected empty log after purge, got %v %d", entries, next)
+	}
+	// Other logs are untouched.
+	_, _ = b.LogAppend(ctx, "keep", []byte("k"))
+	entries, _, _ = b.LogRead(ctx, "keep", 0, 10)
+	if len(entries) != 1 {
+		t.Fatalf("sibling log lost: %v", entries)
+	}
+}
+
 func TestLocalCoord_LogReadEmpty(t *testing.T) {
 	b := NewLocalBus()
 	entries, next, _ := b.LogRead(context.Background(), "nope", 0, 10)

@@ -44,5 +44,31 @@ func (CoordKeys) ProjectionNS(targetSessionID string) string {
 	return "as:projection:" + targetSessionID
 }
 
+// --- Session coordination (18.1) ---
+
+// SessionRunLockKey returns the distributed lock key guarding a session's
+// running turn: at most one replica executes a session at a time.
+func (CoordKeys) SessionRunLockKey(sessionID string) string {
+	return CoordKeys{}.LockKey("session-run:" + sessionID)
+}
+
+// SessionRunRegistryNS returns the registry namespace holding one entry per
+// currently-running session (value: coordinator metadata JSON).
+func (CoordKeys) SessionRunRegistryNS() string {
+	return CoordKeys{}.RegistryNS("session-run")
+}
+
+// SessionEventLogNS returns the append-log namespace for a session's turn
+// events, enabling replay from any replica.
+func (CoordKeys) SessionEventLogNS(sessionID string) string {
+	return CoordKeys{}.LogNS("session-events:" + sessionID)
+}
+
+// SessionCancelChannel returns the bus pub/sub channel used to request a
+// running session's cancellation from any replica.
+func (CoordKeys) SessionCancelChannel(sessionID string) string {
+	return "as:cancel:session:" + sessionID
+}
+
 // Default CoordKeys instance for convenience.
 var Keys = CoordKeys{}

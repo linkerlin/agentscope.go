@@ -124,6 +124,20 @@ func TestRedisCoord_Log(t *testing.T) {
 	}
 }
 
+func TestRedisCoord_LogPurge(t *testing.T) {
+	bus, _ := miniredisBus(t)
+	ctx := context.Background()
+	_, _ = bus.LogAppend(ctx, "audit", []byte("x"))
+	_, _ = bus.LogAppend(ctx, "audit", []byte("y"))
+	if err := bus.LogPurge(ctx, "audit"); err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	entries, next, _ := bus.LogRead(ctx, "audit", 0, 10)
+	if len(entries) != 0 || next != 0 {
+		t.Fatalf("expected empty log after purge, got %v %d", entries, next)
+	}
+}
+
 func TestRedisCoord_AsCoordBus(t *testing.T) {
 	bus, _ := miniredisBus(t)
 	if messagebus.AsCoordBus(bus) == nil {

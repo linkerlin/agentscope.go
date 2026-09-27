@@ -1,4 +1,4 @@
-package gateway
+package kbapi
 
 import (
 	"encoding/json"
@@ -7,59 +7,43 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/linkerlin/agentscope.go/rag/blob"
-	"github.com/linkerlin/agentscope.go/rag/chunker"
 	"github.com/linkerlin/agentscope.go/rag/index"
 	"github.com/linkerlin/agentscope.go/rag/kb"
-	"github.com/linkerlin/agentscope.go/rag/parser"
 )
 
-// KBService bundles the components needed to serve the knowledge-base HTTP
-// API: a KB manager, blob store, parser registry, chunker, and a pipeline
-// worker. Attach it to a Server via WithKBService, then call RegisterKBRoutes.
-type KBService struct {
-	Manager *kb.KBManager
-	Blob    blob.BlobStore
-	Parsers *parser.Registry
-	Chunker chunker.Chunker
-	Worker  *index.Worker
-	// NewParserRegistry returns a fresh registry when an upload needs custom
-	// parser routing (e.g. per-tenant parsers). Defaults to Parsers if nil.
+// Handlers carries the narrow dependency surface of the KB HTTP API: only the
+// KBService. Register mounts every route; the gateway root passes its mux and
+// auth wrapper in, which keeps URL decisions in one place while the handler
+// logic stays independently testable.
+type Handlers struct {
+	Svc *KBService
 }
 
-// NewKBService builds a KBService from the core components, auto-creating the
-// pipeline Worker.
-func NewKBService(mgr *kb.KBManager, bs blob.BlobStore, parsers *parser.Registry, ch chunker.Chunker) *KBService {
-	svc := &KBService{Manager: mgr, Blob: bs, Parsers: parsers, Chunker: ch}
-	svc.Worker = &index.Worker{Blob: bs, Parsers: parsers, Chunker: ch, Manager: mgr}
-	return svc
-}
+// NewHandlers builds the KB handlers for one attached service.
+func NewHandlers(svc *KBService) *Handlers { return &Handlers{Svc: svc} }
 
-// WithKBService attaches a knowledge-base service for KB HTTP endpoints.
-func (s *Server) WithKBService(svc *KBService) *Server {
-	s.kbService = svc
-	return s
-}
+// AuthWrapper wraps a handler with the caller's authentication middleware.
+// Pass nil in Register to skip authentication (tests).
+type AuthWrapper func(http.HandlerFunc) http.HandlerFunc
 
-// RegisterKBRoutes registers the knowledge-base CRUD + upload + search routes.
-// No-op if no KBService is attached.
-func (s *Server) RegisterKBRoutes() {
-	svc := s.kbService
-	if svc == nil {
-		return
+// Register mounts the knowledge-base CRUD + upload + search routes on mux.
+func (h *Handlers) Register(mux *http.ServeMux, auth AuthWrapper) {
+	wrap := auth
+	if wrap == nil {
+		wrap = func(h http.HandlerFunc) http.HandlerFunc { return h }
 	}
-	mux := s.mux
-	mux.HandleFunc("GET /api/v1/knowledge-bases", s.requireAuth(s.handleListKnowledgeBases))
-	mux.HandleFunc("POST /api/v1/knowledge-bases", s.requireAuth(s.handleCreateKnowledgeBase))
-	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}", s.requireAuth(s.handleGetKnowledgeBase))
-	mux.HandleFunc("DELETE /api/v1/knowledge-bases/{id}", s.requireAuth(s.handleDeleteKnowledgeBase))
-	mux.HandleFunc("POST /api/v1/knowledge-bases/{id}/documents", s.requireAuth(s.handleUploadDocument))
-	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents", s.requireAuth(s.handleListDocuments))
-	mux.HandleFunc("DELETE /api/v1/knowledge-bases/{id}/documents/{doc_id}", s.requireAuth(s.handleDeleteDocument))
-	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents/{doc_id}/chunks", s.requireAuth(s.handleListDocChunks))
-	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents/{doc_id}/raw", s.requireAuth(s.handleRawDocument))
-	mux.HandleFunc("POST /api/v1/knowledge-bases/{id}/search", s.requireAuth(s.handleSearchKnowledgeBase))
+	mux.HandleFunc("GET /api/v1/knowledge-bases", wrap(h.listKnowledgeBases))
+	mux.HandleFunc("POST /api/v1/knowledge-bases", wrap(h.createKnowledgeBase))
+	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}", wrap(h.getKnowledgeBase))
+	mux.HandleFunc("DELETE /api/v1/knowledge-bases/{id}", wrap(h.deleteKnowledgeBase))
+	mux.HandleFunc("POST /api/v1/knowledge-bases/{id}/documents", wrap(h.uploadDocument))
+	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents", wrap(h.listDocuments))
+	mux.HandleFunc("DELETE /api/v1/knowledge-bases/{id}/documents/{doc_id}", wrap(h.deleteDocument))
+	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents/{doc_id}/chunks", wrap(h.listDocChunks))
+	mux.HandleFunc("GET /api/v1/knowledge-bases/{id}/documents/{doc_id}/raw", wrap(h.rawDocument))
+	mux.HandleFunc("POST /api/v1/knowledge-bases/{id}/search", wrap(h.searchKnowledgeBase))
 }
 
 // --- request / response types ---
@@ -86,8 +70,8 @@ type searchResultItem struct {
 
 // --- handlers ---
 
-func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request) {
-	specs := s.kbService.Manager.List(r.Context())
+func (h *Handlers) listKnowledgeBases(w http.ResponseWriter, r *http.Request) {
+	specs := h.Svc.Manager.List(r.Context())
 	// ponytail: per-KB ListDocuments aggregate is O(records); fine for the
 	// in-memory store — move into the manager when remote backends arrive.
 	type kbSummary struct {
@@ -98,8 +82,8 @@ func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request
 	out := make([]kbSummary, 0, len(specs))
 	for _, spec := range specs {
 		sum := kbSummary{Spec: spec}
-		if h, err := s.kbService.Manager.Get(r.Context(), spec.Name); err == nil {
-			if docs, err := h.ListDocuments(r.Context()); err == nil {
+		if handle, err := h.Svc.Manager.Get(r.Context(), spec.Name); err == nil {
+			if docs, err := handle.ListDocuments(r.Context()); err == nil {
 				sum.Documents = len(docs)
 				for _, d := range docs {
 					sum.Chunks += d.Chunks
@@ -111,7 +95,7 @@ func (s *Server) handleListKnowledgeBases(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"knowledge_bases": out})
 }
 
-func (s *Server) handleCreateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	var req createKBRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -127,40 +111,40 @@ func (s *Server) handleCreateKnowledgeBase(w http.ResponseWriter, r *http.Reques
 		EmbedderID:  req.EmbedderID,
 		Filter:      req.Filter,
 	}
-	if err := s.kbService.Manager.Create(r.Context(), spec); err != nil {
+	if err := h.Svc.Manager.Create(r.Context(), spec); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	writeJSON(w, http.StatusCreated, spec)
 }
 
-func (s *Server) handleGetKnowledgeBase(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) getKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("id")
-	h, err := s.kbService.Manager.Get(r.Context(), name)
+	handle, err := h.Svc.Manager.Get(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	docs, _ := h.ListDocuments(r.Context())
+	docs, _ := handle.ListDocuments(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"name":        h.Name,
-		"description": h.Description,
+		"name":        handle.Name,
+		"description": handle.Description,
 		"documents":   docs,
 	})
 }
 
-func (s *Server) handleDeleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) deleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("id")
-	if err := s.kbService.Manager.Delete(r.Context(), name); err != nil {
+	if err := h.Svc.Manager.Delete(r.Context(), name); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("id")
-	h, err := s.kbService.Manager.Get(r.Context(), name)
+	handle, err := h.Svc.Manager.Get(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -174,7 +158,7 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	blobKey := fmt.Sprintf("%s/%s", name, docID)
-	uri, err := s.kbService.Blob.Put(ctx, blobKey, strings.NewReader(string(data)))
+	uri, err := h.Svc.Blob.Put(ctx, blobKey, strings.NewReader(string(data)))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("blob put failed: %v", err), http.StatusInternalServerError)
 		return
@@ -188,8 +172,8 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 		Source:    source,
 	}
 	var status index.Status
-	s.kbService.Worker.OnStatus = func(s2 index.Status) { status = s2 }
-	if err := s.kbService.Worker.Process(ctx, task); err != nil {
+	h.Svc.Worker.OnStatus = func(s2 index.Status) { status = s2 }
+	if err := h.Svc.Worker.Process(ctx, task); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"doc_id": docID, "error": err.Error(),
 		})
@@ -200,18 +184,18 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 		"source":   source,
 		"chunks":   status.Chunks,
 		"kb_name":  name,
-		"document": h, //nolint — keep handle in response for traceability
+		"document": handle, //nolint — keep handle in response for traceability
 	})
 }
 
-func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) listDocuments(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("id")
-	h, err := s.kbService.Manager.Get(r.Context(), name)
+	handle, err := h.Svc.Manager.Get(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	docs, err := h.ListDocuments(r.Context())
+	docs, err := handle.ListDocuments(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -219,15 +203,15 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"documents": docs})
 }
 
-// handleListDocChunks returns every indexed chunk of one document (no
-// vectors), ordered by chunk index.
-func (s *Server) handleListDocChunks(w http.ResponseWriter, r *http.Request) {
-	h, err := s.kbService.Manager.Get(r.Context(), r.PathValue("id"))
+// listDocChunks returns every indexed chunk of one document (no vectors),
+// ordered by chunk index.
+func (h *Handlers) listDocChunks(w http.ResponseWriter, r *http.Request) {
+	handle, err := h.Svc.Manager.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	recs, err := h.ListChunks(r.Context(), r.PathValue("doc_id"))
+	recs, err := handle.ListChunks(r.Context(), r.PathValue("doc_id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -238,16 +222,16 @@ func (s *Server) handleListDocChunks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"chunks": recs})
 }
 
-// handleRawDocument streams the original uploaded bytes of a document from
-// the blob store (addressed via the blob_uri tagged on its chunks).
-func (s *Server) handleRawDocument(w http.ResponseWriter, r *http.Request) {
-	h, err := s.kbService.Manager.Get(r.Context(), r.PathValue("id"))
+// rawDocument streams the original uploaded bytes of a document from the blob
+// store (addressed via the blob_uri tagged on its chunks).
+func (h *Handlers) rawDocument(w http.ResponseWriter, r *http.Request) {
+	handle, err := h.Svc.Manager.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	docID := r.PathValue("doc_id")
-	recs, err := h.ListChunks(r.Context(), docID)
+	recs, err := handle.ListChunks(r.Context(), docID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -260,7 +244,7 @@ func (s *Server) handleRawDocument(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no raw blob recorded for document "+docID, http.StatusNotFound)
 		return
 	}
-	rc, err := s.kbService.Blob.Get(r.Context(), blobURI)
+	rc, err := h.Svc.Blob.Get(r.Context(), blobURI)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -278,24 +262,24 @@ func (s *Server) handleRawDocument(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("id")
 	docID := r.PathValue("doc_id")
-	h, err := s.kbService.Manager.Get(r.Context(), name)
+	handle, err := h.Svc.Manager.Get(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if err := h.DeleteDocument(r.Context(), docID); err != nil {
+	if err := handle.DeleteDocument(r.Context(), docID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleSearchKnowledgeBase(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) searchKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("id")
-	h, err := s.kbService.Manager.Get(r.Context(), name)
+	handle, err := h.Svc.Manager.Get(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -309,7 +293,7 @@ func (s *Server) handleSearchKnowledgeBase(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "query is required", http.StatusBadRequest)
 		return
 	}
-	results, err := h.Search(r.Context(), req.Query, req.TopK)
+	results, err := handle.Search(r.Context(), req.Query, req.TopK)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -326,10 +310,16 @@ func (s *Server) handleSearchKnowledgeBase(w http.ResponseWriter, r *http.Reques
 
 // --- helpers ---
 
+// newDocID mints a unique document id (same shape as the gateway root's
+// generateID, kept local so this package has no gateway dependency).
+func newDocID() string {
+	return fmt.Sprintf("doc-%d", time.Now().UnixNano())
+}
+
 // readUpload extracts document bytes from either a multipart/form-data upload
 // or a JSON body. Returns (docID, mediaType, source, data, err).
 func readUpload(r *http.Request) (string, string, string, []byte, error) {
-	docID := generateID("doc")
+	docID := newDocID()
 	if err := r.ParseMultipartForm(32 << 20); err == nil {
 		// multipart: read the "file" field
 		if f, hdr, err := r.FormFile("file"); err == nil {

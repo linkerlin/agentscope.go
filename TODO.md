@@ -6,13 +6,14 @@
 
 ## P0 · v2.6.x 架构内债
 
-- [ ] **16.2** 拆 `gateway/`：会话、知识库、团队、工作区子包；URL 不变；根包留 `Server` + `AppConfig`
+（已清空：16.1 / 16.3–16.6 / 16.8 / 17.6 完成；16.2 经评估不属结构故障，挪至 P1 的 18.1 之后——gateway 是叶子包，无导入环，多文件成本是阅读与整包编译的日常摩擦；真正的切割面等 18.1 会话协调 API 长出后再定。）
 
 ## P1 · v2.8 渠道与多副本
 
 先 18.1、18.2，再渠道。Webhook / Discord / 飞书 Webhook 已有。
 
 - [ ] **18.1** 会话协调：`SessionRun` 锁、事件日志、cancel、purge、`BgTask` 注册表
+- [ ] **16.2** 拆 `gateway/`（排在 18.1 之后、18.5 长连接 worker 之前）：按 18.1 落定后的切割面分注册函数化的子包；外部 URL 不变；根包留 `Server` + `AppConfig`；知识库注册函数化已完成，是其余簇的样板
 - [ ] **18.2** `GET /sessions/{id}/status`：running / parked / idle / unknown
 - [ ] **18.3** 钉钉：OpenAPI、流式卡片、卡片回调 → HITL、wiki 工具
 - [ ] **18.4** 凭证绑定状态机，状态放 message bus，多副本可恢复

@@ -1,4 +1,4 @@
-package gateway
+package kbapi
 
 import (
 	"encoding/json"
@@ -22,9 +22,9 @@ func metaIndex(v any) int {
 }
 
 // uploadDoc uploads one text document into a KB and fails the test on error.
-func uploadDoc(t *testing.T, srv *Server, kbName, docID, content string) {
+func uploadDoc(t *testing.T, mux *http.ServeMux, kbName, docID, content string) {
 	t.Helper()
-	w := doRequest(t, srv, "POST", "/api/v1/knowledge-bases/"+kbName+"/documents",
+	w := doRequest(t, mux, "POST", "/api/v1/knowledge-bases/"+kbName+"/documents",
 		map[string]any{"doc_id": docID, "content": content, "media_type": "text/plain", "source": docID + ".txt"})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("upload %s: got %d %s", docID, w.Code, w.Body.String())
@@ -32,13 +32,13 @@ func uploadDoc(t *testing.T, srv *Server, kbName, docID, content string) {
 }
 
 func TestKB_ListDocChunks(t *testing.T) {
-	srv := newTestKBServer(t)
-	doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs", EmbedderID: "stub"})
+	mux := newTestKBMux(t)
+	doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs", EmbedderID: "stub"})
 	// Long enough for the approx-token chunker to split into several chunks.
 	content := strings.Repeat("the quick brown fox jumps over the lazy dog. ", 120)
-	uploadDoc(t, srv, "docs", "d1", content)
+	uploadDoc(t, mux, "docs", "d1", content)
 
-	w := doRequest(t, srv, "GET", "/api/v1/knowledge-bases/docs/documents/d1/chunks", nil)
+	w := doRequest(t, mux, "GET", "/api/v1/knowledge-bases/docs/documents/d1/chunks", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("chunks: got %d %s", w.Code, w.Body.String())
 	}
@@ -65,23 +65,23 @@ func TestKB_ListDocChunks(t *testing.T) {
 	}
 
 	// Unknown doc -> empty list (200), unknown KB -> 404.
-	w = doRequest(t, srv, "GET", "/api/v1/knowledge-bases/docs/documents/nope/chunks", nil)
+	w = doRequest(t, mux, "GET", "/api/v1/knowledge-bases/docs/documents/nope/chunks", nil)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"chunks":[]`) {
 		t.Fatalf("unknown doc: got %d %s", w.Code, w.Body.String())
 	}
-	w = doRequest(t, srv, "GET", "/api/v1/knowledge-bases/missing/documents/d1/chunks", nil)
+	w = doRequest(t, mux, "GET", "/api/v1/knowledge-bases/missing/documents/d1/chunks", nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("unknown kb: got %d", w.Code)
 	}
 }
 
 func TestKB_RawDocument(t *testing.T) {
-	srv := newTestKBServer(t)
-	doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs", EmbedderID: "stub"})
+	mux := newTestKBMux(t)
+	doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs", EmbedderID: "stub"})
 	content := "raw bytes of the document"
-	uploadDoc(t, srv, "docs", "d1", content)
+	uploadDoc(t, mux, "docs", "d1", content)
 
-	w := doRequest(t, srv, "GET", "/api/v1/knowledge-bases/docs/documents/d1/raw", nil)
+	w := doRequest(t, mux, "GET", "/api/v1/knowledge-bases/docs/documents/d1/raw", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("raw: got %d %s", w.Code, w.Body.String())
 	}
@@ -93,20 +93,20 @@ func TestKB_RawDocument(t *testing.T) {
 	}
 
 	// Unknown doc -> 404.
-	w = doRequest(t, srv, "GET", "/api/v1/knowledge-bases/docs/documents/nope/raw", nil)
+	w = doRequest(t, mux, "GET", "/api/v1/knowledge-bases/docs/documents/nope/raw", nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("unknown doc raw: got %d", w.Code)
 	}
 }
 
 func TestKB_ListEnrichedWithCounts(t *testing.T) {
-	srv := newTestKBServer(t)
-	doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs", EmbedderID: "stub"})
+	mux := newTestKBMux(t)
+	doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs", EmbedderID: "stub"})
 	content := strings.Repeat("alpha beta gamma delta. ", 100)
-	uploadDoc(t, srv, "docs", "d1", content)
-	uploadDoc(t, srv, "docs", "d2", content)
+	uploadDoc(t, mux, "docs", "d1", content)
+	uploadDoc(t, mux, "docs", "d2", content)
 
-	w := doRequest(t, srv, "GET", "/api/v1/knowledge-bases", nil)
+	w := doRequest(t, mux, "GET", "/api/v1/knowledge-bases", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list: got %d", w.Code)
 	}

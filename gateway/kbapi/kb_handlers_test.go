@@ -1,4 +1,4 @@
-package gateway
+package kbapi
 
 import (
 	"bytes"
@@ -28,7 +28,10 @@ func (stubKHEmbedder) Embed(ctx context.Context, text string) ([]float32, error)
 	return v, nil
 }
 
-func newTestKBServer(t *testing.T) *Server {
+// newTestKBMux exercises the pattern-validation property of this package: the
+// handlers register on a bare mux with a pass-through auth wrapper — no
+// gateway Server involved.
+func newTestKBMux(t *testing.T) *http.ServeMux {
 	t.Helper()
 	bs, err := blob.NewLocalBlobStore(t.TempDir())
 	if err != nil {
@@ -40,13 +43,12 @@ func newTestKBServer(t *testing.T) *Server {
 		return stubKHEmbedder{}, nil
 	})
 	svc := NewKBService(mgr, bs, reg, ch)
-	srv := NewServer(&mockAgent{})
-	srv.WithKBService(svc)
-	srv.RegisterKBRoutes()
-	return srv
+	mux := http.NewServeMux()
+	NewHandlers(svc).Register(mux, nil)
+	return mux
 }
 
-func doRequest(t *testing.T, srv *Server, method, path string, body any) *httptest.ResponseRecorder {
+func doRequest(t *testing.T, mux *http.ServeMux, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var r io.Reader
 	if body != nil {
@@ -62,15 +64,15 @@ func doRequest(t *testing.T, srv *Server, method, path string, body any) *httpte
 		req.Header.Set("Content-Type", "application/json")
 	}
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	mux.ServeHTTP(w, req)
 	return w
 }
 
 func TestKB_CreateListDelete(t *testing.T) {
-	srv := newTestKBServer(t)
+	mux := newTestKBMux(t)
 
 	// Create
-	w := doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{
+	w := doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{
 		Name: "docs", Description: "test", EmbedderID: "stub",
 	})
 	if w.Code != http.StatusCreated {
@@ -78,13 +80,13 @@ func TestKB_CreateListDelete(t *testing.T) {
 	}
 
 	// Duplicate -> 409
-	w = doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs"})
+	w = doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "docs"})
 	if w.Code != http.StatusConflict {
 		t.Fatalf("duplicate: got %d", w.Code)
 	}
 
 	// List
-	w = doRequest(t, srv, "GET", "/api/v1/knowledge-bases", nil)
+	w = doRequest(t, mux, "GET", "/api/v1/knowledge-bases", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list: got %d", w.Code)
 	}
@@ -97,23 +99,23 @@ func TestKB_CreateListDelete(t *testing.T) {
 	}
 
 	// Delete
-	w = doRequest(t, srv, "DELETE", "/api/v1/knowledge-bases/docs", nil)
+	w = doRequest(t, mux, "DELETE", "/api/v1/knowledge-bases/docs", nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete: got %d", w.Code)
 	}
 	// Delete missing -> 404
-	w = doRequest(t, srv, "DELETE", "/api/v1/knowledge-bases/docs", nil)
+	w = doRequest(t, mux, "DELETE", "/api/v1/knowledge-bases/docs", nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("delete missing: got %d", w.Code)
 	}
 }
 
 func TestKB_UploadSearchDeleteDoc(t *testing.T) {
-	srv := newTestKBServer(t)
-	doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "kb1", EmbedderID: "s"})
+	mux := newTestKBMux(t)
+	doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "kb1", EmbedderID: "s"})
 
 	// Upload via JSON
-	w := doRequest(t, srv, "POST", "/api/v1/knowledge-bases/kb1/documents", map[string]any{
+	w := doRequest(t, mux, "POST", "/api/v1/knowledge-bases/kb1/documents", map[string]any{
 		"content":    "The PTO policy grants 15 days per year.",
 		"media_type": "text/plain",
 		"source":     "pto.txt",
@@ -131,7 +133,7 @@ func TestKB_UploadSearchDeleteDoc(t *testing.T) {
 	}
 
 	// Search
-	w = doRequest(t, srv, "POST", "/api/v1/knowledge-bases/kb1/search", searchKBRequest{Query: "PTO policy"})
+	w = doRequest(t, mux, "POST", "/api/v1/knowledge-bases/kb1/search", searchKBRequest{Query: "PTO policy"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("search: got %d %s", w.Code, w.Body.String())
 	}
@@ -147,21 +149,21 @@ func TestKB_UploadSearchDeleteDoc(t *testing.T) {
 	}
 
 	// List docs
-	w = doRequest(t, srv, "GET", "/api/v1/knowledge-bases/kb1/documents", nil)
+	w = doRequest(t, mux, "GET", "/api/v1/knowledge-bases/kb1/documents", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list docs: got %d", w.Code)
 	}
 
 	// Delete doc
-	w = doRequest(t, srv, "DELETE", "/api/v1/knowledge-bases/kb1/documents/"+upResp.DocID, nil)
+	w = doRequest(t, mux, "DELETE", "/api/v1/knowledge-bases/kb1/documents/"+upResp.DocID, nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete doc: got %d", w.Code)
 	}
 }
 
 func TestKB_UploadMultipart(t *testing.T) {
-	srv := newTestKBServer(t)
-	doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "kb2", EmbedderID: "s"})
+	mux := newTestKBMux(t)
+	doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "kb2", EmbedderID: "s"})
 
 	body := &bytes.Buffer{}
 	mw := multipart.NewWriter(body)
@@ -172,24 +174,24 @@ func TestKB_UploadMultipart(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/v1/knowledge-bases/kb2/documents", body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	mux.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("multipart upload: got %d %s", w.Code, w.Body.String())
 	}
 }
 
 func TestKB_SearchMissingKB(t *testing.T) {
-	srv := newTestKBServer(t)
-	w := doRequest(t, srv, "POST", "/api/v1/knowledge-bases/ghost/search", searchKBRequest{Query: "x"})
+	mux := newTestKBMux(t)
+	w := doRequest(t, mux, "POST", "/api/v1/knowledge-bases/ghost/search", searchKBRequest{Query: "x"})
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }
 
 func TestKB_SearchEmptyQuery(t *testing.T) {
-	srv := newTestKBServer(t)
-	doRequest(t, srv, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "kb3", EmbedderID: "s"})
-	w := doRequest(t, srv, "POST", "/api/v1/knowledge-bases/kb3/search", searchKBRequest{Query: ""})
+	mux := newTestKBMux(t)
+	doRequest(t, mux, "POST", "/api/v1/knowledge-bases", createKBRequest{Name: "kb3", EmbedderID: "s"})
+	w := doRequest(t, mux, "POST", "/api/v1/knowledge-bases/kb3/search", searchKBRequest{Query: ""})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty query, got %d", w.Code)
 	}

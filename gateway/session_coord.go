@@ -12,6 +12,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
+	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
 )
@@ -48,7 +49,8 @@ type SessionCoordinator struct {
 
 // ErrSessionBusy is returned by Run when another replica currently holds the
 // session's run lock. Callers typically map it to HTTP 409 Conflict.
-var ErrSessionBusy = errors.New("session coordinator: session already running on another replica")
+// Defined in sessionapi (the HTTP face maps it); aliased here.
+var ErrSessionBusy = sessionapi.ErrSessionBusy
 
 // DefaultSessionLockTTL guards against a crashed replica holding the lock
 // forever. Normal completion releases the lock explicitly; the TTL only
@@ -257,19 +259,20 @@ func (c *SessionCoordinator) IsActive(sessionID string) bool { return c.sm.IsAct
 
 // --- Status (18.2) ---
 
-// SessionStatus is the observable lifecycle state of a session.
-type SessionStatus string
+// SessionStatus and its states live in gateway/sessionapi (the session HTTP
+// face owns the wire vocabulary); aliases keep the root's public surface.
+type SessionStatus = sessionapi.SessionStatus
 
 const (
 	// StatusRunning: a turn is executing on this or another replica.
-	StatusRunning SessionStatus = "running"
+	StatusRunning = sessionapi.StatusRunning
 	// StatusParked: the session is suspended awaiting a human-in-the-loop
 	// decision (tool confirmation or external execution).
-	StatusParked SessionStatus = "parked"
+	StatusParked = sessionapi.StatusParked
 	// StatusIdle: the session has history but nothing is running or parked.
-	StatusIdle SessionStatus = "idle"
+	StatusIdle = sessionapi.StatusIdle
 	// StatusUnknown: no record of this session anywhere.
-	StatusUnknown SessionStatus = "unknown"
+	StatusUnknown = sessionapi.StatusUnknown
 )
 
 // Status resolves the session's lifecycle state (18.2). Running wins over

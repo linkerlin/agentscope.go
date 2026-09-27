@@ -1,4 +1,4 @@
-package gateway
+package sessionapi
 
 import (
 	"encoding/json"
@@ -18,13 +18,13 @@ type resumeRequest struct {
 	Decisions []event.ConfirmDecision `json:"decisions"`
 }
 
-func (s *Server) handleV2Resume(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handleV2Resume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	v2, ok := s.agent.(agent.V2Agent)
+	v2, ok := h.d.Agent.(agent.V2Agent)
 	if !ok {
 		http.Error(w, "agent does not support V2 streaming", http.StatusNotImplemented)
 		return
@@ -45,15 +45,26 @@ func (s *Server) handleV2Resume(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "confirm_id is required", http.StatusBadRequest)
 		return
 	}
+	if !h.checkSessionAccess(w, r, req.SessionID) {
+		return
+	}
 
 	ctx := r.Context()
-	if err := s.sessionState.Resume(ctx, req.SessionID, v2,
-		event.NewUserConfirmResult(req.ReplyID, req.ConfirmID, req.Decisions)); err != nil {
-		if errors.Is(err, ErrStorageNotAvailable) {
+	// nil State (no storage) keeps the old nil-receiver semantics: in-memory
+	// resume via InjectEvent.
+	var resumeErr error
+	if h.d.State != nil {
+		resumeErr = h.d.State.Resume(ctx, req.SessionID, v2,
+			event.NewUserConfirmResult(req.ReplyID, req.ConfirmID, req.Decisions))
+	} else {
+		resumeErr = v2.InjectEvent(ctx, event.NewUserConfirmResult(req.ReplyID, req.ConfirmID, req.Decisions))
+	}
+	if resumeErr != nil {
+		if errors.Is(resumeErr, ErrStorageNotAvailable) {
 			http.Error(w, "session state persistence not available", http.StatusServiceUnavailable)
 			return
 		}
-		http.Error(w, fmt.Sprintf("resume failed: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("resume failed: %v", resumeErr), http.StatusInternalServerError)
 		return
 	}
 

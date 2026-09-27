@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 
 	agentscope "github.com/linkerlin/agentscope.go"
 	"github.com/linkerlin/agentscope.go/agent"
@@ -36,37 +36,10 @@ type streamEvent struct {
 	Done  bool   `json:"done"`
 }
 
-// wsSession wraps a WebSocket connection with safe concurrent writes.
-type wsSession struct {
-	id       string
-	room     string
-	conn     *websocket.Conn
-	writeMu  sync.Mutex
-	lastPing time.Time
-}
-
-func (s *wsSession) writeJSON(v interface{}) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return s.conn.WriteJSON(v)
-}
-
-func (s *wsSession) writeControl(messageType int, data []byte, deadline time.Time) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return s.conn.WriteControl(messageType, data, deadline)
-}
-
-func (s *wsSession) close() {
-	s.writeMu.Lock()
-	_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-	s.writeMu.Unlock()
-	s.conn.Close()
-}
-
 // Server exposes an agent over HTTP with REST, SSE, and WebSocket endpoints.
-// It also supports session-based connection tracking and room broadcasting.
-// When an authenticator is configured, V2 routes require authentication.
+// It also supports session-based connection tracking and room broadcasting
+// (via the sessionapi handlers). When an authenticator is configured, V2
+// routes require authentication.
 type Server struct {
 	agent         agent.Agent
 	mux           *http.ServeMux
@@ -75,8 +48,6 @@ type Server struct {
 	sessionState  *SessionStateManager
 	cipher        *service.Cipher
 	otelHandler   http.Handler
-	sessions      map[string]*wsSession
-	rooms         map[string]map[string]*wsSession
 	mu            sync.RWMutex
 
 	// Multi-agent & session management (V2 service layer)
@@ -96,6 +67,11 @@ type Server struct {
 	// wakeupDispatcher drains team inboxes and re-runs idle worker sessions.
 	// Auto-started in Start() when the bus implements TeamBus.
 	wakeupDispatcher *WakeupDispatcher
+
+	// session HTTP face (16.2): lazily-built sessionapi handlers bridging
+	// the Server wiring; see sessionapi_compat.go.
+	sessionAPIBuild    sync.Once
+	sessionAPIHandlers *sessionapi.Handlers
 
 	// kbService powers the knowledge-base HTTP API (CRUD + upload + search).
 	// nil disables KB routes. Attach via WithKBService.
@@ -132,14 +108,12 @@ type Server struct {
 // NewServer creates a gateway HTTP server for the given agent.
 func NewServer(a agent.Agent) *Server {
 	s := &Server{
-		agent:    a,
-		mux:      http.NewServeMux(),
-		sessions: make(map[string]*wsSession),
-		rooms:    make(map[string]map[string]*wsSession),
+		agent: a,
+		mux:   http.NewServeMux(),
 	}
 	s.mux.HandleFunc("/chat", s.handleChat)
 	s.mux.HandleFunc("/chat/stream", s.handleChatStream)
-	s.mux.HandleFunc("/chat/ws", s.handleChatWS)
+	s.mux.HandleFunc("/chat/ws", s.legacyWSHandler)
 	s.mux.HandleFunc("/health", s.handleHealth)
 	return s
 }
@@ -194,6 +168,9 @@ func (s *Server) WithSessionManager(m *SessionManager) *Server {
 // WithSessionCoordinator attaches the cross-replica session coordinator
 // (18.1/18.2). When set, HTTP session runs go through it (run lock, event
 // log, cross-process cancel) and the status endpoint reads its data plane.
+// Ordering: call BEFORE RegisterV2Routes — the sessionapi handlers snapshot
+// the server wiring at registration time (same requirement as the
+// authenticator).
 func (s *Server) WithSessionCoordinator(c *SessionCoordinator) *Server {
 	s.sessionCoord = c
 	return s
@@ -305,19 +282,12 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// RegisterV2Routes adds the V2 event-stream endpoints (SSE + WS) and the
-// resume endpoint for suspend-resume workflows to the gateway server.
-// These routes are protected if an authenticator is configured.
+// RegisterV2Routes adds the V2 session endpoints (streamable HTTP + SSE
+// alias + WebSocket + resume + steer/interrupt + session status), mounted
+// through the sessionapi handlers (16.2). Protected if an authenticator is
+// configured. Wire storage / session manager / coordinator before calling.
 func (s *Server) RegisterV2Routes() {
-	s.mux.HandleFunc("/v2/chat", s.requireAuth(s.handleV2Chat))
-	// Session coordination surface (18.1/18.2): status joins the V2 family
-	// (stream / ws / delete / steer / resume / status).
-	s.registerSessionStatusRoutes()
-	s.mux.HandleFunc("/v2/chat/stream", s.requireAuth(s.handleV2ChatStream))
-	s.mux.HandleFunc("/v2/chat/ws", s.requireAuth(s.handleChatWSV2))
-	s.mux.HandleFunc("/v2/resume", s.requireAuth(s.handleV2Resume))
-	s.mux.HandleFunc("POST /v2/sessions/{session_id}/steer", s.requireAuth(s.handleV2Steer))
-	s.mux.HandleFunc("POST /v2/sessions/{session_id}/interrupt", s.requireAuth(s.handleV2Interrupt))
+	s.sessionAPI().RegisterV2(s.mux, s.requireAuth)
 }
 
 // ServeHTTP implements http.Handler.
@@ -336,51 +306,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// registerSession adds a WebSocket session to the server.
-func (s *Server) registerSession(ws *wsSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[ws.id] = ws
-	if ws.room != "" {
-		if s.rooms[ws.room] == nil {
-			s.rooms[ws.room] = make(map[string]*wsSession)
-		}
-		s.rooms[ws.room][ws.id] = ws
-	}
-}
-
-// unregisterSession removes a WebSocket session.
-func (s *Server) unregisterSession(ws *wsSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, ws.id)
-	if ws.room != "" && s.rooms[ws.room] != nil {
-		delete(s.rooms[ws.room], ws.id)
-		if len(s.rooms[ws.room]) == 0 {
-			delete(s.rooms, ws.room)
-		}
-	}
-}
-
-// BroadcastToRoom sends a JSON message to all sessions in a room.
-func (s *Server) BroadcastToRoom(room string, v interface{}) {
-	s.mu.RLock()
-	members := make(map[string]*wsSession, len(s.rooms[room]))
-	for k, v := range s.rooms[room] {
-		members[k] = v
-	}
-	s.mu.RUnlock()
-	for _, sess := range members {
-		_ = sess.writeJSON(v)
-	}
-}
-
-// SessionCount returns the number of active WebSocket sessions.
-func (s *Server) SessionCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.sessions)
-}
+// registerSession/unregisterSession and the room broadcast moved into the
+// sessionapi handlers; Server.BroadcastToRoom / SessionCount (in
+// sessionapi_compat.go) delegate to them.
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

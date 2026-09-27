@@ -99,7 +99,7 @@ func TestSessionStatusEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	drain(ch)
 
-	srv.registerSessionStatusRoutes()
+	srv.RegisterV2Routes()
 	req := httptest.NewRequest("GET", "/api/v1/sessions/"+sessID+"/status", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)

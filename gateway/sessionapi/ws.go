@@ -1,4 +1,4 @@
-package gateway
+package sessionapi
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -28,7 +29,102 @@ const (
 	heartbeatTimeout  = 10 * time.Second
 )
 
-func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
+// wsSession wraps a WebSocket connection with safe concurrent writes.
+type wsSession struct {
+	id       string
+	room     string
+	conn     *websocket.Conn
+	writeMu  sync.Mutex
+	lastPing time.Time
+}
+
+func (s *wsSession) writeJSON(v interface{}) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.conn.WriteJSON(v)
+}
+
+func (s *wsSession) writeControl(messageType int, data []byte, deadline time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.conn.WriteControl(messageType, data, deadline)
+}
+
+func (s *wsSession) close() {
+	s.writeMu.Lock()
+	_ = s.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	s.writeMu.Unlock()
+	s.conn.Close()
+}
+
+// wsRegistry tracks live WebSocket connections by session and room.
+type wsRegistry struct {
+	mu       sync.RWMutex
+	sessions map[string]*wsSession
+	rooms    map[string]map[string]*wsSession
+}
+
+func newWSRegistry() *wsRegistry {
+	return &wsRegistry{
+		sessions: make(map[string]*wsSession),
+		rooms:    make(map[string]map[string]*wsSession),
+	}
+}
+
+func (reg *wsRegistry) register(ws *wsSession) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	reg.sessions[ws.id] = ws
+	if ws.room != "" {
+		if reg.rooms[ws.room] == nil {
+			reg.rooms[ws.room] = make(map[string]*wsSession)
+		}
+		reg.rooms[ws.room][ws.id] = ws
+	}
+}
+
+func (reg *wsRegistry) unregister(ws *wsSession) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	delete(reg.sessions, ws.id)
+	if ws.room != "" {
+		if m, ok := reg.rooms[ws.room]; ok {
+			delete(m, ws.id)
+			if len(m) == 0 {
+				delete(reg.rooms, ws.room)
+			}
+		}
+	}
+}
+
+// HandleChatWS is the exported legacy WebSocket entry: the gateway root
+// mounts /chat/ws at construction time, before session wiring completes, so
+// it delegates here through a lazily-built Handlers.
+func (h *Handlers) HandleChatWS(w http.ResponseWriter, r *http.Request) {
+	h.handleChatWS(w, r)
+}
+
+// BroadcastToRoom sends a JSON message to all WebSocket sessions in a room.
+func (h *Handlers) BroadcastToRoom(room string, v interface{}) {
+	h.ws.mu.RLock()
+	members := make(map[string]*wsSession, len(h.ws.rooms[room]))
+	for k, v := range h.ws.rooms[room] {
+		members[k] = v
+	}
+	h.ws.mu.RUnlock()
+	for _, sess := range members {
+		_ = sess.writeJSON(v)
+	}
+}
+
+// SessionCount returns the number of active WebSocket sessions.
+func (h *Handlers) SessionCount() int {
+	h.ws.mu.RLock()
+	defer h.ws.mu.RUnlock()
+	return len(h.ws.sessions)
+}
+
+func (h *Handlers) handleChatWS(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -50,9 +146,9 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 		conn:     conn,
 		lastPing: time.Now(),
 	}
-	s.registerSession(ws)
+	h.ws.register(ws)
 	defer func() {
-		s.unregisterSession(ws)
+		h.ws.unregister(ws)
 		ws.close()
 	}()
 
@@ -90,7 +186,7 @@ func (s *Server) handleChatWS(w http.ResponseWriter, r *http.Request) {
 		}
 
 		msg := message.NewMsg().Role(message.RoleUser).TextContent(req.Text).Build()
-		ch, err := s.agent.CallStream(r.Context(), msg)
+		ch, err := h.d.Agent.CallStream(r.Context(), msg)
 		if err != nil {
 			_ = ws.writeJSON(map[string]string{"error": fmt.Sprintf("stream error: %v", err)})
 			continue
@@ -125,7 +221,7 @@ type wsV2Message struct {
 // It supports suspend-resume: when a RequireUserConfirmEvent is emitted,
 // the stream pauses and the AgentState is saved to Storage (if configured).
 // The client must send a "resume" message with decisions to continue.
-func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -133,7 +229,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 
 	agentID := r.URL.Query().Get("agent_id")
 	sessionID := r.URL.Query().Get("session")
-	a, err := s.resolveAgentForRequest(r, agentID, sessionID)
+	a, err := h.d.ResolveAgent(r, agentID, sessionID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -148,7 +244,7 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("sess-%d", time.Now().UnixNano())
 	}
-	if !s.checkSessionAccess(w, r, sessionID) {
+	if !h.checkSessionAccess(w, r, sessionID) {
 		return
 	}
 
@@ -165,9 +261,9 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		conn:     conn,
 		lastPing: time.Now(),
 	}
-	s.registerSession(ws)
+	h.ws.register(ws)
 	defer func() {
-		s.unregisterSession(ws)
+		h.ws.unregister(ws)
 		ws.close()
 	}()
 
@@ -214,13 +310,13 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 		}
 
 		streamCtx, streamCancel = context.WithCancel(r.Context())
-		streamCtx = s.enrichContextWithWorkspaceTools(streamCtx, agentID, sessionID)
-		msg := message.NewMsg().Role(message.RoleUser).TextContent(injectOffloadHints(s, sessionID, text)).Build()
+		streamCtx = h.d.EnrichCtx(streamCtx, agentID, sessionID)
+		msg := message.NewMsg().Role(message.RoleUser).TextContent(h.offloadHinted(sessionID, text)).Build()
 
 		var evCh <-chan event.AgentEvent
 		var err error
-		if s.sessionMgr != nil && sessionID != "" {
-			evCh, err = s.runSession(streamCtx, sessionID, a, msg)
+		if h.d.Sessions != nil && sessionID != "" {
+			evCh, err = h.run(streamCtx, sessionID, a, msg)
 		} else {
 			evCh, err = v2.ReplyStream(streamCtx, msg)
 		}
@@ -251,8 +347,8 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 	for {
 		if needsStreamStart {
 			// Check for reconnect resume before waiting for a new chat message.
-			if sessionID != "" && s.sessionState.HasPendingSnapshot(r.Context(), sessionID) {
-				if _, err := s.sessionState.LoadSnapshot(r.Context(), sessionID, v2); err == nil {
+			if sessionID != "" && h.d.State != nil && h.d.State.HasPendingSnapshot(r.Context(), sessionID) {
+				if _, err := h.d.State.LoadSnapshot(r.Context(), sessionID, v2); err == nil {
 					// Agent will detect the suspended state and enter resume path automatically.
 					startStream("resume")
 					needsStreamStart = false
@@ -291,8 +387,10 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 
 		if _, suspended := ev.(*event.RequireUserConfirmEvent); suspended {
 			// Save snapshot for resume (including reconnect resume).
-			if err := s.sessionState.SaveSnapshot(streamCtx, sessionID, v2); err != nil {
-				_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"save snapshot failed: %v"}`, err))})
+			if h.d.State != nil {
+				if err := h.d.State.SaveSnapshot(streamCtx, sessionID, v2); err != nil {
+					_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"save snapshot failed: %v"}`, err))})
+				}
 			}
 			if err := writeV2Event(ws, ev, sessionID, useAGUI, aguiConv); err != nil {
 				break
@@ -309,8 +407,15 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				if wsMsg.Type == "resume" {
-					resumeErr := s.sessionState.Resume(streamCtx, sessionID, v2,
-						event.NewUserConfirmResult(wsMsg.ReplyID, wsMsg.ConfirmID, wsMsg.Decisions))
+					// nil State (no storage) keeps the old nil-receiver
+					// semantics: in-memory resume via InjectEvent.
+					var resumeErr error
+					if h.d.State != nil {
+						resumeErr = h.d.State.Resume(streamCtx, sessionID, v2,
+							event.NewUserConfirmResult(wsMsg.ReplyID, wsMsg.ConfirmID, wsMsg.Decisions))
+					} else {
+						resumeErr = v2.InjectEvent(streamCtx, event.NewUserConfirmResult(wsMsg.ReplyID, wsMsg.ConfirmID, wsMsg.Decisions))
+					}
 					if resumeErr != nil {
 						_ = ws.writeJSON(v2Event{EventType: "error", Payload: []byte(fmt.Sprintf(`{"error":"resume failed: %v"}`, resumeErr))})
 						continue
@@ -319,7 +424,9 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 				}
 				if wsMsg.Type == "chat" && wsMsg.Text != "" {
 					// Client sent a new chat while suspended; cancel old stream and start fresh.
-					_ = s.sessionState.DeleteSnapshot(streamCtx, sessionID)
+					if h.d.State != nil {
+						_ = h.d.State.DeleteSnapshot(streamCtx, sessionID)
+					}
 					startStream(wsMsg.Text)
 					break
 				}
@@ -332,7 +439,9 @@ func (s *Server) handleChatWSV2(w http.ResponseWriter, r *http.Request) {
 			if err := writeV2Event(ws, ev, sessionID, useAGUI, aguiConv); err != nil {
 				break
 			}
-			_ = s.sessionState.DeleteSnapshot(streamCtx, sessionID)
+			if h.d.State != nil {
+				_ = h.d.State.DeleteSnapshot(streamCtx, sessionID)
+			}
 			needsStreamStart = true
 			continue
 		}

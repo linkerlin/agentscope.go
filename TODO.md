@@ -12,7 +12,7 @@
 
 先 16.2，再渠道。Webhook / Discord / 飞书 Webhook 已有。18.1/18.2 完成（会话协调 + 状态端点 + HTTP 入口收口：busy 409、DELETE 跨进程 cancel、跨副本 parked）。
 
-- [ ] **16.2** 拆 `gateway/`（排在 18.5 长连接 worker 之前）：按切割面分注册函数化的子包（知识库=样板已就位；会话 HTTP=下一个收包的簇；渠道/wakeup/定时任务跟 18.5；controlplane/CRUD/Hub 留根包）；外部 URL 不变；根包留 `Server` + `AppConfig`
+- [ ] **16.2** 拆 `gateway/` 剩余簇（排在 18.5 长连接 worker 之前）：知识库（kbapi）与会话 HTTP（sessionapi：流式/WS/DELETE/status/steer/resume）已注册函数化；剩余动作=渠道/wakeup/定时任务跟 18.5 改调用点后收包、工作区/团队等会话包稳定后再看、controlplane/CRUD/Hub/认证/模型/音频留根包（18.3–18.6、18.9 还要加路由）；外部 URL 不变；根包留 `Server` + `AppConfig`
 - [ ] **18.3** 钉钉：OpenAPI、流式卡片、卡片回调 → HITL、wiki 工具
 - [ ] **18.4** 凭证绑定状态机，状态放 message bus，多副本可恢复
 - [ ] **18.5** 长连接 worker：与 API 副本分离、对账、心跳、断连重连

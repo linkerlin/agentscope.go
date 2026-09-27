@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -158,81 +157,6 @@ func BenchmarkGateway_RealServerHealth(b *testing.B) {
 	})
 }
 
-// BenchmarkGateway_SessionCreateConcurrent tests concurrent session creation
-// using the WS room management.
-func BenchmarkGateway_SessionCreateConcurrent(b *testing.B) {
-	srv := NewServer(&mockAgent{name: "bench"})
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		sess := &wsSession{
-			id:   fmt.Sprintf("sess-%d", i),
-			room: "bench-room",
-		}
-		_ = sess.id
-		srv.mu.Lock()
-		srv.sessions[sess.id] = sess
-		if srv.rooms[sess.room] == nil {
-			srv.rooms[sess.room] = make(map[string]*wsSession)
-		}
-		srv.rooms[sess.room][sess.id] = sess
-		srv.mu.Unlock()
-	}
-}
-
-// BenchmarkGateway_SessionCreateParallel tests concurrent session creation with RWMutex.
-func BenchmarkGateway_SessionCreateParallel(b *testing.B) {
-	srv := NewServer(&mockAgent{name: "bench"})
-	var idx int64
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			i := atomic.AddInt64(&idx, 1)
-			sess := &wsSession{
-				id:   fmt.Sprintf("sess-%d", i),
-				room: "room",
-			}
-			srv.mu.Lock()
-			srv.sessions[sess.id] = sess
-			if srv.rooms[sess.room] == nil {
-				srv.rooms[sess.room] = make(map[string]*wsSession)
-			}
-			srv.rooms[sess.room][sess.id] = sess
-			srv.mu.Unlock()
-		}
-	})
-}
-
-// BenchmarkGateway_BroadcastRoom measures room broadcast performance.
-func BenchmarkGateway_BroadcastRoom(b *testing.B) {
-	srv := NewServer(&mockAgent{name: "bench"})
-
-	const roomSize = 100
-	room := make(map[string]*wsSession, roomSize)
-	for i := 0; i < roomSize; i++ {
-		id := fmt.Sprintf("sess-%d", i)
-		room[id] = &wsSession{id: id, room: "bench"}
-	}
-	srv.mu.Lock()
-	srv.rooms["bench"] = room
-	srv.mu.Unlock()
-
-	var msg = map[string]any{"type": "broadcast", "data": "hello"}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		var wg sync.WaitGroup
-		srv.mu.RLock()
-		for _, s := range srv.rooms["bench"] {
-			wg.Add(1)
-			go func(s *wsSession) {
-				defer wg.Done()
-				_ = s
-			}(s)
-		}
-		srv.mu.RUnlock()
-		wg.Wait()
-	}
-	_ = msg
-}
+// SessionCreate*/BroadcastRoom benchmarks were removed with the WS registry:
+// the map/lock internals they poked moved to gateway/sessionapi (16.2), and
+// they never exercised real WebSocket behavior.

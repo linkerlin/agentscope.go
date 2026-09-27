@@ -16,14 +16,17 @@ import (
 
 // coordServer builds a Server wired with a coordinator over the shared bus
 // and registers the /v2/chat routes, so the HTTP surface can be exercised.
+// Wiring order matters: the coordinator must be attached BEFORE
+// RegisterV2Routes — the sessionapi handlers snapshot the server wiring at
+// registration time (same ordering requirement as the authenticator).
 func coordServer(t *testing.T, bus messagebus.Bus) *Server {
 	t.Helper()
 	srv := NewServer(makeMockAgent(nil, 0))
 	srv.WithSessionManager(NewSessionManager())
-	srv.RegisterV2Routes()
-	srv.RegisterServiceRoutes()
 	coord := NewSessionCoordinator(srv.sessionMgr).WithBus(bus).WithLockAcquireTimeout(50 * time.Millisecond)
 	srv.WithSessionCoordinator(coord)
+	srv.RegisterV2Routes()
+	srv.RegisterServiceRoutes()
 	return srv
 }
 

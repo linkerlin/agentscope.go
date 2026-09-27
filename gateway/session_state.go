@@ -2,18 +2,20 @@ package gateway
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
+	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 	"github.com/linkerlin/agentscope.go/service"
 )
 
 // ErrStorageNotAvailable is returned when a session-state operation is
-// requested but no Storage backend has been configured.
-var ErrStorageNotAvailable = errors.New("session_state: storage not available")
+// requested but no Storage backend has been configured. Defined in
+// gateway/sessionapi (whose resume handler maps it to 503); aliased here so
+// both packages compare against the same error value.
+var ErrStorageNotAvailable = sessionapi.ErrStorageNotAvailable
 
 // SessionStateManager 管理 Gateway 层 session 与 AgentState 快照的生命周期，
 // 支持挂起保存、断线重连恢复、以及 resume 后的清理。

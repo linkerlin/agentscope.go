@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
@@ -60,7 +61,8 @@ func TestRunModelStreamChunks(t *testing.T) {
 		toolMap:       map[string]tool.Tool{},
 	}
 	hist := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
-	msg, err := a.runModel(context.Background(), hist, nil, 0, false)
+	out := make(chan event.AgentEvent, 64)
+	msg, err := a.runModelStream(context.Background(), hist, nil, 0, false, out, "r1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestRunModelChatStreamError(t *testing.T) {
 		chatModel: &mockModel{name: "m", streamErr: errors.New("stream err")},
 		memory:    memory.NewInMemoryMemory(),
 	}
-	_, err := a.runModel(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false)
+	_, err := a.runModelStream(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false, make(chan event.AgentEvent, 64), "r1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -95,7 +97,7 @@ func TestRunModelMidStreamError(t *testing.T) {
 		chatModel: &mockModel{name: "m", ch: ch},
 		memory:    memory.NewInMemoryMemory(),
 	}
-	_, err := a.runModel(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false)
+	_, err := a.runModelStream(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false, make(chan event.AgentEvent, 64), "r1")
 	if !errors.Is(err, streamErr) {
 		t.Fatalf("expected stream error to propagate, got %v", err)
 	}
@@ -123,10 +125,10 @@ func TestInvokeModelChatStream_MidStreamError(t *testing.T) {
 func TestRunModelChatError(t *testing.T) {
 	a := &ReActAgent{
 		Base:      agent.NewBase("", "t", "", "", nil, nil, nil),
-		chatModel: &mockModel{name: "m", chatErr: errors.New("chat err")},
+		chatModel: &mockModel{name: "m", streamErr: errors.New("chat err")},
 		memory:    memory.NewInMemoryMemory(),
 	}
-	_, err := a.runModel(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, true)
+	_, err := a.runModelStream(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, true, make(chan event.AgentEvent, 64), "r1")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -143,7 +145,7 @@ func TestRunModelNilChunk(t *testing.T) {
 		chatModel: &mockModel{name: "m", ch: ch},
 		memory:    memory.NewInMemoryMemory(),
 	}
-	msg, err := a.runModel(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false)
+	msg, err := a.runModelStream(context.Background(), []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}, nil, 0, false, make(chan event.AgentEvent, 64), "r1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +169,13 @@ func (m *recordingModel) Chat(ctx context.Context, msgs []*message.Msg, opts ...
 	return message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build(), nil
 }
 func (m *recordingModel) ChatStream(ctx context.Context, msgs []*message.Msg, opts ...model.ChatOption) (<-chan *model.StreamChunk, error) {
-	return nil, errors.New("not used")
+	m.gotOpts = opts
+	m.gotMsgs = msgs
+	ch := make(chan *model.StreamChunk, 2)
+	ch <- &model.StreamChunk{Delta: "ok"}
+	ch <- &model.StreamChunk{Done: true}
+	close(ch)
+	return ch, nil
 }
 
 // forceNoneReasoningMW is an on_reasoning middleware that mutates ChatOpts
@@ -192,7 +200,7 @@ func TestRunModel_ReasoningMiddlewareMutationPropagates(t *testing.T) {
 		memory:    memory.NewInMemoryMemory(),
 	}
 	hist := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
-	if _, err := a.runModel(context.Background(), hist, nil, 0, true); err != nil {
+	if _, err := a.runModelStream(context.Background(), hist, nil, 0, true, make(chan event.AgentEvent, 64), "r1"); err != nil {
 		t.Fatal(err)
 	}
 	// tool_choice=none must reach the model.
@@ -233,8 +241,11 @@ func TestInvokeModelChat_ModelCallMiddlewareMutationPropagates(t *testing.T) {
 		memory:    memory.NewInMemoryMemory(),
 	}
 	hist := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
-	if _, err := a.invokeModelChat(context.Background(), hist, nil, 0); err != nil {
+	ch, err := a.invokeModelChatStream(context.Background(), hist, nil, 0)
+	if err != nil {
 		t.Fatal(err)
+	}
+	for range ch {
 	}
 	var co model.ChatOptions
 	for _, o := range rec.gotOpts {

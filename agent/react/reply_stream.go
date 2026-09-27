@@ -15,6 +15,7 @@ import (
 	"github.com/linkerlin/agentscope.go/hook"
 	"github.com/linkerlin/agentscope.go/memory"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
 )
@@ -92,6 +93,9 @@ func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out 
 	}
 	a.runtimeMu.Unlock()
 
+	// A stale real error from a previous unconsumed turn must not leak here.
+	a.setTurnErr(nil)
+
 	out <- event.NewReplyStart(replyID, a.Name())
 	defer func() {
 		out <- event.NewReplyEnd(replyID, a.Name())
@@ -103,11 +107,34 @@ func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out 
 	} else {
 		// For backward compatibility with Base.Call lifecycle, we keep the wrapper
 		// but the internal loop emits events directly.
-		_, err = a.Base.Call(ctx, msg, func(innerCtx context.Context, input *message.Msg) (*message.Msg, error) {
+		var final *message.Msg
+		final, err = a.Base.Call(ctx, msg, func(innerCtx context.Context, input *message.Msg) (*message.Msg, error) {
 			return a.replyStreamInternal(innerCtx, input, out, replyID)
 		})
+		// Record the turn's final response as the last assistant message of
+		// runtimeState so synchronous collectors (Call/Reply) retrieve exactly
+		// what the loop produced — including hook overrides and pre-call
+		// overrides that never went through the per-iteration history update.
+		if final != nil {
+			a.runtimeMu.Lock()
+			if a.runtimeState != nil {
+				msgs := append([]*message.Msg(nil), a.runtimeState.Messages...)
+				switch {
+				case len(msgs) > 0 && msgs[len(msgs)-1] == final:
+					// already recorded by the normal final-answer path
+				case len(msgs) > 0 && msgs[len(msgs)-1].Role == message.RoleAssistant:
+					msgs[len(msgs)-1] = final
+				default:
+					msgs = append(msgs, final)
+				}
+				a.runtimeState.Messages = msgs
+				a.runtimeState.UpdatedAt = time.Now()
+			}
+			a.runtimeMu.Unlock()
+		}
 	}
 	if err != nil {
+		a.setTurnErr(err)
 		if !errors.Is(err, context.Canceled) {
 			out <- event.NewError(replyID, err)
 		}
@@ -120,7 +147,7 @@ func (a *ReActAgent) replyStreamInternal(
 	msg *message.Msg,
 	out chan<- event.AgentEvent,
 	replyID string,
-) (*message.Msg, error) {
+) (finalResponse *message.Msg, err error) {
 	a.CallWg.Add(1)
 	defer a.CallWg.Done()
 
@@ -142,6 +169,34 @@ func (a *ReActAgent) replyStreamInternal(
 		return nil, err
 	}
 
+	// Turn-level pre-call stream event (V1 Call parity): fires once per turn
+	// before the loop. A StreamHook error here fails the whole turn.
+	if _, _, err := a.fireStreamEvent(ctx, &hook.PreReasoningEvent{
+		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: time.Now(), Agent: a.Base.Name},
+		Messages:  append([]*message.Msg(nil), history...),
+		ModelName: a.effectiveModel(ctx).ModelName(),
+	}); err != nil {
+		out <- event.NewError(replyID, err)
+		return nil, err
+	}
+	// Turn-level post-call parity: stream error/post events plus the classic
+	// HookPostCall point, exactly once, reflecting the final outcome.
+	defer func() {
+		if err != nil {
+			_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
+				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name},
+				Err:       err,
+			})
+		} else {
+			_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
+				BaseEvent: hook.BaseEvent{Type: hook.EventPostCall, Ts: time.Now(), Agent: a.Base.Name},
+				Messages:  append([]*message.Msg(nil), history...),
+				Response:  finalResponse,
+			})
+		}
+		_, _, _ = a.fireHooks(ctx, hook.HookPostCall, history, finalResponse, "", nil)
+	}()
+
 	toolSpecs := a.toolSpecs(ctx)
 	var chatOpts []model.ChatOption
 	if len(toolSpecs) > 0 {
@@ -150,7 +205,6 @@ func (a *ReActAgent) replyStreamInternal(
 
 	// PreCall stream event (no-op for now; pre-reasoning events are emitted inside runModelStream)
 
-	var finalResponse *message.Msg
 	breaker := newConsecutiveFailureBreaker(a.maxConsecutiveToolFailures)
 	var action loopAction
 	// replyUsage shadows the per-turn spend so the final message carries the
@@ -273,9 +327,15 @@ func (a *ReActAgent) replyStreamInternal(
 			return resp, err
 		}
 
-		toolResultMsg, sigs, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, i)
+		toolResultMsg, sigs, stopped, stopFinal, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, i)
 		if err != nil {
 			return nil, err
+		}
+		if stopped {
+			// Hook termination (StopAgent / Interrupt): the override (or the
+			// tool-result fallback) is the turn's final response. It is never
+			// fed back into the loop as a tool result (V1 Call parity).
+			return stopFinal, nil
 		}
 		history = append(history, toolResultMsg)
 
@@ -393,10 +453,13 @@ func (a *ReActAgent) resumeReplyStreamInternal(
 	// Bypass permission check because it was already performed before suspension.
 	oldPerm := a.permissionEngine
 	a.permissionEngine = nil
-	toolResultMsg, _, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, startIter)
+	toolResultMsg, _, stopped, stopFinal, err := a.executeToolsStream(ctx, history, toolCalls, out, replyID, startIter)
 	a.permissionEngine = oldPerm
 	if err != nil {
 		return nil, err
+	}
+	if stopped {
+		return stopFinal, nil
 	}
 	history = append(history, toolResultMsg)
 
@@ -439,8 +502,39 @@ func (a *ReActAgent) resumeReplyStreamInternal(
 }
 
 // runModelStream calls the model and emits fine-grained events.
-// When streaming is possible (no tools requested), it emits TextBlockDeltaEvent / ThinkingBlockDeltaEvent.
+// It is the single model-call entry for the unified ReAct loop: the
+// on_reasoning middleware chain wraps the whole stream call (mutations to
+// Messages/ChatOpts reach the model, AGENTS.md #27), and the on_model_call
+// chain wraps the raw stream when registered (aggregated, V1 semantics).
 func (a *ReActAgent) runModelStream(
+	ctx context.Context,
+	history []*message.Msg,
+	chatOpts []model.ChatOption,
+	iter int,
+	requestTools bool,
+	out chan<- event.AgentEvent,
+	replyID string,
+) (*message.Msg, error) {
+	chain := a.Base.MiddlewareChain()
+	if chain == nil || len(chain.Reasoning) == 0 {
+		return a.runModelStreamInner(ctx, history, chatOpts, iter, requestTools, out, replyID)
+	}
+	input := &middleware.ReasoningInput{
+		Iteration: iter,
+		Messages:  append([]*message.Msg(nil), history...),
+		ChatOpts:  append([]model.ChatOption(nil), chatOpts...),
+	}
+	// Final closure reads from input so on_reasoning mutations take effect on
+	// the actual model call (parity with the pre-16.1 Call path).
+	handler := middleware.ChainReasoning(chain, a.Base, input, func(ctx context.Context) (*message.Msg, error) {
+		return a.runModelStreamInner(ctx, input.Messages, input.ChatOpts, iter, requestTools, out, replyID)
+	})
+	return handler(ctx)
+}
+
+// runModelStreamInner performs one streaming model call with fine-grained
+// event emission.
+func (a *ReActAgent) runModelStreamInner(
 	ctx context.Context,
 	history []*message.Msg,
 	chatOpts []model.ChatOption,
@@ -473,7 +567,16 @@ func (a *ReActAgent) runModelStream(
 	// Always stream. Tool calls are accumulated by the model wrapper and
 	// delivered in the final chunk, so the UI still sees a typing effect for
 	// the text parts while ReAct gets the parsed tool calls it needs.
-	ch, err := a.effectiveModel(ctx).ChatStream(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)
+	// With an on_model_call middleware registered, the stream is routed
+	// through the middleware chain (aggregating wrapper, V1 Call semantics)
+	// so ChatOpts/Messages mutations reach the model.
+	var ch <-chan *model.StreamChunk
+	var err error
+	if mc := a.Base.MiddlewareChain(); mc != nil && len(mc.ModelCall) > 0 {
+		ch, err = a.invokeModelChatStream(ctx, history, chatOpts, iter)
+	} else {
+		ch, err = a.effectiveModel(ctx).ChatStream(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)
+	}
 	if err != nil {
 		out <- event.NewError(replyID, fmt.Errorf("react agent model stream: %w", err))
 		out <- event.NewModelCallEnd(replyID, modelName, 0, 0)
@@ -559,6 +662,18 @@ func (a *ReActAgent) runModelStream(
 			sb.WriteString(chunk.Delta)
 			out <- event.NewTextBlockDelta(replyID, 0, chunk.Delta)
 		}
+		// V1 Call parity: classic StreamHook consumers see each delta as a
+		// ReasoningChunk event alongside the fine-grained agent events.
+		if _, _, err := a.fireStreamEvent(ctx, &hook.ReasoningChunkEvent{
+			BaseEvent: hook.BaseEvent{Type: hook.EventReasoningChunk, Ts: time.Now(), Agent: a.Base.Name, Iteration: iter},
+			Messages:  append([]*message.Msg(nil), history...),
+			Chunk:     chunk.Delta,
+		}); err != nil {
+			if errors.Is(err, hook.ErrInterrupted) {
+				return nil, hook.ErrInterrupted
+			}
+			return nil, err
+		}
 	}
 	if inThinkingBlock {
 		out <- event.NewThinkingBlockEnd(replyID, 0)
@@ -611,17 +726,17 @@ func (a *ReActAgent) executeToolsStream(
 	out chan<- event.AgentEvent,
 	replyID string,
 	iter int,
-) (*message.Msg, []failureSignal, error) {
+) (toolResultMsg *message.Msg, sigs []failureSignal, stopped bool, stopFinal *message.Msg, err error) {
 	// V2: permission check before executing tools
 	if a.permissionEngine != nil {
 		evals, err := a.permissionEngine.Evaluate(toolCalls)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, nil, err
 		}
 		var asking []event.ToolCallSummary
 		for _, ev := range evals {
 			if ev.Decision == permission.DecisionDeny {
-				return nil, nil, fmt.Errorf("permission denied for %s: %s", ev.ToolName, ev.Message)
+				return nil, nil, false, nil, fmt.Errorf("permission denied for %s: %s", ev.ToolName, ev.Message)
 			}
 			if ev.Decision == permission.DecisionAsk {
 				asking = append(asking, event.ToolCallSummary{
@@ -648,11 +763,11 @@ func (a *ReActAgent) executeToolsStream(
 			// Suspend: wait for external UserConfirmResultEvent
 			ev, err := a.waitForExternalEvent(ctx, confirmID)
 			if err != nil {
-				return nil, nil, fmt.Errorf("permission confirmation wait: %w", err)
+				return nil, nil, false, nil, fmt.Errorf("permission confirmation wait: %w", err)
 			}
 			confirm, ok := ev.(*event.UserConfirmResultEvent)
 			if !ok {
-				return nil, nil, fmt.Errorf("expected UserConfirmResultEvent, got %T", ev)
+				return nil, nil, false, nil, fmt.Errorf("expected UserConfirmResultEvent, got %T", ev)
 			}
 
 			// Clear suspend state after resume
@@ -667,7 +782,7 @@ func (a *ReActAgent) executeToolsStream(
 			// Apply decisions: filter out denied tool calls, apply modifications
 			toolCalls = applyConfirmDecisions(toolCalls, confirm.Decisions)
 			if len(toolCalls) == 0 {
-				return a.withCurrentUsage(message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build()), nil, nil
+				return a.withCurrentUsage(message.NewMsg().Role(message.RoleTool).TextContent("All tool calls were denied by user.").Build()), nil, false, nil, nil
 			}
 			// Q2: session/always-scoped approvals register the matched rule
 			// class as an allow rule so same-class commands stop interrupting
@@ -751,7 +866,7 @@ func (a *ReActAgent) executeToolsStream(
 
 		ev, err := a.waitForExternalEvent(ctx, confirmID)
 		if err != nil {
-			return nil, nil, fmt.Errorf("external execution wait: %w", err)
+			return nil, nil, false, nil, fmt.Errorf("external execution wait: %w", err)
 		}
 		a.runtimeMu.Lock()
 		if a.runtimeState != nil {
@@ -763,7 +878,7 @@ func (a *ReActAgent) executeToolsStream(
 
 		ext, ok := ev.(*event.ExternalExecutionResultEvent)
 		if !ok {
-			return nil, nil, fmt.Errorf("expected ExternalExecutionResultEvent, got %T", ev)
+			return nil, nil, false, nil, fmt.Errorf("expected ExternalExecutionResultEvent, got %T", ev)
 		}
 		byID := map[string]event.ExternalExecutionResult{}
 		for _, r := range ext.Results {
@@ -903,8 +1018,14 @@ func (a *ReActAgent) executeToolsStream(
 				return
 			}
 			if afterHr != nil && (afterHr.StopAgent || afterHr.Interrupt) {
+				// V1 parity: StopAgent falls back to the tool result message
+				// when the hook gave no override; Interrupt may return nil.
+				override := afterHr.Override
+				if afterHr.StopAgent && override == nil {
+					override = resultMsg
+				}
 				results[idx] = result{
-					err:        &hookInterruptError{override: afterHr.Override},
+					err:        &hookInterruptError{override: override},
 					resultMsg:  resultMsg,
 					toolCallID: tc.ID,
 				}
@@ -953,19 +1074,22 @@ func (a *ReActAgent) executeToolsStream(
 	// Check for any interrupt / hook errors. Tool execution errors are NOT
 	// turn-fatal: they are already encoded in each result's blocks (fed back
 	// to the model) and tracked via isErr for the consecutive-failure breaker.
+	// A hook termination (StopAgent / Interrupt) surfaces as stopped=true with
+	// stopFinal as the turn's final response — never as a tool result fed
+	// back into the loop (V1 Call parity).
 	for _, r := range results {
 		if r.err != nil {
 			if hi, ok := r.err.(*hookInterruptError); ok {
-				return hi.override, nil, nil
+				return nil, nil, true, hi.override, nil
 			}
-			return nil, nil, r.err
+			return nil, nil, false, nil, r.err
 		}
 	}
 
-	toolResultMsg := message.NewMsg().Role(message.RoleTool)
-	sigs := make([]failureSignal, 0, len(results))
+	toolResultMsgBuilder := message.NewMsg().Role(message.RoleTool)
+	sigs = make([]failureSignal, 0, len(results))
 	for _, r := range results {
-		toolResultMsg.Content(r.resultMsg.Content...)
+		toolResultMsgBuilder.Content(r.resultMsg.Content...)
 		sigs = append(sigs, failureSignal{
 			ToolName: r.toolName,
 			IsError:  r.isErr,
@@ -989,7 +1113,8 @@ func (a *ReActAgent) executeToolsStream(
 		}
 	}
 
-	return toolResultMsg.Build(), sigs, nil
+	toolResultMsg = toolResultMsgBuilder.Build()
+	return toolResultMsg, sigs, false, nil, nil
 }
 
 // findToolInput returns the input map for a tool call by ID.

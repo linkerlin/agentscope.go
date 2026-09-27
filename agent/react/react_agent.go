@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/hook"
@@ -285,6 +283,12 @@ type ReActAgent struct {
 	steerMu     sync.Mutex
 	steerQueue  []string
 	activeTurns int
+
+	// turnErr 槽：统一循环（16.1）里 replyStreamLoop 的真实回合错误。事件流
+	// 的 ErrorEvent 只携带文案，哨兵身份（errEmptyModelResponse /
+	// context.Canceled）会丢；同步收集器（Call/Reply）优先取这里的真错误。
+	turnErrMu sync.Mutex
+	turnErr   error
 
 	// Q4: 工具结果来源标签（[tool_result:<name>]），默认关。
 	toolResultLabels bool
@@ -664,16 +668,29 @@ func extractUsage(msg *message.Msg) model.ChatUsage {
 	return model.ChatUsage{}
 }
 
-// Call executes the agent synchronously (V1 API).
-// MaxTurnDuration applies here too (parity with ReplyStream): the same
-// wall-clock cap cancels a synchronous turn when it expires.
+// setTurnErr records the loop's real turn error (sentinel-preserving).
+func (a *ReActAgent) setTurnErr(err error) {
+	a.turnErrMu.Lock()
+	a.turnErr = err
+	a.turnErrMu.Unlock()
+}
+
+// takeTurnErr consumes the stored real turn error (read-and-clear); nil when
+// the turn produced no error.
+func (a *ReActAgent) takeTurnErr() error {
+	a.turnErrMu.Lock()
+	defer a.turnErrMu.Unlock()
+	err := a.turnErr
+	a.turnErr = nil
+	return err
+}
+
+// Call executes the agent synchronously (V1 API). Since 16.1 the ReAct loop
+// is single-core: Call wraps ReplyStream and collects the final assistant
+// message, so budget / steer / interrupt / usage live in one implementation.
+// MaxTurnDuration is enforced inside the shared loop (parity with ReplyStream).
 func (a *ReActAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
-	if a.maxTurnDuration > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, a.maxTurnDuration)
-		defer cancel()
-	}
-	return a.Base.Call(ctx, msg, a.replyInternal)
+	return a.Reply(ctx, msg)
 }
 
 // Steer injects a user message into the running turn (Q8). The message is
@@ -774,6 +791,12 @@ func (a *ReActAgent) Reply(ctx context.Context, msg *message.Msg) (*message.Msg,
 			lastErr = errors.New(e.Err)
 		}
 	}
+	// Prefer the loop's real error: it keeps sentinel identity
+	// (errEmptyModelResponse / context.Canceled) that event-text reconstruction
+	// via errors.New cannot preserve.
+	if real := a.takeTurnErr(); real != nil {
+		return nil, real
+	}
 	if lastErr != nil {
 		return nil, lastErr
 	}
@@ -789,393 +812,6 @@ func (a *ReActAgent) Reply(ctx context.Context, msg *message.Msg) (*message.Msg,
 		}
 	}
 	return nil, errors.New("react agent: reply completed but no assistant message found")
-}
-
-// replyInternal is the core ReAct logic executed inside Base.Call lifecycle.
-func (a *ReActAgent) replyInternal(ctx context.Context, msg *message.Msg) (finalResponse *message.Msg, err error) {
-	a.CallWg.Add(1)
-	defer a.CallWg.Done()
-
-	a.Mu.RLock()
-	if a.Closed {
-		a.Mu.RUnlock()
-		return nil, ErrAgentClosed
-	}
-	a.Mu.RUnlock()
-
-	a.ResetInterrupt()
-
-	// Fire PreCall classic hook
-	inputMsg, override, err := a.preCallPhase(ctx, msg)
-	if err != nil {
-		return nil, err
-	}
-	if override != nil {
-		return override, nil
-	}
-
-	// Build initial message history
-	history, err := a.buildHistory(ctx, inputMsg)
-	if err != nil {
-		_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
-			BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name},
-			Err:       err,
-		})
-		return nil, err
-	}
-
-	toolSpecs := a.toolSpecs(ctx)
-	var chatOpts []model.ChatOption
-	if len(toolSpecs) > 0 {
-		chatOpts = append(chatOpts, model.WithTools(toolSpecs))
-	}
-
-	// PreCall event (turn-level)
-	if _, _, err := a.fireStreamEvent(ctx, &hook.PreReasoningEvent{
-		BaseEvent: hook.BaseEvent{Type: hook.EventPreCall, Ts: time.Now(), Agent: a.Base.Name},
-		Messages:  append([]*message.Msg(nil), history...),
-		ModelName: a.effectiveModel(ctx).ModelName(),
-	}); err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if err != nil {
-			_, _, _ = a.fireStreamEvent(ctx, &hook.ErrorEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventError, Ts: time.Now(), Agent: a.Base.Name},
-				Err:       err,
-			})
-		} else {
-			_, _, _ = a.fireStreamEvent(ctx, &hook.PostReasoningEvent{
-				BaseEvent: hook.BaseEvent{Type: hook.EventPostCall, Ts: time.Now(), Agent: a.Base.Name},
-				Messages:  append([]*message.Msg(nil), history...),
-				Response:  finalResponse,
-			})
-		}
-		// PostCall classic hook
-		_, _, _ = a.fireHooks(ctx, hook.HookPostCall, history, finalResponse, "", nil)
-	}()
-
-	calledTools := make(map[string]bool)
-	breaker := newConsecutiveFailureBreaker(a.maxConsecutiveToolFailures)
-	var action loopAction
-	// replyUsage shadows the per-turn spend so the final message carries the
-	// whole reply's usage, not just the last model call (E8c).
-	var replyUsage model.ChatUsage
-	for i := 0; i < a.maxIterations; i++ {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		if resp, err := a.loopGuard(ctx, msg, nil); err != nil || resp != nil {
-			return resp, err
-		}
-
-		// Before-model hooks
-		history, action, override, err = a.beforeModelPhase(ctx, history)
-		if err != nil {
-			return nil, err
-		}
-		if action == loopReturn {
-			return override, nil
-		}
-		if action == loopBreak {
-			finalResponse = override
-			break
-		}
-
-		if err := a.CompressContext(ctx, inputMsg, toolSpecs); err != nil {
-			return nil, err
-		}
-		history, err = a.syncHistoryWithMemory(ctx, inputMsg, history)
-		if err != nil {
-			return nil, err
-		}
-
-		// Call the model
-		var response *message.Msg
-		response, err = a.runModel(ctx, history, chatOpts, i, len(toolSpecs) > 0)
-		if err != nil {
-			if errors.Is(err, hook.ErrInterrupted) {
-				return nil, err
-			}
-			// A model call aborted by a mid-stream interrupt takes the normal
-			// interruption recovery path instead of surfacing a raw error (E4b).
-			if a.IsInterrupted() {
-				return a.handleInterrupt(ctx, msg, history, nil)
-			}
-			return nil, err
-		}
-		a.addUsage(extractUsage(response))
-		replyUsage = replyUsage.Add(extractUsage(response))
-
-		if err := a.CheckInterrupted(); err != nil {
-			return a.handleInterrupt(ctx, msg, history, response.GetToolUseCalls())
-		}
-
-		// After-model hooks
-		history, response, action, override, err = a.afterModelPhase(ctx, history, response)
-		if err != nil {
-			return nil, err
-		}
-		if action == loopReturn {
-			finalResponse = override
-			return finalResponse, nil
-		}
-		if action == loopContinue {
-			continue
-		}
-		if action == loopBreak {
-			finalResponse = override
-			break
-		}
-
-		history = append(history, response)
-
-		// Check for final answer (no tool calls)
-		response, isFinal, err := a.checkFinalAnswer(ctx, history, response)
-		if err != nil {
-			return nil, err
-		}
-		if isFinal {
-			finalResponse = response
-			finalResponse.Usage = tokenUsageFrom(replyUsage)
-			break
-		}
-
-		toolCalls := response.GetToolUseCalls()
-
-		// Execute tool calls concurrently
-		if resp, err := a.loopGuard(ctx, msg, toolCalls); err != nil || resp != nil {
-			return resp, err
-		}
-
-		replyID := ""
-		a.runtimeMu.Lock()
-		if a.runtimeState != nil {
-			replyID = a.runtimeState.ReplyID
-		}
-		a.runtimeMu.Unlock()
-
-		externalResults, err := a.handleExternalToolCalls(ctx, replyID, toolCalls)
-		if err != nil {
-			return nil, err
-		}
-
-		type toolRunResult struct {
-			contentBlocks   []message.ContentBlock
-			singleResultMsg *message.Msg
-			afterHr         *hook.HookResult
-			elapsed         float64
-			toolName        string
-			toolInput       map[string]any
-			hasTcr          bool
-			tcr             memory.ToolCallResult
-			isErr           bool
-			errMsg          string
-		}
-
-		results := make([]toolRunResult, len(toolCalls))
-		var g errgroup.Group
-
-		for idx, tc := range toolCalls {
-			tc := tc
-			idx := idx
-			if ext, ok := externalResults[idx]; ok {
-				blocks := a.compressToolResultBlocks(ctx, tc.ID, ext.blocks, ext.isErr)
-				singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
-					message.NewToolResultBlock(tc.ID, blocks, ext.isErr),
-				).Build()
-				results[idx] = toolRunResult{
-					contentBlocks:   blocks,
-					singleResultMsg: singleResultMsg,
-					toolName:        tc.Name,
-					toolInput:       tc.Input,
-					isErr:           ext.isErr,
-					errMsg:          errTextFromBlocks(blocks),
-				}
-				continue
-			}
-			g.Go(func() error {
-				// Fire before-tool hook
-				_, hr, err := a.fireHooks(ctx, hook.HookBeforeTool, history, nil, tc.Name, tc.Input)
-				if err != nil {
-					return err
-				}
-				if hr != nil && hr.Interrupt {
-					return &hookInterruptError{override: hr.Override}
-				}
-
-				if _, _, err := a.fireStreamEvent(ctx, &hook.PreActingEvent{
-					BaseEvent: hook.BaseEvent{Type: hook.EventPreActing, Ts: time.Now(), Agent: a.Base.Name, Iteration: i},
-					Messages:  append([]*message.Msg(nil), history...),
-					ToolName:  tc.Name,
-					ToolInput: tc.Input,
-				}); err != nil {
-					if errors.Is(err, hook.ErrInterrupted) {
-						return err
-					}
-					return err
-				}
-
-				tcStart := time.Now()
-				resp, toolErr := a.executeToolSafely(ctx, tc.Name, tc.Input)
-				tcElapsed := time.Since(tcStart).Seconds()
-
-				var contentBlocks []message.ContentBlock
-				if toolErr != nil {
-					contentBlocks = []message.ContentBlock{message.NewTextBlock(fmt.Sprintf("error: %s", toolErr.Error()))}
-				} else if resp != nil && len(resp.Content) > 0 {
-					contentBlocks = resp.Content
-				} else {
-					contentBlocks = []message.ContentBlock{message.NewTextBlock("")}
-				}
-				contentBlocks = a.compressToolResultBlocks(ctx, tc.ID, contentBlocks, toolErr != nil)
-
-				singleResultMsg := message.NewMsg().Role(message.RoleTool).Content(
-					message.NewToolResultBlock(tc.ID, contentBlocks, toolErr != nil),
-				).Build()
-
-				if _, _, err := a.fireStreamEvent(ctx, &hook.PostActingEvent{
-					BaseEvent: hook.BaseEvent{Type: hook.EventPostActing, Ts: time.Now(), Agent: a.Base.Name, Iteration: i},
-					Messages:  append([]*message.Msg(nil), history...),
-					ToolName:  tc.Name,
-					ToolInput: tc.Input,
-					Result:    resp,
-					Err:       toolErr,
-					ResultMsg: singleResultMsg,
-				}); err != nil {
-					if errors.Is(err, hook.ErrInterrupted) {
-						return err
-					}
-					return err
-				}
-
-				// Fire after-tool hook
-				_, afterHr, afterErr := a.fireHooks(ctx, hook.HookAfterTool, history, nil, tc.Name, tc.Input)
-				if afterErr != nil {
-					return afterErr
-				}
-
-				var hasTcr bool
-				var tcr memory.ToolCallResult
-				if _, ok := a.memory.(interface {
-					AddToolCallResult(ctx context.Context, result memory.ToolCallResult) error
-				}); ok {
-					outputText := ""
-					for _, b := range contentBlocks {
-						if tb, ok := b.(*message.TextBlock); ok {
-							outputText += tb.Text
-						}
-					}
-					tcr = memory.ToolCallResult{
-						ToolName: tc.Name,
-						Input:    tc.Input,
-						Output:   outputText,
-						Success:  toolErr == nil,
-						TimeCost: tcElapsed,
-					}
-					hasTcr = true
-				}
-
-				results[idx] = toolRunResult{
-					contentBlocks:   contentBlocks,
-					singleResultMsg: singleResultMsg,
-					afterHr:         afterHr,
-					elapsed:         tcElapsed,
-					toolName:        tc.Name,
-					toolInput:       tc.Input,
-					hasTcr:          hasTcr,
-					tcr:             tcr,
-					isErr:           toolErr != nil,
-					errMsg:          errTextFromToolErr(toolErr),
-				}
-				return nil
-			})
-		}
-
-		if err := g.Wait(); err != nil {
-			if hi, ok := err.(*hookInterruptError); ok {
-				return hi.override, nil
-			}
-			return nil, err
-		}
-
-		toolResultMsg := message.NewMsg().Role(message.RoleTool)
-		for _, r := range results {
-			if r.afterHr != nil && r.afterHr.StopAgent {
-				finalResponse = r.afterHr.Override
-				if finalResponse == nil {
-					finalResponse = r.singleResultMsg
-				}
-				return finalResponse, nil
-			}
-			if r.afterHr != nil && r.afterHr.Interrupt {
-				finalResponse = r.afterHr.Override
-				return finalResponse, nil
-			}
-
-			if r.hasTcr {
-				if tcrCollector, ok := a.memory.(interface {
-					AddToolCallResult(ctx context.Context, result memory.ToolCallResult) error
-				}); ok {
-					_ = tcrCollector.AddToolCallResult(ctx, r.tcr)
-					calledTools[r.toolName] = true
-				}
-			}
-
-			toolResultMsg.Content(r.singleResultMsg.Content...)
-		}
-		history = append(history, toolResultMsg.Build())
-
-		// Consecutive-tool-failure breaker: if the same tool keeps failing, stop
-		// the loop with a helpful message instead of letting the model hammer it
-		// until maxIterations (e.g. HTTP 429 "Too Many Requests" retried 6x).
-		if breaker != nil {
-			sigs := make([]failureSignal, 0, len(results))
-			for _, r := range results {
-				sigs = append(sigs, failureSignal{
-					ToolName: r.toolName,
-					IsError:  r.isErr,
-					ErrText:  r.errMsg,
-					Blocks:   r.contentBlocks,
-				})
-			}
-			if name, count, reason := breaker.update(sigs); name != "" {
-				finalResponse = a.withCurrentUsage(breakerFinalMessage(a.Base.AgentName(), name, count, reason))
-				break
-			}
-			// Nudge before the breaker trips: feed the repeated failure back
-			// so the model changes course instead of hammering the same call
-			// (PyV2 tool_retries_hint).
-			if name, count, reason := breaker.hintNeeded(); name != "" {
-				history = append(history, message.NewMsg().Role(message.RoleSystem).
-					TextContent(toolRetriesHintText(name, count, reason)).Build())
-			}
-		}
-	}
-
-	if finalResponse == nil {
-		err = errors.New("react agent: max iterations reached without final answer")
-		return nil, err
-	}
-
-	// 批量总结工具调用
-	if tcrCollector, ok := a.memory.(interface {
-		SummarizeToolUsage(ctx context.Context, toolName string) error
-	}); ok {
-		for toolName := range calledTools {
-			_ = tcrCollector.SummarizeToolUsage(ctx, toolName)
-		}
-	}
-
-	// Persist to memory
-	_ = a.memory.Add(msg)
-	_ = a.memory.Add(finalResponse)
-
-	return finalResponse, nil
 }
 
 // handleInterrupt processes an interruption that occurred during ReAct execution.

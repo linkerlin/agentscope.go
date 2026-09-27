@@ -36,6 +36,7 @@ func (m *mockChatModel) Chat(ctx context.Context, messages []*message.Msg, optio
 }
 
 func (m *mockChatModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+	m.lastMessages = messages
 	ch := make(chan *model.StreamChunk, 2)
 	ch <- &model.StreamChunk{Delta: "ok"}
 	if m.usage.TotalTokens > 0 {
@@ -294,11 +295,23 @@ func (m *mockToolModel) ChatStream(ctx context.Context, messages []*message.Msg,
 	if text := msg.GetTextContent(); text != "" {
 		ch <- &model.StreamChunk{Delta: text}
 	}
-	content := msg.Content
-	if len(content) > 0 {
-		ch <- &model.StreamChunk{Done: true, Content: content}
+	// Real streaming backends deliver text via deltas and only carry
+	// non-text blocks (tool_use / thinking) in the final chunk — mirroring
+	// that here keeps the mock faithful to the unified loop's consumption.
+	var nonText []message.ContentBlock
+	for _, b := range msg.Content {
+		if _, ok := b.(*message.TextBlock); !ok {
+			nonText = append(nonText, b)
+		}
+	}
+	var usage *model.ChatUsage
+	if u, ok := msg.Metadata["usage"].(model.ChatUsage); ok {
+		usage = &u
+	}
+	if len(nonText) > 0 {
+		ch <- &model.StreamChunk{Done: true, Content: nonText, Usage: usage}
 	} else {
-		ch <- &model.StreamChunk{Done: true}
+		ch <- &model.StreamChunk{Done: true, Usage: usage}
 	}
 	close(ch)
 	return ch, nil
@@ -1107,7 +1120,16 @@ func (m *slowMockChatModel) Chat(ctx context.Context, messages []*message.Msg, o
 }
 
 func (m *slowMockChatModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
-	return nil, errors.New("not supported")
+	// Delay before the first chunk keeps the pre-stream interrupt window the
+	// non-streaming Chat path used to provide (interrupt tests rely on it).
+	ch := make(chan *model.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		time.Sleep(m.delay)
+		ch <- &model.StreamChunk{Delta: "ok"}
+		ch <- &model.StreamChunk{Done: true}
+	}()
+	return ch, nil
 }
 
 func (m *slowMockChatModel) ModelName() string { return m.name }
@@ -1128,7 +1150,18 @@ func (m *slowToolCallModel) Chat(ctx context.Context, messages []*message.Msg, o
 }
 
 func (m *slowToolCallModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
-	return nil, errors.New("not supported")
+	ch := make(chan *model.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		time.Sleep(m.delay)
+		ch <- &model.StreamChunk{
+			Done: true,
+			Content: []message.ContentBlock{
+				message.NewToolUseBlock("tc-1", m.toolName, map[string]any{}),
+			},
+		}
+	}()
+	return ch, nil
 }
 
 func (m *slowToolCallModel) ModelName() string { return m.name }

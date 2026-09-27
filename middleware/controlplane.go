@@ -7,8 +7,13 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/logging"
 	"github.com/linkerlin/agentscope.go/message"
 )
 
@@ -23,10 +28,15 @@ import (
 // agent (ok=false), the turn passes through unchanged — so attaching this
 // middleware with no bindings is a no-op (default-off, faithful to the plan).
 //
-// Writeback and spend are NOT done here: the control plane does not execute
-// work. After a turn that ShouldRun allowed, the runtime (or a thin wrapper)
-// calls Kernel.Writeback + Kernel.SpendSlot separately, often via the gateway
-// /api/v1/controlplane/* routes.
+// Governance hot path (16.4): after a turn that ShouldRun allowed and that
+// completed without error, the middleware automatically records one
+// Writeback (progress outcome plus a turn-reply evidence item) and one
+// SpendSlot for the goal's current todo. A failed turn never writes back and
+// never spends; a Writeback failure never spends ("success spends once").
+// Accounting failures are logged and swallowed — a control-plane hiccup must
+// not break the agent, matching the passthrough philosophy of ShouldRun.
+// Turns with no current todo on the goal have nothing accountable to record
+// and are skipped.
 type ControlPlaneMiddleware struct {
 	Base
 	// Kernel is the governance kernel. nil = middleware is a no-op.
@@ -57,9 +67,68 @@ func (m *ControlPlaneMiddleware) OnReply(ctx context.Context, agent Agent, input
 	}
 	dec, err := m.Kernel.ShouldRun(ctx, goalID, agentID)
 	if err != nil || dec == nil || dec.ShouldRun {
-		return next(ctx)
+		resp, replyErr := next(ctx)
+		if replyErr == nil && resp != nil {
+			m.accountTurn(ctx, goalID, agentID, resp)
+		}
+		return resp, replyErr
 	}
 	return blockedReply(dec)
+}
+
+// accountTurn records one Writeback + one SpendSlot for a successfully
+// completed turn (16.4 governance hot path). Best-effort by design: any
+// failure is logged and swallowed so accounting can never break the reply.
+func (m *ControlPlaneMiddleware) accountTurn(ctx context.Context, goalID, agentID string, resp *message.Msg) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Default().Error("controlplane middleware: account turn panicked", "panic", r)
+		}
+	}()
+
+	goal, err := m.Kernel.GoalStore().Get(ctx, goalID)
+	if err != nil || goal == nil || goal.CurrentTodoID == "" {
+		// Nothing accountable to record for this turn.
+		return
+	}
+
+	turnID := uuid.NewString()
+	_, err = m.Kernel.Writeback(ctx, controlplane.ValidatedWriteback{
+		TodoID:  goal.CurrentTodoID,
+		GoalID:  goalID,
+		TurnID:  turnID,
+		AgentID: agentID,
+		// Progress (not completion): finishing a turn is real, evidenced
+		// work, but completion semantics (todo done + lane gates) belong to
+		// explicit evaluation, not to every successful chat turn.
+		Outcome:        controlplane.Outcome{Status: controlplane.OutcomeProgress},
+		DecisionSource: "runtime_auto",
+		Evidence: []controlplane.Evidence{{
+			ID:         uuid.NewString(),
+			Kind:       "turn_reply",
+			Summary:    truncateSummary(resp.GetTextContent()),
+			ProducedAt: time.Now(),
+		}},
+	})
+	if err != nil {
+		logging.Default().Warn("controlplane middleware: writeback failed (no spend)", "error", err)
+		return
+	}
+	if _, err := m.Kernel.SpendSlot(ctx, goalID, turnID, controlplane.SpendOpts{
+		Execute: true,
+		Reason:  "auto: turn delivered",
+	}); err != nil {
+		logging.Default().Warn("controlplane middleware: spend failed after writeback", "error", err)
+	}
+}
+
+// truncateSummary keeps the evidence summary compact and single-line.
+func truncateSummary(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	if len(s) > 200 {
+		s = s[:197] + "..."
+	}
+	return s
 }
 
 // blockedReply renders a ShouldRun=false decision as an assistant message the

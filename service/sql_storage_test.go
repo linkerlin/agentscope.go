@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/linkerlin/agentscope.go/internal/migration"
 )
 
 func newTestSQLStorage(t *testing.T) *SQLStorage {
@@ -328,4 +331,26 @@ func TestSQLStorage_CascadeDelete(t *testing.T) {
 
 func TestSQLStorage_ImplementsStorage(t *testing.T) {
 	var _ Storage = (*SQLStorage)(nil)
+}
+
+// TestSQLStorage_RejectsUnsupportedDriver locks the 23.4 rule: opening a
+// storage through an unsupported driver fails loudly instead of silently
+// running SQLite SQL against another engine.
+func TestSQLStorage_RejectsUnsupportedDriver(t *testing.T) {
+	_, err := NewSQLStorageWithDSN(context.Background(), "mysql", "root@/x")
+	if err == nil || !strings.Contains(err.Error(), "unsupported driver") {
+		t.Fatalf("expected unsupported-driver rejection, got %v", err)
+	}
+}
+
+// TestSQLStorage_DialectReported sanity-checks the dialect wiring.
+func TestSQLStorage_DialectReported(t *testing.T) {
+	s, err := NewSQLStorage(context.Background(), ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.db.Close()
+	if s.Dialect() != migration.DialectSQLite {
+		t.Fatalf("expected sqlite dialect, got %q", s.Dialect())
+	}
 }

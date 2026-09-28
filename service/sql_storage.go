@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -12,12 +14,15 @@ import (
 	"github.com/linkerlin/agentscope.go/internal/migration"
 )
 
-// SQLStorage implements Storage using a SQL database (SQLite by default).
+// SQLStorage implements Storage using a SQL database (SQLite by default,
+// Postgres supported — 23.4 keeps the support claim honest by running the
+// same CRUD contract tests against both dialects).
 // Each entity is stored in its own table with indexed lookup columns plus a
 // JSON payload column for the full record. Aligned with Python agentscope's
 // AsyncSQLAlchemyStorage (#b49a26b9).
 type SQLStorage struct {
-	db *sql.DB
+	db      *sql.DB
+	dialect string
 }
 
 // NewSQLStorage opens (or creates) a SQLite database at dbPath and provisions
@@ -29,12 +34,83 @@ func NewSQLStorage(ctx context.Context, dbPath string) (*SQLStorage, error) {
 	}
 	// Enable WAL for better concurrency (ignored for :memory:).
 	_, _ = db.ExecContext(ctx, `PRAGMA journal_mode=WAL;`)
-	s := &SQLStorage{db: db}
+	s := &SQLStorage{db: db, dialect: migration.DialectSQLite}
 	if err := s.initSchema(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// NewSQLStorageWithDSN opens a SQL database through an explicit driver and
+// provisions the schema (23.4). Supported drivers: "sqlite" (modernc
+// driver, any SQLite path/DSN) and "pgx" (Postgres). Anything else is
+// rejected — an unsupported engine must fail loudly, not run SQLite SQL.
+func NewSQLStorageWithDSN(ctx context.Context, driver, dsn string) (*SQLStorage, error) {
+	var dialect string
+	switch driver {
+	case "sqlite":
+		dialect = migration.DialectSQLite
+	case "pgx":
+		dialect = migration.DialectPostgres
+	default:
+		return nil, fmt.Errorf("sqlstorage: unsupported driver %q (supported: \"sqlite\", \"pgx\")", driver)
+	}
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("sqlstorage: open %q via %q: %w", dsn, driver, err)
+	}
+	if driver == "sqlite" {
+		_, _ = db.ExecContext(ctx, `PRAGMA journal_mode=WAL;`)
+	}
+	s := &SQLStorage{db: db, dialect: dialect}
+	if err := s.initSchema(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// bind adapts a query built with "?" placeholders to the dialect (Postgres
+// wants positional "$1..$n"; SQLite takes "?" as-is). All statements in this
+// file are structurally assembled (no "?" inside string literals).
+func (s *SQLStorage) bind(query string) string {
+	if s.dialect != migration.DialectPostgres {
+		return query
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range query {
+		if r == '?' {
+			n++
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(n))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// Dialect reports the storage's SQL dialect (internal/migration constants).
+func (s *SQLStorage) Dialect() string { return s.dialect }
+
+// exec/query/queryRow route every statement through bind so the CRUD layer
+// stays dialect-agnostic.
+func (s *SQLStorage) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return s.db.ExecContext(ctx, s.bind(query), args...)
+}
+
+func (s *SQLStorage) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return s.db.QueryContext(ctx, s.bind(query), args...)
+}
+
+func (s *SQLStorage) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	return s.db.QueryRowContext(ctx, s.bind(query), args...)
+}
+
+func (s *SQLStorage) execTx(ctx context.Context, tx *sql.Tx, query string, args ...any) (sql.Result, error) {
+	return tx.ExecContext(ctx, s.bind(query), args...)
 }
 
 // Close closes the underlying database connection.
@@ -129,7 +205,7 @@ var migrations = []migration.Migration{
 }
 
 func (s *SQLStorage) initSchema(ctx context.Context) error {
-	return migration.Migrate(ctx, s.db, migration.DialectSQLite, migrations)
+	return migration.Migrate(ctx, s.db, s.dialect, migrations)
 }
 
 // --- helpers ---
@@ -182,7 +258,7 @@ func (s *SQLStorage) upsertConflict(ctx context.Context, table, conflictCol stri
 		"INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(%s) DO UPDATE SET %s",
 		table, colList, phList, conflictCol, updateCols,
 	)
-	_, err := s.db.ExecContext(ctx, q, vals...)
+	_, err := s.exec(ctx, q, vals...)
 	return err
 }
 
@@ -202,7 +278,7 @@ func nowUTC2(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 func (s *SQLStorage) GetUser(ctx context.Context, id string) (*User, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM users WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM users WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("user not found: %s", id)
 	}
@@ -218,7 +294,7 @@ func (s *SQLStorage) GetUser(ctx context.Context, id string) (*User, error) {
 
 func (s *SQLStorage) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM users WHERE email = ?", email).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM users WHERE email = ?", email).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("user not found by email: %s", email)
 	}
@@ -233,7 +309,7 @@ func (s *SQLStorage) GetUserByEmail(ctx context.Context, email string) (*User, e
 }
 
 func (s *SQLStorage) ListUsers(ctx context.Context) ([]*User, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM users ORDER BY created_at")
+	rows, err := s.query(ctx, "SELECT payload FROM users ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -248,17 +324,17 @@ func (s *SQLStorage) DeleteUser(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 	// Cascade: delete user's sessions → messages → snapshots, agents, credentials, schedules, teams
-	sessionIDs, _ := queryIDs(tx, ctx, "SELECT id FROM sessions WHERE user_id = ?", id)
+	sessionIDs, _ := queryIDs(tx, ctx, s.bind("SELECT id FROM sessions WHERE user_id = ?"), id)
 	for _, sid := range sessionIDs {
-		_, _ = tx.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", sid)
-		_, _ = tx.ExecContext(ctx, "DELETE FROM snapshots WHERE session_id = ?", sid)
+		_, _ = s.execTx(ctx, tx, "DELETE FROM messages WHERE session_id = ?", sid)
+		_, _ = s.execTx(ctx, tx, "DELETE FROM snapshots WHERE session_id = ?", sid)
 	}
-	_, _ = tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM agents WHERE user_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM credentials WHERE user_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM schedules WHERE user_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM teams WHERE user_id = ?", id)
-	_, err = tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM sessions WHERE user_id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM agents WHERE user_id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM credentials WHERE user_id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM schedules WHERE user_id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM teams WHERE user_id = ?", id)
+	_, err = s.execTx(ctx, tx, "DELETE FROM users WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
@@ -279,7 +355,7 @@ func (s *SQLStorage) SaveSession(ctx context.Context, sess *Session) error {
 
 func (s *SQLStorage) GetSession(ctx context.Context, id string) (*Session, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM sessions WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM sessions WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("session not found: %s", id)
 	}
@@ -294,7 +370,7 @@ func (s *SQLStorage) GetSession(ctx context.Context, id string) (*Session, error
 }
 
 func (s *SQLStorage) ListSessionsByUser(ctx context.Context, userID string) ([]*Session, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM sessions WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := s.query(ctx, "SELECT payload FROM sessions WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -308,9 +384,9 @@ func (s *SQLStorage) DeleteSession(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback()
-	_, _ = tx.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM snapshots WHERE session_id = ?", id)
-	_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM messages WHERE session_id = ?", id)
+	_, _ = s.execTx(ctx, tx, "DELETE FROM snapshots WHERE session_id = ?", id)
+	_, err = s.execTx(ctx, tx, "DELETE FROM sessions WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
@@ -331,7 +407,7 @@ func (s *SQLStorage) SaveAgentConfig(ctx context.Context, cfg *AgentConfig) erro
 
 func (s *SQLStorage) GetAgentConfig(ctx context.Context, id string) (*AgentConfig, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM agents WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM agents WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("agent config not found: %s", id)
 	}
@@ -346,7 +422,7 @@ func (s *SQLStorage) GetAgentConfig(ctx context.Context, id string) (*AgentConfi
 }
 
 func (s *SQLStorage) ListAgentConfigsByUser(ctx context.Context, userID string) ([]*AgentConfig, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM agents WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := s.query(ctx, "SELECT payload FROM agents WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +431,7 @@ func (s *SQLStorage) ListAgentConfigsByUser(ctx context.Context, userID string) 
 }
 
 func (s *SQLStorage) DeleteAgentConfig(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM agents WHERE id = ?", id)
+	_, err := s.exec(ctx, "DELETE FROM agents WHERE id = ?", id)
 	return err
 }
 
@@ -373,7 +449,7 @@ func (s *SQLStorage) SaveCredential(ctx context.Context, cred *Credential) error
 
 func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM credentials WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM credentials WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("credential not found: %s", id)
 	}
@@ -388,7 +464,7 @@ func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential,
 }
 
 func (s *SQLStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*Credential, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM credentials WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := s.query(ctx, "SELECT payload FROM credentials WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +481,7 @@ func (s *SQLStorage) ListCredentialsByUser(ctx context.Context, userID string) (
 }
 
 func (s *SQLStorage) DeleteCredential(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM credentials WHERE id = ?", id)
+	_, err := s.exec(ctx, "DELETE FROM credentials WHERE id = ?", id)
 	return err
 }
 
@@ -426,7 +502,7 @@ func (s *SQLStorage) UpsertMessage(ctx context.Context, msg *StoredMessage) erro
 
 func (s *SQLStorage) GetMessage(ctx context.Context, id string) (*StoredMessage, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM messages WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM messages WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("message not found: %s", id)
 	}
@@ -444,7 +520,7 @@ func (s *SQLStorage) ListMessagesBySession(ctx context.Context, sessionID string
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		"SELECT payload FROM messages WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?",
 		sessionID, limit, offset)
 	if err != nil {
@@ -455,7 +531,7 @@ func (s *SQLStorage) ListMessagesBySession(ctx context.Context, sessionID string
 }
 
 func (s *SQLStorage) DeleteMessagesBySession(ctx context.Context, sessionID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM messages WHERE session_id = ?", sessionID)
+	_, err := s.exec(ctx, "DELETE FROM messages WHERE session_id = ?", sessionID)
 	return err
 }
 
@@ -472,7 +548,7 @@ func (s *SQLStorage) SaveSnapshot(ctx context.Context, snap *AgentSnapshot) erro
 
 func (s *SQLStorage) GetSnapshot(ctx context.Context, sessionID string) (*AgentSnapshot, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM snapshots WHERE session_id = ?", sessionID).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM snapshots WHERE session_id = ?", sessionID).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("snapshot not found: %s", sessionID)
 	}
@@ -487,7 +563,7 @@ func (s *SQLStorage) GetSnapshot(ctx context.Context, sessionID string) (*AgentS
 }
 
 func (s *SQLStorage) DeleteSnapshot(ctx context.Context, sessionID string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM snapshots WHERE session_id = ?", sessionID)
+	_, err := s.exec(ctx, "DELETE FROM snapshots WHERE session_id = ?", sessionID)
 	return err
 }
 
@@ -509,7 +585,7 @@ func (s *SQLStorage) SaveSchedule(ctx context.Context, sched *Schedule) error {
 
 func (s *SQLStorage) GetSchedule(ctx context.Context, id string) (*Schedule, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM schedules WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM schedules WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("schedule not found: %s", id)
 	}
@@ -524,7 +600,7 @@ func (s *SQLStorage) GetSchedule(ctx context.Context, id string) (*Schedule, err
 }
 
 func (s *SQLStorage) ListSchedulesByUser(ctx context.Context, userID string) ([]*Schedule, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM schedules WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := s.query(ctx, "SELECT payload FROM schedules WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -533,7 +609,7 @@ func (s *SQLStorage) ListSchedulesByUser(ctx context.Context, userID string) ([]
 }
 
 func (s *SQLStorage) ListAllSchedules(ctx context.Context) ([]*Schedule, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM schedules WHERE enabled = 1 ORDER BY created_at")
+	rows, err := s.query(ctx, "SELECT payload FROM schedules WHERE enabled = 1 ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -542,12 +618,12 @@ func (s *SQLStorage) ListAllSchedules(ctx context.Context) ([]*Schedule, error) 
 }
 
 func (s *SQLStorage) DeleteSchedule(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM schedules WHERE id = ?", id)
+	_, err := s.exec(ctx, "DELETE FROM schedules WHERE id = ?", id)
 	return err
 }
 
 func (s *SQLStorage) ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*Session, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.query(ctx,
 		"SELECT payload FROM sessions WHERE user_id = ? AND source_schedule_id = ? ORDER BY created_at DESC",
 		userID, scheduleID)
 	if err != nil {
@@ -571,7 +647,7 @@ func (s *SQLStorage) SaveTeam(ctx context.Context, team *Team) error {
 
 func (s *SQLStorage) GetTeam(ctx context.Context, id string) (*Team, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM teams WHERE id = ?", id).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM teams WHERE id = ?", id).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("team not found: %s", id)
 	}
@@ -586,7 +662,7 @@ func (s *SQLStorage) GetTeam(ctx context.Context, id string) (*Team, error) {
 }
 
 func (s *SQLStorage) ListTeamsByUser(ctx context.Context, userID string) ([]*Team, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT payload FROM teams WHERE user_id = ? ORDER BY created_at DESC", userID)
+	rows, err := s.query(ctx, "SELECT payload FROM teams WHERE user_id = ? ORDER BY created_at DESC", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -595,13 +671,13 @@ func (s *SQLStorage) ListTeamsByUser(ctx context.Context, userID string) ([]*Tea
 }
 
 func (s *SQLStorage) DeleteTeam(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM teams WHERE id = ?", id)
+	_, err := s.exec(ctx, "DELETE FROM teams WHERE id = ?", id)
 	return err
 }
 
 func (s *SQLStorage) GetTeamByLeaderSession(ctx context.Context, sessionID string) (*Team, error) {
 	var payload string
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM teams WHERE leader_session_id = ?", sessionID).Scan(&payload)
+	err := s.queryRow(ctx, "SELECT payload FROM teams WHERE leader_session_id = ?", sessionID).Scan(&payload)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("team not found by leader session: %s", sessionID)
 	}

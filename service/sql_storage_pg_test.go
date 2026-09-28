@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -82,5 +83,101 @@ func TestPostgres_ServiceMigrations(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("expected fresh users table, got %d rows", n)
+	}
+}
+
+// TestPostgres_ConcurrentMigrations locks the 23.4 rule: concurrent replica
+// startups serialise on the advisory lock and every migration is recorded
+// exactly once — no replica errors out.
+func TestPostgres_ConcurrentMigrations(t *testing.T) {
+	db := pgTestDB(t)
+	ctx := context.Background()
+
+	// A dedicated migration list so the "exactly once" assertion holds even
+	// on the shared test database.
+	conc := []migration.Migration{{
+		ID:   fmt.Sprintf("0001_conc_%d", time.Now().UnixNano()),
+		Up:   []string{`SELECT 1;`},
+		UpPG: []string{`SELECT 1;`},
+	}}
+
+	const replicas = 8
+	errs := make(chan error, replicas)
+	for i := 0; i < replicas; i++ {
+		go func() { errs <- migration.Migrate(ctx, db, migration.DialectPostgres, conc) }()
+	}
+	for i := 0; i < replicas; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent postgres migrate: %v", err)
+		}
+	}
+	var count int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations WHERE id = $1;`, conc[0].ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("migration recorded %d times, want exactly 1", count)
+	}
+}
+
+// TestPostgres_SQLStorageCRUDContract runs the real CRUD + transaction paths
+// of SQLStorage against Postgres (23.4): the support claim now matches the
+// tests — same semantics as the SQLite suite, including the upsert
+// (ON CONFLICT) path and the cascade-delete transaction.
+func TestPostgres_SQLStorageCRUDContract(t *testing.T) {
+	db := pgTestDB(t)
+	ctx := context.Background()
+
+	if err := migration.Migrate(ctx, db, migration.DialectPostgres, migrations); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := &SQLStorage{db: db, dialect: migration.DialectPostgres}
+
+	// User CRUD.
+	if err := s.SaveUser(ctx, &User{ID: "pg-u1", Name: "Alice"}); err != nil {
+		t.Fatalf("save user: %v", err)
+	}
+	got, err := s.GetUser(ctx, "pg-u1")
+	if err != nil || got.Name != "Alice" {
+		t.Fatalf("get user: %v %+v", err, got)
+	}
+
+	// Credential round trip (secret must survive persistence, 22.1).
+	if err := s.SaveCredential(ctx, &Credential{ID: "pg-c1", UserID: "pg-u1", Provider: "openai", Encrypted: "enc-pg"}); err != nil {
+		t.Fatalf("save credential: %v", err)
+	}
+	cred, err := s.GetCredential(ctx, "pg-c1")
+	if err != nil || cred.Encrypted != "enc-pg" {
+		t.Fatalf("credential round trip: %v %+v", err, cred)
+	}
+
+	// Upsert (ON CONFLICT) overwrites.
+	if err := s.SaveUser(ctx, &User{ID: "pg-u1", Name: "Alice2"}); err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	got, _ = s.GetUser(ctx, "pg-u1")
+	if got.Name != "Alice2" {
+		t.Fatalf("upsert did not overwrite: %+v", got)
+	}
+
+	// Session + message + cascade transaction.
+	if err := s.SaveSession(ctx, &Session{ID: "pg-s1", UserID: "pg-u1", Title: "t"}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	if err := s.UpsertMessage(ctx, &StoredMessage{ID: "pg-m1", SessionID: "pg-s1", Role: "user", Content: "hi"}); err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+	if err := s.DeleteUser(ctx, "pg-u1"); err != nil {
+		t.Fatalf("cascade delete: %v", err)
+	}
+	if _, err := s.GetSession(ctx, "pg-s1"); err == nil {
+		t.Fatal("session survived cascade delete")
+	}
+	if _, err := s.GetCredential(ctx, "pg-c1"); err == nil {
+		t.Fatal("credential survived cascade delete")
+	}
+	if _, err := s.GetMessage(ctx, "pg-m1"); err == nil {
+		t.Fatal("message survived cascade delete")
 	}
 }

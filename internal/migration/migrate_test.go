@@ -103,3 +103,57 @@ func TestMigrate_RejectsDuplicateIDs(t *testing.T) {
 		t.Fatalf("expected duplicate ID rejection, got %v", err)
 	}
 }
+
+// TestMigrate_RejectsUnsupportedDialect locks the 23.4 rule: an unsupported
+// dialect fails loudly instead of silently running SQLite SQL.
+func TestMigrate_RejectsUnsupportedDialect(t *testing.T) {
+	db := openTestDB(t)
+
+	err := Migrate(context.Background(), db, "mysql", []Migration{
+		{ID: "0001_x", Up: []string{`SELECT 1;`}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported dialect") {
+		t.Fatalf("expected unsupported-dialect rejection, got %v", err)
+	}
+}
+
+// TestMigrate_ConcurrentSQLiteReplicas locks the 23.4 rule: two replicas
+// migrating the same SQLite database concurrently both succeed, and every
+// migration is recorded exactly once.
+func TestMigrate_ConcurrentSQLiteReplicas(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	migrations := []Migration{
+		{ID: "0001_conc", Up: []string{`CREATE TABLE IF NOT EXISTS conc (id TEXT PRIMARY KEY);`}},
+		{ID: "0002_conc", Up: []string{`CREATE TABLE IF NOT EXISTS conc2 (id TEXT PRIMARY KEY);`}},
+	}
+
+	const replicas = 2
+	errs := make(chan error, replicas)
+	for i := 0; i < replicas; i++ {
+		go func() { errs <- Migrate(context.Background(), db, DialectSQLite, migrations) }()
+	}
+	for i := 0; i < replicas; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent migrate: %v", err)
+		}
+	}
+
+	ids, err := Applied(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, id := range ids {
+		seen[id]++
+	}
+	for _, m := range migrations {
+		if seen[m.ID] != 1 {
+			t.Fatalf("migration %s recorded %d times, want exactly 1", m.ID, seen[m.ID])
+		}
+	}
+}

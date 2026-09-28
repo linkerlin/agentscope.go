@@ -46,6 +46,17 @@ type SessionCoordinator struct {
 	acquireTimeout time.Duration
 	keys           messagebus.CoordKeys
 	bg             *BgTaskRegistry
+
+	// Fencing leases (23.1): when the bus implements CoordLease, runs are
+	// guarded by a short-TTL lease renewed for the whole turn — a crashed
+	// holder is taken over after leaseTTL, and a holder that loses its lease
+	// (fence superseded) terminates its local run immediately. Buses without
+	// leases fall back to the plain Lock path above.
+	lease         messagebus.CoordLease
+	registryCAS   messagebus.RegistryCAS
+	leaseTTL      time.Duration
+	renewInterval time.Duration
+	ownerID       string
 }
 
 // ErrSessionBusy is returned by Run when another replica currently holds the
@@ -64,6 +75,12 @@ const DefaultSessionLockTTL = 30 * time.Minute
 // (HTTP 409) instead of an unbounded queue.
 const DefaultSessionLockAcquireTimeout = 100 * time.Millisecond
 
+// DefaultSessionLeaseTTL is the fencing-lease TTL (23.1). Deliberately short
+// — renewal every leaseTTL/3 keeps a live holder safe while a crashed one is
+// taken over within seconds, satisfying "a long turn under a short TTL is
+// still executed by exactly one replica".
+const DefaultSessionLeaseTTL = 15 * time.Second
+
 // NewSessionCoordinator wraps sm with coordination. Coordination activates
 // once WithBus supplies a bus carrying CoordBus primitives.
 func NewSessionCoordinator(sm *SessionManager) *SessionCoordinator {
@@ -73,6 +90,9 @@ func NewSessionCoordinator(sm *SessionManager) *SessionCoordinator {
 		acquireTimeout: DefaultSessionLockAcquireTimeout,
 		keys:           messagebus.Keys,
 		bg:             NewBgTaskRegistry(),
+		leaseTTL:       DefaultSessionLeaseTTL,
+		renewInterval:  DefaultSessionLeaseTTL / 3,
+		ownerID:        generateID("repl"),
 	}
 }
 
@@ -84,16 +104,27 @@ func (c *SessionCoordinator) WithLockAcquireTimeout(d time.Duration) *SessionCoo
 }
 
 // WithBus wires the message bus used for cross-replica coordination. Buses
-// without CoordBus primitives keep the coordinator in local mode.
+// without CoordBus primitives keep the coordinator in local mode; buses that
+// also implement fencing leases (23.1) get the lease-based run guard.
 func (c *SessionCoordinator) WithBus(b messagebus.Bus) *SessionCoordinator {
 	c.bus = b
 	c.cb = messagebus.AsCoordBus(b)
+	c.lease = messagebus.AsCoordLease(b)
+	c.registryCAS = messagebus.AsRegistryCAS(b)
 	return c
 }
 
 // WithLockTTL overrides the session-run lock TTL (crash protection window).
 func (c *SessionCoordinator) WithLockTTL(d time.Duration) *SessionCoordinator {
 	c.lockTTL = d
+	return c
+}
+
+// WithLeaseTTL overrides the fencing-lease TTL (23.1); the renewal interval
+// follows at ttl/3. Used by tests to exercise expiry/takeover quickly.
+func (c *SessionCoordinator) WithLeaseTTL(d time.Duration) *SessionCoordinator {
+	c.leaseTTL = d
+	c.renewInterval = d / 3
 	return c
 }
 
@@ -135,6 +166,133 @@ func (c *SessionCoordinator) Run(ctx context.Context, sessionID string, a agent.
 	// contexts whose user info would otherwise be lost.
 	coordID := scopedSessionID(ctx, sessionID)
 
+	// Fencing-lease path (23.1) when the bus supports it; plain lock path
+	// otherwise.
+	if c.lease != nil {
+		return c.runWithLease(ctx, coordID, sessionID, a, msg)
+	}
+	return c.runWithLock(ctx, coordID, sessionID, a, msg)
+}
+
+// leaseMarker is the running-registry payload under the lease path: it
+// carries the fencing token so cleanup can CAS-delete only its own entry,
+// and observers can see who holds the run.
+type leaseMarker struct {
+	StartedAt string    `json:"started_at"`
+	TaskID    string    `json:"task_id"`
+	Owner     string    `json:"owner"`
+	Fence     uint64    `json:"fence"`
+	Expires   time.Time `json:"expires"`
+}
+
+func (c *SessionCoordinator) runWithLease(ctx context.Context, coordID, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
+	// Non-blocking acquire: a live holder elsewhere means busy. The lease is
+	// acquired on a detached context — the run keeps it even when the HTTP
+	// request goes away (SSE drop).
+	l, releaseLease, err := c.lease.AcquireLease(context.Background(),
+		c.keys.SessionRunLockKey(coordID), c.ownerID, c.leaseTTL)
+	if err != nil {
+		if errors.Is(err, messagebus.ErrLeaseHeld) {
+			return nil, fmt.Errorf("%w: %s", ErrSessionBusy, sessionID)
+		}
+		return nil, fmt.Errorf("session coordinator: acquire lease: %w", err)
+	}
+
+	taskID, _ := c.bg.Register(sessionID, "turn")
+
+	// Renewal pump: keep the short-TTL lease alive for the whole turn. If
+	// the fence is ever superseded (this replica stalled past the TTL and
+	// another took over), terminate the local run immediately — continuing
+	// would double-execute external side effects.
+	renewCtx, stopRenew := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(c.renewInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				if rerr := c.lease.RenewLease(renewCtx, c.keys.SessionRunLockKey(coordID), l, c.leaseTTL); rerr != nil {
+					_ = c.sm.Terminate(sessionID)
+					return
+				}
+			}
+		}
+	}()
+
+	// Publish the running marker (owner + fence, CAS-deleted on cleanup).
+	marker, _ := json.Marshal(leaseMarker{
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+		TaskID:    taskID,
+		Owner:     c.ownerID,
+		Fence:     l.Token,
+		Expires:   l.Expires,
+	})
+	_ = c.cb.RegistrySet(context.Background(), c.keys.SessionRunRegistryNS(), coordID, marker)
+
+	// Subscribe to the cross-process cancel channel for the whole run.
+	cancelSubCtx, cancelSubCancel := context.WithCancel(context.Background())
+	cancelCh, cancelCancel, _ := c.bus.Subscribe(cancelSubCtx, c.keys.SessionCancelChannel(coordID))
+
+	ch, err := c.sm.Run(ctx, sessionID, a, msg)
+	if err != nil {
+		cancelCancel()
+		cancelSubCancel()
+		stopRenew()
+		releaseLease()
+		_ = c.forgetRunMarker(context.Background(), coordID, marker)
+		c.bg.MarkDone(taskID, err)
+		return nil, err
+	}
+
+	out := make(chan event.AgentEvent, 64)
+	go func() {
+		defer close(out)
+		defer func() {
+			cancelCancel()
+			cancelSubCancel()
+			stopRenew()
+			releaseLease()
+			_ = c.forgetRunMarker(context.Background(), coordID, marker)
+			c.bg.MarkDone(taskID, nil)
+		}()
+
+		// Cancel pump: a remote cancel terminates the run through the local
+		// manager (agent interrupt + context cancel).
+		go func() {
+			for range cancelCh {
+				_ = c.sm.Terminate(sessionID)
+			}
+		}()
+
+		logNS := c.keys.SessionEventLogNS(coordID)
+		for ev := range ch {
+			if ev != nil {
+				if data, merr := event.MarshalEvent(ev); merr == nil {
+					_, _ = c.cb.LogAppend(context.Background(), logNS, data)
+				}
+				out <- ev
+			}
+		}
+	}()
+	return out, nil
+}
+
+// forgetRunMarker removes this replica's running marker without touching a
+// successor's: the delete only lands while the registry still holds exactly
+// the marker this run wrote (CAS, 23.1).
+func (c *SessionCoordinator) forgetRunMarker(ctx context.Context, coordID string, marker []byte) error {
+	if c.registryCAS != nil {
+		if _, err := c.registryCAS.RegistryCompareAndDelete(ctx,
+			c.keys.SessionRunRegistryNS(), coordID, marker); err == nil {
+			return nil
+		}
+	}
+	return c.cb.RegistryDelete(ctx, c.keys.SessionRunRegistryNS(), coordID)
+}
+
+func (c *SessionCoordinator) runWithLock(ctx context.Context, coordID, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	// Acquire the distributed lock on a detached context: the run must keep
 	// its lock even when the triggering HTTP request goes away (SSE drop);
 	// it is released when the run completes or by the TTL after a crash.

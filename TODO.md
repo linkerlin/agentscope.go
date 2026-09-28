@@ -4,7 +4,6 @@
 
 ## P1 · v2.7 可靠多副本与交付门禁
 
-- [ ] **23.1** 会话租约：可续租、带 fencing token 的分布式锁；running registry 带 owner / expiry 并 CAS 清理
 - [ ] **23.2** 可恢复 HITL：跨副本持久命令消费；快照版本化；确认执行成功后原子删除，重复确认至多执行一次
 - [ ] **23.3** 会话保留：内存 completed buffer 与协调事件日志的条数、字节、TTL 上限；删除 session 联动 purge；reaper 指标与过期 cursor 语义
 - [ ] **23.4** 存储迁移：迁移跨副本互斥；明确 SQLite / Postgres Storage 支持边界，并对声称支持的方言完成 CRUD 与事务契约测试

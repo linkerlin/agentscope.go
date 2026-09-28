@@ -63,6 +63,11 @@ type LocalBus struct {
 	registry map[string]map[string][]byte
 	queues   map[string]*localQueue
 	logs     map[string][][]byte
+
+	// CoordLease state (23.1): fencing leases. Keyed like locks but with
+	// owner/expiry records; the per-key monotonic counters live in fences.
+	leases map[string]*localLease
+	fences sync.Map // lease key -> *atomic.Uint64
 }
 
 // NewLocalBus creates an empty in-process bus.
@@ -75,6 +80,7 @@ func NewLocalBus() *LocalBus {
 		registry: map[string]map[string][]byte{},
 		queues:   map[string]*localQueue{},
 		logs:     map[string][][]byte{},
+		leases:   map[string]*localLease{},
 	}
 }
 

@@ -374,6 +374,12 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("delete session failed: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// Retention linkage (23.3): deleting a session also drops its
+	// coordination state — running marker, coordinated event log and the
+	// in-memory completed replay buffer.
+	if s.sessionCoord != nil {
+		_ = s.sessionCoord.Purge(r.Context(), id)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

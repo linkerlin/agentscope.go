@@ -238,3 +238,53 @@ func TestLocalCoord_LockConcurrentSerialised(t *testing.T) {
 		t.Fatalf("counter = %d, want 20 (lock failed to serialise)", counter)
 	}
 }
+
+// TestLocalCoord_LogCursorStale locks the 23.3 rule: a cursor pointing past
+// the log's end (after a purge/trim shrank it) gets an explicit sentinel,
+// not a silent empty page.
+func TestLocalCoord_LogCursorStale(t *testing.T) {
+	b := NewLocalBus()
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		_, _ = b.LogAppend(ctx, "trim", []byte("e"))
+	}
+
+	// cursor == len is the normal end-of-log: empty page, no error.
+	entries, _, err := b.LogRead(ctx, "trim", 3, 10)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("cursor==len must be a clean end: %v %v", entries, err)
+	}
+
+	// Trim to 1 entry: cursor 3 now points past the end → stale.
+	if err := b.LogTrim(ctx, "trim", 1); err != nil {
+		t.Fatalf("trim: %v", err)
+	}
+	if _, _, err := b.LogRead(ctx, "trim", 3, 10); err == nil {
+		t.Fatal("stale cursor must be reported")
+	}
+
+	// Cursor 0 still reads the surviving entry.
+	entries, _, err = b.LogRead(ctx, "trim", 0, 10)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("read after trim: %v %v", entries, err)
+	}
+}
+
+// TestLocalCoord_LogTrimKeepsNewest locks the LogTrim contract.
+func TestLocalCoord_LogTrimKeepsNewest(t *testing.T) {
+	b := NewLocalBus()
+	ctx := context.Background()
+	for _, s := range []string{"a", "b", "c", "d"} {
+		_, _ = b.LogAppend(ctx, "t", []byte(s))
+	}
+	if err := b.LogTrim(ctx, "t", 2); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, err := b.LogRead(ctx, "t", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || string(entries[0]) != "c" || string(entries[1]) != "d" {
+		t.Fatalf("trim must keep the newest: %v", entries)
+	}
+}

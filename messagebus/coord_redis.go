@@ -171,6 +171,15 @@ func (b *RedisBus) LogRead(ctx context.Context, ns string, cursor int64, limit i
 	if cursor < 0 {
 		cursor = 0
 	}
+	// Cursor beyond the log's end: trimmed or purged since it was issued
+	// (23.3) — report explicitly instead of a silent empty page.
+	size, err := b.client.LLen(ctx, b.logKey(ns)).Result()
+	if err != nil {
+		return nil, cursor, err
+	}
+	if cursor > size {
+		return nil, cursor, ErrLogCursorStale
+	}
 	raw, err := b.client.LRange(ctx, b.logKey(ns), cursor, cursor+int64(limit)-1).Result()
 	if err != nil {
 		return nil, cursor, err
@@ -189,4 +198,17 @@ func (b *RedisBus) LogPurge(ctx context.Context, ns string) error {
 	return b.client.Del(ctx, b.logKey(ns)).Err()
 }
 
+// LogTrim implements LogTrimmer: keep only the newest keep entries (LTRIM
+// with negative indices).
+func (b *RedisBus) LogTrim(ctx context.Context, ns string, keep int64) error {
+	if b.client == nil {
+		return ErrClosed
+	}
+	if keep <= 0 {
+		keep = 1
+	}
+	return b.client.LTrim(ctx, b.logKey(ns), -keep, -1).Err()
+}
+
 var _ CoordBus = (*RedisBus)(nil)
+var _ LogTrimmer = (*RedisBus)(nil)

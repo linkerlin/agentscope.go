@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
@@ -26,20 +27,24 @@ import (
 //   - Lifecycle: the buffer and subscriber list are created when a run
 //     starts and discarded when it ends, keeping memory bounded.
 type SessionManager struct {
-	locks      map[string]*sync.Mutex        // session_id -> serialisation lock
-	agentLocks sync.Map                      // agent identity -> execution mutex (22.4)
-	runs       map[string]*sessionRun        // session_id -> in-flight run state
-	completed  map[string][]event.AgentEvent // session_id -> final buffer after run ends
-	mu         sync.RWMutex
-	storage    service.Storage // optional persistence layer for Msg upsert
+	locks       map[string]*sync.Mutex        // session_id -> serialisation lock
+	agentLocks  sync.Map                      // agent identity -> execution mutex (22.4)
+	runs        map[string]*sessionRun        // session_id -> in-flight run state
+	completed   map[string][]event.AgentEvent // session_id -> final buffer after run ends
+	completedAt map[string]time.Time          // session_id -> when the buffer was kept (retention, 23.3)
+	retention   RetentionLimits               // completed-buffer caps (23.3)
+	mu          sync.RWMutex
+	storage     service.Storage // optional persistence layer for Msg upsert
 }
 
 // NewSessionManager creates a new SessionManager.
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
-		locks:     make(map[string]*sync.Mutex),
-		runs:      make(map[string]*sessionRun),
-		completed: make(map[string][]event.AgentEvent),
+		locks:       make(map[string]*sync.Mutex),
+		runs:        make(map[string]*sessionRun),
+		completed:   make(map[string][]event.AgentEvent),
+		completedAt: make(map[string]time.Time),
+		retention:   DefaultRetentionLimits(),
 	}
 }
 
@@ -152,6 +157,7 @@ func (sm *SessionManager) Run(ctx context.Context, sessionID string, a agent.Age
 			sm.mu.Lock()
 			delete(sm.runs, sessionID)
 			sm.completed[sessionID] = finalBuf
+			sm.completedAt[sessionID] = time.Now() // retention clock (23.3)
 			sm.mu.Unlock()
 		}()
 

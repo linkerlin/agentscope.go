@@ -57,6 +57,12 @@ type SessionCoordinator struct {
 	leaseTTL      time.Duration
 	renewInterval time.Duration
 	ownerID       string
+
+	// Event-log retention (23.3): the bus's LogTrimmer (optional) caps each
+	// session's coordinated event log, amortized to every LogMaxEntries-th
+	// append.
+	trimmer        messagebus.LogTrimmer
+	retentionLimit int64
 }
 
 // ErrSessionBusy is returned by Run when another replica currently holds the
@@ -93,6 +99,20 @@ func NewSessionCoordinator(sm *SessionManager) *SessionCoordinator {
 		leaseTTL:       DefaultSessionLeaseTTL,
 		renewInterval:  DefaultSessionLeaseTTL / 3,
 		ownerID:        generateID("repl"),
+		retentionLimit: 10_000,
+	}
+}
+
+// appendEvent appends one event to the session's coordinated log, trimming
+// it to the retention cap every LogMaxEntries-th append (amortized O(1) per
+// event; the log never exceeds ~2x the cap between trims, 23.3).
+func (c *SessionCoordinator) appendEvent(ctx context.Context, logNS string, data []byte) {
+	idx, err := c.cb.LogAppend(ctx, logNS, data)
+	if err != nil {
+		return
+	}
+	if c.trimmer != nil && c.retentionLimit > 0 && idx > 0 && idx%c.retentionLimit == 0 {
+		_ = c.trimmer.LogTrim(ctx, logNS, c.retentionLimit)
 	}
 }
 
@@ -111,6 +131,7 @@ func (c *SessionCoordinator) WithBus(b messagebus.Bus) *SessionCoordinator {
 	c.cb = messagebus.AsCoordBus(b)
 	c.lease = messagebus.AsCoordLease(b)
 	c.registryCAS = messagebus.AsRegistryCAS(b)
+	c.trimmer = messagebus.AsLogTrimmer(b)
 	return c
 }
 
@@ -270,7 +291,7 @@ func (c *SessionCoordinator) runWithLease(ctx context.Context, coordID, sessionI
 		for ev := range ch {
 			if ev != nil {
 				if data, merr := event.MarshalEvent(ev); merr == nil {
-					_, _ = c.cb.LogAppend(context.Background(), logNS, data)
+					c.appendEvent(context.Background(), logNS, data)
 				}
 				out <- ev
 			}
@@ -371,7 +392,7 @@ func (c *SessionCoordinator) runWithLock(ctx context.Context, coordID, sessionID
 		for ev := range ch {
 			if ev != nil {
 				if data, merr := event.MarshalEvent(ev); merr == nil {
-					_, _ = c.cb.LogAppend(context.Background(), logNS, data)
+					c.appendEvent(context.Background(), logNS, data)
 				}
 				out <- ev
 			}

@@ -45,6 +45,28 @@ type CoordBus interface {
 // ErrNotFound is returned by registry lookups for missing keys.
 var ErrNotFound = errors.New("messagebus: key not found")
 
+// ErrLogCursorStale is returned by LogRead when the cursor points beyond the
+// log's current end: the log was trimmed or purged since the cursor was
+// issued (23.3 retention). Callers should restart from cursor 0 or surface
+// the condition; the old cursor can never be served.
+var ErrLogCursorStale = errors.New("messagebus: log cursor is stale (log was trimmed or purged)")
+
+// LogTrimmer is the OPTIONAL retention extension of CoordBus's log (23.3):
+// keep only the newest keep entries. Trimming invalidates cursors issued
+// before it — LogRead then reports ErrLogCursorStale.
+type LogTrimmer interface {
+	LogTrim(ctx context.Context, ns string, keep int64) error
+}
+
+// AsLogTrimmer returns a LogTrimmer view of b if it supports log trimming,
+// else nil.
+func AsLogTrimmer(b Bus) LogTrimmer {
+	if lt, ok := b.(LogTrimmer); ok {
+		return lt
+	}
+	return nil
+}
+
 // AsCoordBus returns a CoordBus view of b if it implements CoordBus, else nil.
 func AsCoordBus(b Bus) CoordBus {
 	if cb, ok := b.(CoordBus); ok {
@@ -287,7 +309,13 @@ func (b *LocalBus) LogRead(ctx context.Context, ns string, cursor int64, limit i
 	if cursor < 0 {
 		cursor = 0
 	}
-	if cursor >= int64(len(entries)) {
+	if cursor > int64(len(entries)) {
+		// Cursor beyond the log's end: the log was trimmed or purged since
+		// this cursor was issued (23.3) — report it explicitly instead of a
+		// silent empty page.
+		return nil, cursor, ErrLogCursorStale
+	}
+	if cursor == int64(len(entries)) {
 		return nil, cursor, nil
 	}
 	end := cursor + int64(limit)
@@ -314,4 +342,28 @@ func (b *LocalBus) LogPurge(ctx context.Context, ns string) error {
 	return nil
 }
 
+// LogTrim implements LogTrimmer: keep only the newest keep entries.
+func (b *LocalBus) LogTrim(ctx context.Context, ns string, keep int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if keep <= 0 {
+		keep = 1
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return ErrClosed
+	}
+	entries := b.logs[ns]
+	if int64(len(entries)) <= keep {
+		return nil
+	}
+	trimmed := make([][]byte, keep)
+	copy(trimmed, entries[int64(len(entries))-keep:])
+	b.logs[ns] = trimmed
+	return nil
+}
+
 var _ CoordBus = (*LocalBus)(nil)
+var _ LogTrimmer = (*LocalBus)(nil)

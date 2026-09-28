@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-09-28 — 终端 TUI + Workspace 服务化 + 治理-演化闭环 + 生产边界
+
+> 详见 [RELEASE_NOTES_v2.6.0.md](RELEASE_NOTES_v2.6.0.md)。
+
+### Added
+
+- **Console 终端 TUI**（`console/`，对标 Python `agentscope.console` #2297）：bubbletea 三态机、三档 verbosity、HITL y/n/a 确认闭环、Ctrl+C 中断；`examples/console/`
+- **Workspace 服务化**：Artifact 端点（list_dir/read_file，safeJoin 防穿越 + 5MiB 上限）、工作目录 git 状态、跨 agent 共享工作区、Skills agent 级库与会话白名单选择
+- **治理-演化闭环**（Go 独有）：goal → completed 自动触发 `evolver.Solidify`（`AutoSolidifyOnGoalComplete` opt-in）；`POST /v2/sessions/{id}/steer|interrupt` 端点
+- **会话协调 API**（18.1/18.2）：`SessionCoordinator` 分布式锁（busy → HTTP 409）+ 事件日志重放 + 跨进程 cancel + 四态 status 端点
+- **钉钉渠道**（`channel/dingtalk`，18.3）：OpenAPI 客户端、outgoing HMAC 验签回调、AI 卡片 create/update、卡片回调 → HITL 决策归一化、wiki 工具
+- **gateway 拆包**（16.2 首两簇）：`gateway/kbapi` 与 `gateway/sessionapi` 注册函数化子包，根包别名保公开 API
+- **SQL 存储**（`service.SQLStorage`）：modernc.org/sqlite 纯 Go，8 表 + 级联删除 + WAL；版本化迁移框架（SQLite/Postgres 双方言）
+- **Workspace 7 后端**：K8s / Bubblewrap / Daytona / OpenSandbox 加入（原 Local/Docker/E2B）
+- **PowerShell 工具**、Word/Excel 解析器、跨用户资源共享策略（`service/access`）、分布式消息总线 CoordBus 原语、Agentic Memory / 长期记忆 / RAG 中间件、Plugin 系统、Hub 市场、性能基准 Catalog
+
+### Security
+
+- **认证与凭据生产边界**（22.1）：API key 只存 SHA-256 摘要（crypto/rand 生成，废除可预测 ID）；登录须持有 api_key（user_id 换 token 废除）；Credential 响应永久脱敏；`AppConfig.JWTAuth` 真正并入认证链；`AppConfig.Production` fail-closed（无身份源 → 全 401，无 Cipher → 凭据写入拒绝）
+- **租户隔离**（22.2）：session ID 服务端铸造（crypto/rand）；未知 session 一律 404；AgentConfig 归属校验（非 owner 须 Access Policy 授权）；会话协调键租户维度（双租户同外部 ID 互不串扰）
+- **流式中间件透明性**（22.3）：statusRecorder 转发 Flusher/Hijacker——OTel/audit 包装下 SSE 增量与 WebSocket upgrade 恢复可用
+- **Session Agent 隔离**（22.4）：共享 agent 跨 session 串行化（消除中断/记忆串扰）；修复 Subscribe 读锁 append 导致的多订阅者死锁
+- 多租户会话隔离（Phase 14）：V2 四入口校验 session 归属，跨用户 404
+
+---
+
 ## [2.5.1] - 2026-08-08 — 文档：双语 README
 
 ### Added

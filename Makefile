@@ -31,6 +31,9 @@ fmt-check: ## Check formatting (used by CI)
 vet: ## Run go vet
 	go vet ./...
 
+release-check: ## Verify version.go / CHANGELOG / release notes / tag consistency (22.5)
+	scripts/check_release.sh $(if $(TAG),--tag $(TAG),)
+
 # golangci-lint must be installed (https://golangci-lint.run/welcome/install/)
 # or use the CI job which installs it automatically.
 lint: ## Run golangci-lint (recommended)
@@ -64,7 +67,7 @@ bench-mem: ## Memory profile for a specific package (usage: make bench-mem PKG=.
 	go test -bench=. -benchmem -memprofile=mem.prof -timeout=5m $(PKG)
 	@echo "Memory profile written to mem.prof (view: go tool pprof mem.prof)"
 
-ci: fmt-check vet build test ## Simulate the main CI steps locally (without golangci)
+ci: fmt-check vet build test release-check ## Simulate the main CI steps locally (without golangci)
 
 # Convenience: full local pre-commit check (add golangci if installed)
 precommit: fmt-check vet lint build test

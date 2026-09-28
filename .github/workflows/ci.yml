@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, master]
+    tags: ["v*"]
   pull_request:
     branches: [main, master]
 
@@ -59,3 +60,24 @@ jobs:
         with:
           version: v2
           args: --timeout 5m
+
+  release-consistency:
+    name: Release Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # release mode verifies the tag exists locally.
+          fetch-depth: 0
+
+      # On a v* tag push, the tag must match the declared version; on
+      # branches/PRs only version.go ↔ CHANGELOG ↔ release notes ↔ README
+      # are checked (the next tag may not exist yet).
+      - name: Check release consistency
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: scripts/check_release.sh --tag "${GITHUB_REF#refs/tags/}"
+
+      - name: Check version declarations
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        run: scripts/check_release.sh

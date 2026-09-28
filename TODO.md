@@ -2,10 +2,6 @@
 
 仅列尚未完成的工作。验收标准在 [演进方案.md](演进方案.md) 的同名 ID；合入后从两份文件同时删除，不保留完成记录。实施顺序以依赖为准，不以历史 ID 的数字为准。
 
-## P0 · v2.6.1 生产边界
-
-- [ ] **22.5** 发布完整性：补齐 v2.6.0 的 tag、CHANGELOG 与 release 记录；建立版本、tag、release notes 一致性门禁
-
 ## P1 · v2.7 可靠多副本与交付门禁
 
 - [ ] **23.1** 会话租约：可续租、带 fencing token 的分布式锁；running registry 带 owner / expiry 并 CAS 清理

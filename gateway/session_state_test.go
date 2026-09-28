@@ -9,6 +9,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
+	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/service"
 )
@@ -249,15 +250,102 @@ func TestSessionStateManager_Resume(t *testing.T) {
 	}
 
 	v2 := &stateTestV2Agent{state: &agent.AgentState{}}
-	ev := event.NewUserConfirmResult("r1", "c1", []event.ConfirmDecision{{ToolCallID: "tc1", Decision: "allow"}})
+	decisions := []event.ConfirmDecision{{ToolCallID: "tc1", Decision: "allow"}}
+	ev := event.NewUserConfirmResult("r1", "c1", decisions)
 	if err := m.Resume(context.Background(), "s1", v2, ev); err != nil {
 		t.Fatal(err)
 	}
 	if len(v2.injected) != 1 {
 		t.Fatalf("expected 1 injected event, got %d", len(v2.injected))
 	}
+	// 23.2: the snapshot is NOT deleted on delivery — it now carries the
+	// executing command and is removed only when the resumed turn completes.
+	snap, ok := st.saved["s1"]
+	if !ok {
+		t.Fatal("expected snapshot to survive delivery until completion")
+	}
+	if snap.PendingResume == nil ||
+		snap.PendingResume.ConfirmID != "c1" ||
+		snap.PendingResume.State != service.ResumeExecuting ||
+		snap.PendingResume.ExecutedAt == nil {
+		t.Fatalf("expected persisted executing command, got %+v", snap.PendingResume)
+	}
+
+	// Repeat confirm while executing: refused without re-delivery.
+	if err := m.Resume(context.Background(), "s1", v2, ev); !errors.Is(err, sessionapi.ErrResumeAlreadyExecuting) {
+		t.Fatalf("duplicate confirm: want ErrResumeAlreadyExecuting, got %v", err)
+	}
+	if len(v2.injected) != 1 {
+		t.Fatalf("duplicate confirm re-delivered the event: %d injections", len(v2.injected))
+	}
+
+	// The resumed turn completes: only then is the snapshot removed.
+	if err := m.DeleteSnapshot(context.Background(), "s1"); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := st.saved["s1"]; ok {
-		t.Fatal("expected snapshot deleted after resume")
+		t.Fatal("expected snapshot deleted after completion")
+	}
+}
+
+// TestSessionStateManager_ResumeInjectFailureKeepsCommand locks the 23.2
+// rule: when no live waiter exists on this replica (cross-replica request,
+// or the run died), the command stays persisted as executing and the error
+// is ErrResumeNotDelivered — a later duplicate confirm is still refused.
+func TestSessionStateManager_ResumeInjectFailureKeepsCommand(t *testing.T) {
+	st := newMockStorage()
+	m := NewSessionStateManager(st)
+
+	now := time.Now()
+	st.saved["s1"] = &service.AgentSnapshot{
+		SessionID: "s1",
+		ReplyID:   "r1",
+		State: &agent.AgentState{
+			ReplyID:       "r1",
+			WaitConfirmID: "c1",
+			SuspendedAt:   &now,
+		},
+	}
+
+	v2 := &stateTestV2Agent{state: &agent.AgentState{}, injectErr: agent.ErrNoWaiter}
+	ev := event.NewUserConfirmResult("r1", "c1", nil)
+	err := m.Resume(context.Background(), "s1", v2, ev)
+	if !errors.Is(err, sessionapi.ErrResumeNotDelivered) {
+		t.Fatalf("want ErrResumeNotDelivered, got %v", err)
+	}
+	if len(v2.injected) != 0 {
+		t.Fatal("nothing should be injected on a no-waiter replica")
+	}
+	snap := st.saved["s1"]
+	if snap.PendingResume == nil || snap.PendingResume.State != service.ResumeExecuting {
+		t.Fatalf("command must stay persisted, got %+v", snap.PendingResume)
+	}
+
+	// The duplicate (retry from any replica) is refused by the idempotency
+	// check, never re-delivered.
+	v2ok := &stateTestV2Agent{state: &agent.AgentState{}}
+	if err := m.Resume(context.Background(), "s1", v2ok, ev); !errors.Is(err, sessionapi.ErrResumeAlreadyExecuting) {
+		t.Fatalf("retry after not-delivered: want ErrResumeAlreadyExecuting, got %v", err)
+	}
+	if len(v2ok.injected) != 0 {
+		t.Fatal("retry injected the event despite the executing fence")
+	}
+}
+
+// TestSessionStateManager_ResumeWithoutPendingSnapshot covers the
+// same-connection resume: no suspended snapshot exists, so the event goes
+// straight to the in-memory waiter with no command persistence.
+func TestSessionStateManager_ResumeWithoutPendingSnapshot(t *testing.T) {
+	st := newMockStorage()
+	m := NewSessionStateManager(st)
+
+	v2 := &stateTestV2Agent{state: &agent.AgentState{}}
+	ev := event.NewUserConfirmResult("r1", "c1", nil)
+	if err := m.Resume(context.Background(), "no-snapshot", v2, ev); err != nil {
+		t.Fatal(err)
+	}
+	if len(v2.injected) != 1 {
+		t.Fatalf("expected direct inject, got %d", len(v2.injected))
 	}
 }
 

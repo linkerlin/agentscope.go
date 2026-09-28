@@ -47,8 +47,19 @@ type SessionState interface {
 }
 
 // ErrStorageNotAvailable mirrors the root session-state sentinel so resume
-// can map it to 503 without importing the gateway root.
+// handlers can map it to 503 without importing the gateway root.
 var ErrStorageNotAvailable = errors.New("session_state: storage not available")
+
+// ErrResumeAlreadyExecuting is returned when a resume command for a
+// confirm_id was already delivered and is mid-execution (23.2 idempotency):
+// the HTTP face maps it to 409 and the command is NOT re-delivered.
+var ErrResumeAlreadyExecuting = errors.New("session_state: resume already executing")
+
+// ErrResumeNotDelivered is returned when the resume command is persisted but
+// no live waiter for it exists on this replica (the run parked elsewhere, or
+// died after delivery): the command stays pending for the holder replica.
+// The HTTP face maps it to 409 with the persisted state reported.
+var ErrResumeNotDelivered = errors.New("session_state: resume not delivered (no live waiter here)")
 
 // SessionStatus is the observable lifecycle state of a session.
 type SessionStatus string

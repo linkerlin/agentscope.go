@@ -12,6 +12,7 @@ import (
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
+	"github.com/linkerlin/agentscope.go/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -184,4 +185,62 @@ func TestHandlers_SteerAndErrorMapping(t *testing.T) {
 	mux2.ServeHTTP(w2, req)
 	assert.Equal(t, http.StatusOK, w2.Code)
 	assert.Equal(t, "go", s2.steered)
+}
+
+// fakeState is a SessionState fake whose Resume returns the configured
+// error — enough to prove the HTTP mapping of the 23.2 idempotency
+// sentinels without any storage.
+type fakeState struct{ resumeErr error }
+
+func (f *fakeState) SaveSnapshot(ctx context.Context, sessionID string, v2 agent.V2Agent) error {
+	return nil
+}
+func (f *fakeState) LoadSnapshot(ctx context.Context, sessionID string, v2 agent.V2Agent) (*service.AgentSnapshot, error) {
+	return nil, nil
+}
+func (f *fakeState) HasPendingSnapshot(ctx context.Context, sessionID string) bool { return true }
+func (f *fakeState) Resume(ctx context.Context, sessionID string, v2 agent.V2Agent, ev event.AgentEvent) error {
+	return f.resumeErr
+}
+func (f *fakeState) DeleteSnapshot(ctx context.Context, sessionID string) error { return nil }
+
+// TestHandlers_ResumeIdempotencyMapping locks the 23.2 HTTP contract:
+// ErrResumeAlreadyExecuting and ErrResumeNotDelivered both map to 409 with
+// the persisted state named in the body.
+func TestHandlers_ResumeIdempotencyMapping(t *testing.T) {
+	post := func(h *Handlers) *httptest.ResponseRecorder {
+		mux := http.NewServeMux()
+		h.RegisterV2(mux, nil)
+		req := httptest.NewRequest(http.MethodPost, "/v2/resume",
+			strings.NewReader(`{"session_id":"s1","reply_id":"r1","confirm_id":"c1","decisions":[{"tool_call_id":"tc1","decision":"allow"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
+	}
+
+	ag := &fakeAgent{name: "fake"}
+	// Already executing → 409 executing.
+	h := NewHandlers(Deps{
+		Sessions:     &fakeSessions{},
+		Agent:        ag,
+		State:        &fakeState{resumeErr: ErrResumeAlreadyExecuting},
+		ResolveAgent: func(r *http.Request, agentID, sessionID string) (agent.Agent, error) { return ag, nil },
+		EnrichCtx:    func(ctx context.Context, agentID, sessionID string) context.Context { return ctx },
+	})
+	w := post(h)
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "executing")
+
+	// Not delivered (no live waiter on this replica) → 409 pending.
+	h2 := NewHandlers(Deps{
+		Sessions:     &fakeSessions{},
+		Agent:        ag,
+		State:        &fakeState{resumeErr: ErrResumeNotDelivered},
+		ResolveAgent: func(r *http.Request, agentID, sessionID string) (agent.Agent, error) { return ag, nil },
+		EnrichCtx:    func(ctx context.Context, agentID, sessionID string) context.Context { return ctx },
+	})
+	w2 := post(h2)
+	assert.Equal(t, http.StatusConflict, w2.Code)
+	assert.Contains(t, w2.Body.String(), "pending")
 }

@@ -2,10 +2,18 @@ package agent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
 )
+
+// ErrNoWaiter is returned by InjectEvent when no goroutine is waiting for
+// the given confirm_id on this agent instance (23.2): the run either never
+// parked here, already consumed the confirmation, or lives on another
+// replica. Callers use errors.Is to detect it and report an honest
+// "not delivered" instead of a generic failure.
+var ErrNoWaiter = errors.New("agent: no waiter for confirm_id")
 
 // Agent is the core interface for all agent types (backward compatible).
 type Agent interface {

@@ -1122,7 +1122,7 @@ func (a *ReActAgent) signalWaiter(confirmID string, ev event.AgentEvent) error {
 	ch, ok := a.waiters[confirmID]
 	a.waitersMu.Unlock()
 	if !ok {
-		return fmt.Errorf("react agent: no waiter for confirm_id %s", confirmID)
+		return fmt.Errorf("%w %s", agent.ErrNoWaiter, confirmID)
 	}
 	select {
 	case ch <- ev:

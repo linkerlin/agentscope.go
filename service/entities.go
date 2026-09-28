@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/event"
 	"github.com/linkerlin/agentscope.go/message"
 )
 
@@ -165,6 +166,34 @@ type AgentSnapshot struct {
 	ReplyID   string            `json:"reply_id"`
 	State     *agent.AgentState `json:"state"`
 	CreatedAt time.Time         `json:"created_at"`
+	// PendingResume carries the persisted HITL resume command (23.2). It
+	// lives on the snapshot so command persistence, versioning and the
+	// post-completion delete share one atomic storage record.
+	PendingResume *ResumeCommand `json:"pending_resume,omitempty"`
+}
+
+// ResumeCommand states.
+const (
+	// ResumePending: the command is persisted but not yet delivered to a
+	// live agent waiter.
+	ResumePending = "pending"
+	// ResumeExecuting: the command was delivered (waiter signalled); the
+	// tool it resumes is running. Further confirms for the same ID are
+	// refused — the tool executes at most once.
+	ResumeExecuting = "executing"
+)
+
+// ResumeCommand is a versioned, idempotent HITL resume command (23.2).
+// ConfirmID is the idempotency key; Version is monotonic per session so
+// concurrent replicas can order commands.
+type ResumeCommand struct {
+	ConfirmID  string                  `json:"confirm_id"`
+	ReplyID    string                  `json:"reply_id"`
+	Decisions  []event.ConfirmDecision `json:"decisions,omitempty"`
+	Version    int64                   `json:"version"`
+	State      string                  `json:"state"`
+	CreatedAt  time.Time               `json:"created_at"`
+	ExecutedAt *time.Time              `json:"executed_at,omitempty"`
 }
 
 // TeamMember records a worker agent within a team, carrying the routing info

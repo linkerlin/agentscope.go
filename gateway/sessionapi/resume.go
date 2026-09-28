@@ -67,6 +67,18 @@ func (h *Handlers) handleV2Resume(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "session state persistence not available", http.StatusServiceUnavailable)
 			return
 		}
+		if errors.Is(resumeErr, ErrResumeAlreadyExecuting) {
+			// 23.2 idempotency: the command was already delivered and the
+			// resumed work is running — refuse the duplicate (at-most-once).
+			http.Error(w, `{"error":"resume already executing","status":"executing"}`, http.StatusConflict)
+			return
+		}
+		if errors.Is(resumeErr, ErrResumeNotDelivered) {
+			// Command persisted, but this replica holds no live waiter for
+			// it — the holder replica (or a reconnect) must consume it.
+			http.Error(w, `{"error":"resume not delivered","status":"pending"}`, http.StatusConflict)
+			return
+		}
 		http.Error(w, fmt.Sprintf("resume failed: %v", resumeErr), http.StatusInternalServerError)
 		return
 	}

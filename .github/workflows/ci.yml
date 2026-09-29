@@ -81,3 +81,25 @@ jobs:
       - name: Check version declarations
         if: "!startsWith(github.ref, 'refs/tags/v')"
         run: scripts/check_release.sh
+
+  docs-consistency:
+    name: Docs Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      # docs/ ↔ docs-site/ mirror sync + every pkg.NewXxx( referenced in a
+      # docs Go snippet must exist in code (23.5).
+      - name: Check docs consistency
+        run: scripts/check_docs.sh
+
+      # The documentation snippets compile and the A2A round trip executes.
+      - name: Compile and run doc snippets
+        run: go test ./docs/snippets/ -race -count=1

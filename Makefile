@@ -34,6 +34,10 @@ vet: ## Run go vet
 release-check: ## Verify version.go / CHANGELOG / release notes / tag consistency (22.5)
 	scripts/check_release.sh $(if $(TAG),--tag $(TAG),)
 
+docs-check: ## Verify docs↔docs-site sync + doc API existence + run doc snippets (23.5)
+	scripts/check_docs.sh
+	go test ./docs/snippets/ -race -count=1
+
 # golangci-lint must be installed (https://golangci-lint.run/welcome/install/)
 # or use the CI job which installs it automatically.
 lint: ## Run golangci-lint (recommended)

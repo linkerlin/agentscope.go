@@ -665,24 +665,26 @@ type AgentCard struct {
 ### Server
 
 ```go
-server := a2a.NewServer(card, adapter)
+server := a2a.NewServer(card, a2a.NewAgentAdapter(agent), nil)
 http.ListenAndServe(":9000", server)
 ```
 
 ### Client
 
 ```go
-client := a2a.NewClient("http://localhost:9000")
-task, _ := client.SendTask(ctx, task)
-ch, _ := client.SendTaskSubscribe(ctx, task)
+client := a2a.NewHTTPClient("http://localhost:9000")
+reply, _ := client.Send(ctx, &a2a.Message{Role: "user", Content: "hi"})
+ch, _ := client.SendSubscribe(ctx, &a2a.Message{Role: "user", Content: "hi"})
 ```
 
 ### Registry
 
 ```go
-registry := a2a.NewRegistry(30 * time.Second)
+registry := a2a.NewRegistry()
 registry.Register(card)
-healthy := registry.ListHealthy()
+for _, entry := range registry.List() {
+    fmt.Println(entry.Card.URL, entry.Healthy)
+}
 ```
 
 ---

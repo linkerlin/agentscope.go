@@ -69,7 +69,7 @@ func main() {
     }
     srv := gateway.NewServer(agent).
         WithStorage(storage).
-        WithAuthenticator(gateway.NewJWTAuthenticator("your-secret"))
+        WithAuthenticator(service.NewJWTAuthenticator([]byte("your-secret"), "agentscope-go"))
     srv.RegisterV2Routes()
 
     // 可选：tracing middleware 可在 agent builder 中使用

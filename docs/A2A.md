@@ -35,17 +35,15 @@ func main() {
         Model(model).
         Build()
 
-    card := &a2a.AgentCard{
-        Name:        "coder",
-        Description: "A coding assistant agent",
-        URL:         "http://localhost:9000",
-        Version:     "1.0.0",
-        Capabilities: a2a.Capabilities{
-            Streaming: true,
-        },
+    card := a2a.AgentCard{
+        Name:         "coder",
+        Description:  "A coding assistant agent",
+        URL:          "http://localhost:9000",
+        Version:      "1.0.0",
+        Capabilities: []string{"streaming"},
     }
 
-    server := a2a.NewServer(card, a2a.NewV2Adapter(agent))
+    server := a2a.NewServer(card, a2a.NewV2AgentAdapter(agent), nil) // nil store → in-memory
     log.Fatal(http.ListenAndServe(":9000", server))
 }
 ```
@@ -59,63 +57,57 @@ func main() {
 ### 非流式
 
 ```go
-client := a2a.NewClient("http://localhost:9000")
-task, err := client.SendTask(ctx, &a2a.Task{
-    ID: "task-1",
-    Message: a2a.Message{
-        Role: "user",
-        Parts: []a2a.Part{
-            {Type: "text", Text: "Write a Go function that reverses a string."},
-        },
-    },
+client := a2a.NewHTTPClient("http://localhost:9000")
+reply, err := client.Send(ctx, &a2a.Message{
+    Role:    "user",
+    Content: "Write a Go function that reverses a string.",
 })
 ```
 
 ### 流式
 
 ```go
-ch, err := client.SendTaskSubscribe(ctx, task)
-for event := range ch {
-    switch e := event.(type) {
-    case *a2a.TaskStatusUpdateEvent:
-        fmt.Println("Status:", e.Status.State)
-    case *a2a.TaskArtifactUpdateEvent:
-        fmt.Println("Artifact:", e.Artifact.Parts[0].Text)
-    }
+ch, err := client.SendSubscribe(ctx, &a2a.Message{
+    Role:    "user",
+    Content: "Write a Go function that reverses a string.",
+})
+for msg := range ch {
+    fmt.Println("chunk:", msg.Content)
 }
 ```
+
+> 服务端任务的轮询等待与取消见 `a2a/http_client.go` 的 `WaitForTask` / `CancelTask`。
 
 ---
 
 ## 4. Registry 动态发现
 
 ```go
-registry := a2a.NewRegistry(30 * time.Second) // 30s 健康检查间隔
+registry := a2a.NewRegistry()
 registry.Register(card)
+registry.StartBackgroundHealthCheck(ctx, 30*time.Second) // 30s 健康检查
 
-// 发现所有健康 Agent
-agents := registry.ListHealthy()
-
-// 按能力过滤
-coders := registry.Filter(func(c *a2a.AgentCard) bool {
-    return strings.Contains(c.Description, "coding")
-})
+// 枚举已注册条目并自行过滤
+for _, entry := range registry.List() {
+    if strings.Contains(entry.Card.Description, "coding") {
+        // entry.Card.URL 可用于构造 a2a.NewHTTPClient(...)
+    }
+}
 ```
 
 ---
 
 ## 5. 与 Gateway 集成
 
-A2A Server 可以独立部署，也可以嵌入 Gateway：
+A2A Server 是独立的 `http.Handler`（内置 `/.well-known/agent.json`、
+`/task/send`、`/task/sendSubscribe`、`/task/cancel`、`/task/` 路由），
+可与 gateway 进程共存、挂到同一个 mux：
 
 ```go
-srv := gateway.NewApp(gateway.AppConfig{
-    Agent: agent,
-})
-srv.RegisterA2ARoutes(card) //  hypothetical; check actual API
+mux := http.NewServeMux()
+mux.Handle("/a2a/", a2aServer) // gateway 的 srv 也可作为 handler 挂载
+http.ListenAndServe(":9000", mux)
 ```
-
-> 实际 API 请参考 `gateway/server.go` 和 `a2a/server.go` 中的路由注册方法。
 
 ---
 
@@ -190,72 +182,56 @@ server := a2a.NewServer(card, adapter, a2a.WithMiddleware(ipLimiter))
 
 ## 9. WebSocket 实时推送
 
-除 SSE 外，A2A Server 也支持 WebSocket 进行双向实时通信：
+除 SSE 外，A2A Server 也支持 WebSocket 双向实时通信（`a2a/websocket.go`）：
 
 ```go
-wsHandler := a2a.NewWebSocketHandler(adapter, a2a.WebSocketConfig{
-    Heartbeat: 30 * time.Second,
-    MaxConns:  100,
-})
+a2aServer := a2a.NewServer(card, a2a.NewAgentAdapter(agent), nil)
+wsServer := a2a.NewWebSocketServer(a2aServer)
 
 mux := http.NewServeMux()
-server := a2a.NewServer(card, adapter)
-server.RegisterOn(mux)
-wsHandler.RegisterOn(mux, "/a2a/ws")
+mux.Handle("/a2a/", a2aServer)
+mux.HandleFunc("/a2a/ws", wsServer.HandleWebSocket)
 
 log.Fatal(http.ListenAndServe(":9000", mux))
 ```
 
-客户端连接：
-
-```go
-wsClient, _ := a2a.NewWebSocketClient("ws://localhost:9000/a2a/ws")
-wsClient.SendTask(ctx, task)
-for msg := range wsClient.Receive() {
-    fmt.Println("Update:", msg.Status.State)
-}
-```
+客户端用任意 WebSocket 库连接 `/a2a/ws`：消息是 JSON 信封
+（`WebSocketMessage`），服务端自动处理 task 转发与 ack——协议字段见
+`a2a/websocket.go` 的 `handleMessage` / `handleTaskSend`。CORS 白名单经
+`a2a.SetWebSocketAllowedOrigins` 配置。
 
 ---
 
-## 10. CORS 与日志中间件
+## 10. 认证中间件
 
 ```go
-chain := middleware.Chain(
-    middleware.CORS(middleware.CORSConfig{
-        AllowedOrigins: []string{"https://app.example.com"},
-        AllowedMethods: []string{"GET", "POST", "OPTIONS"},
-        AllowedHeaders: []string{"Content-Type", "Authorization"},
-    }),
-    middleware.RequestLogger(middleware.LoggerConfig{
-        Format: "json",
-        SkipPaths: []string{"/health", "/.well-known/agent.json"},
-    }),
-    middleware.Recovery(),
-)
-server := a2a.NewServer(card, adapter, a2a.WithMiddleware(chain))
+auth := a2a.NewAuthMiddleware()
+auth.AddAPIKey(os.Getenv("A2A_API_KEY"), "ops")
+auth.SetJWTSecret(os.Getenv("A2A_JWT_SECRET"))
+auth.AddPublicPath("/.well-known/agent.json")
+
+// 包装任意 http.Handler（包括 a2aServer）
+handler := auth.Middleware(a2aServer)
 ```
 
 ---
 
 ## 11. SecureServer 一键装配
 
-`SecureServer` 将认证、限流、CORS、日志、恢复打包为预设配置：
+`SecureServer` 将认证（API key / JWT）与限流打包为预设配置：
 
 ```go
-secure := a2a.NewSecureServer(card, adapter, a2a.SecureConfig{
-    APIKey:      os.Getenv("A2A_API_KEY"),
-    JWTSecret:   os.Getenv("A2A_JWT_SECRET"),
-    RateLimit:   middleware.TokenBucketConfig{Rate: 10, Burst: 20},
-    CORS:        middleware.CORSConfig{AllowedOrigins: []string{"*"}},
-    EnableWS:    true,
-    WSConfig:    a2a.WebSocketConfig{Heartbeat: 30 * time.Second},
-})
+auth := a2a.NewAuthMiddleware()
+auth.AddAPIKey(os.Getenv("A2A_API_KEY"), "ops")
+
+secure := a2a.NewSecureServer(card, a2a.NewAgentAdapter(agent), nil).
+    WithAuth(auth)
 
 log.Fatal(http.ListenAndServe(":9000", secure))
 ```
 
-> `SecureServer` 自动注册 `/task/send`、`/task/sendSubscribe`、`/a2a/ws` 及健康检查端点，适合生产环境直接部署。
+> 默认限流 100 rps / burst 200，可用 `WithRateLimit` 覆盖；认证规则见
+> `a2a/middleware.go` 的 `AuthMiddleware` 一族（API key / JWT / 公开路径）。
 
 ---
 

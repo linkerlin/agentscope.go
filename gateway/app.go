@@ -62,6 +62,12 @@ type AppConfig struct {
 	// Aligns with Python agentscope's message bus (#1849).
 	MessageBus messagebus.Bus
 
+	// Worker selects the long-running loops this process owns (18.5): nil
+	// keeps the single-process default (all roles); Roles may be narrowed to
+	// split a dedicated worker process from the API replicas (API:
+	// Roles: []WorkerRole{} — none; worker: Roles: gateway.AllWorkerRoles).
+	Worker *WorkerConfig
+
 	// --- Auto-assembly options (more "create_app" like experience) ---
 	WorkspaceBaseDir      string               // if set and WorkspaceManager==nil, auto-create Local WorkspaceManager
 	AutoStandardTools     bool                 // if true, auto-inject StandardTools (file+task+schedule+web+json) for session agents
@@ -175,6 +181,18 @@ func NewApp(cfg AppConfig) *Server {
 		}
 		btm := NewBackgroundTaskManager(reg, sessionMgr).WithStorage(cfg.Storage)
 		srv.WithBackgroundTaskManager(btm)
+	}
+	// Cron-triggered turns join the cross-replica coordination protocol
+	// (18.5): a job firing on two worker replicas runs on at most one.
+	if srv.backgroundTaskMgr != nil && srv.sessionCoord != nil {
+		srv.backgroundTaskMgr.WithSessionRun(srv.sessionCoord.Run)
+	}
+	if cfg.Worker != nil {
+		if cfg.Worker.Roles == nil {
+			srv.WithWorkerRoles(AllWorkerRoles...)
+		} else {
+			srv.WithWorkerRoles(cfg.Worker.Roles...)
+		}
 	}
 	if cfg.ToolOffloadManager != nil {
 		srv.WithToolOffloadManager(cfg.ToolOffloadManager)

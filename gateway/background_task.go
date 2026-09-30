@@ -21,6 +21,17 @@ type BackgroundTaskManager struct {
 	sessionMgr  *SessionManager
 	storage     service.Storage
 	toolOffload *ToolOffloadManager
+	// sessionRun starts cron-triggered turns; wired to the coordinator entry
+	// by the server (18.5) so a job firing on two worker replicas runs on at
+	// most one (same session → same lease). nil falls back to sessionMgr.Run.
+	sessionRun sessionRunFunc
+}
+
+// WithSessionRun routes cron-triggered turns through fn (typically
+// SessionCoordinator.Run, 18.5).
+func (btm *BackgroundTaskManager) WithSessionRun(fn sessionRunFunc) *BackgroundTaskManager {
+	btm.sessionRun = fn
+	return btm
 }
 
 // NewBackgroundTaskManager creates a manager and starts the internal cron
@@ -253,10 +264,14 @@ func (btm *BackgroundTaskManager) runOnce(ctx context.Context, job *schedule.Job
 	}
 
 	if btm.sessionMgr != nil && sessionID != "" {
-		// Single-replica note (18.1/18.5): this entry point bypasses the session
-		// run lock — runs here serialize only within this process. Cross-replica
-		// serialization for this path lands with the 18.5 worker.
-		ch, err := btm.sessionMgr.Run(ctx, sessionID, a, msg)
+		// Turns go through the coordinator when wired (18.5): a job firing
+		// on two worker replicas contends on the same session lease and only
+		// one executes; the loser reports busy and the retry policy decides.
+		run := btm.sessionRun
+		if run == nil {
+			run = btm.sessionMgr.Run
+		}
+		ch, err := run(ctx, sessionID, a, msg)
 		if err != nil {
 			return fmt.Errorf("background_task: session run: %w", err)
 		}

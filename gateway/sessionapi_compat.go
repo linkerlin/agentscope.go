@@ -1,9 +1,11 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
+	"github.com/linkerlin/agentscope.go/messagebus"
 )
 
 // The session HTTP face (streamable HTTP, WebSocket, steer/interrupt,
@@ -44,6 +46,14 @@ func (s *Server) sessionAPI() *sessionapi.Handlers {
 			EnrichCtx:    s.enrichContextWithWorkspaceTools,
 			OffloadHints: func(sessionID, text string) string {
 				return injectOffloadHints(s, sessionID, text)
+			},
+			// Resume commands persisted without a local waiter notify the
+			// worker tier through the wakeup stream (18.5): the dispatcher
+			// that wins the session lease consumes the command.
+			OnResumeNotified: func(sessionID string) {
+				if tb := messagebus.AsTeamBus(s.messageBus); tb != nil {
+					_ = tb.EnqueueWakeup(context.Background(), sessionID)
+				}
 			},
 		})
 	})

@@ -98,6 +98,11 @@ type Deps struct {
 	// OffloadHints prepends pending background-tool notifications to a user
 	// message; may return text unchanged.
 	OffloadHints func(sessionID, text string) string
+	// OnResumeNotified is invoked when a resume command is persisted but this
+	// replica holds no live waiter (ErrResumeNotDelivered): the gateway root
+	// wires it to the bus's wakeup enqueue so a worker replica picks the
+	// command up (18.5). Optional; nil disables the notification.
+	OnResumeNotified func(sessionID string)
 }
 
 // Handlers is the session HTTP face. Build via NewHandlers and mount with

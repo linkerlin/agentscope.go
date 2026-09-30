@@ -7,6 +7,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,15 @@ const wakeupBusyTimeout = 30 * time.Second
 // wakeupPollInterval is the poll cadence while waiting for a busy session.
 const wakeupPollInterval = 200 * time.Millisecond
 
+// wakeupResumeInjectTimeout bounds how long the resume consumer waits for
+// the restored turn to register its confirmation waiter.
+const wakeupResumeInjectTimeout = 10 * time.Second
+
+// sessionRunFunc starts a session turn, usually through the coordinator
+// (cross-replica single-consumer semantics, 18.5). nil means "use the
+// in-process SessionManager".
+type sessionRunFunc func(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error)
+
 // WakeupDispatcher drains team inboxes and re-runs idle worker sessions. It is
 // the async collaboration engine: TeamSay/AgentCreate enqueue wakeups; this
 // loop turns them into actual agent runs. Mirrors Python agentscope's
@@ -35,6 +45,12 @@ type WakeupDispatcher struct {
 	storage    service.Storage
 	// buildAgent constructs a fresh agent for a session (Server.buildSessionAgentFromStorage).
 	buildAgent func(ctx context.Context, agentID, sessionID string) (agent.Agent, error)
+	// run starts the turn; injected by Server.Start as the coordinator entry
+	// (18.5): wakeup-driven turns then participate in cross-replica session
+	// leases like HTTP-driven ones. nil falls back to sessionMgr.Run.
+	run sessionRunFunc
+	// busyRetryTimeout bounds startTurn's busy-retry window.
+	busyRetryTimeout time.Duration
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -49,11 +65,29 @@ func NewWakeupDispatcher(
 	buildAgent func(ctx context.Context, agentID, sessionID string) (agent.Agent, error),
 ) *WakeupDispatcher {
 	return &WakeupDispatcher{
-		bus:        bus,
-		sessionMgr: sm,
-		storage:    storage,
-		buildAgent: buildAgent,
+		bus:              bus,
+		sessionMgr:       sm,
+		storage:          storage,
+		buildAgent:       buildAgent,
+		busyRetryTimeout: wakeupBusyTimeout,
 	}
+}
+
+// WithRun routes wakeup-driven turns through fn (typically
+// SessionCoordinator.Run). Without it the dispatcher uses the in-process
+// SessionManager only.
+func (d *WakeupDispatcher) WithRun(fn sessionRunFunc) *WakeupDispatcher {
+	d.run = fn
+	return d
+}
+
+// WithBusyRetryTimeout bounds how long startTurn retries a session reported
+// busy by another replica (default wakeupBusyTimeout).
+func (d *WakeupDispatcher) WithBusyRetryTimeout(dur time.Duration) *WakeupDispatcher {
+	if dur > 0 {
+		d.busyRetryTimeout = dur
+	}
+	return d
 }
 
 // Start launches the wakeup loop. It subscribes to the bus and spawns a handler
@@ -132,12 +166,20 @@ func (d *WakeupDispatcher) waitAndRun(ctx context.Context, sessionID string) {
 	// Timed out: leave messages in the inbox for a future wakeup.
 }
 
-// drainAndRun is the core: read inbox, build the agent, assemble team messages,
-// and kick off a run. Errors are non-fatal (logged via response text only).
+// drainAndRun is the core: consume a persisted resume command if one is
+// waiting (23.2 closed loop), otherwise read the inbox, build the agent,
+// assemble team messages, and kick off a run. Errors are non-fatal (logged
+// via response text only).
 func (d *WakeupDispatcher) drainAndRun(ctx context.Context, sessionID string) {
 	// Orphan guard: session must still exist.
 	se, err := d.storage.GetSession(ctx, sessionID)
 	if err != nil || se == nil {
+		return
+	}
+	// A persisted resume command outranks inbox content: the suspended turn
+	// must continue before new input is folded in (18.5 worker closes the
+	// 23.2 cross-replica loop).
+	if d.consumePendingResume(ctx, se) {
 		return
 	}
 	// Drain pending team messages.
@@ -148,6 +190,7 @@ func (d *WakeupDispatcher) drainAndRun(ctx context.Context, sessionID string) {
 	// Build the agent for this session.
 	ag, err := d.buildAgent(ctx, se.AgentID, sessionID)
 	if err != nil || ag == nil {
+		d.requeue(ctx, sessionID, msgs)
 		return
 	}
 	// Assemble inbox messages into a single user turn.
@@ -156,15 +199,122 @@ func (d *WakeupDispatcher) drainAndRun(ctx context.Context, sessionID string) {
 		fmt.Fprintf(&sb, "<team-message from=%q>\n%s\n</team-message>\n\n", m.From, m.Content)
 	}
 	msg := message.NewMsg().Role(message.RoleUser).TextContent(sb.String()).Build()
-	// Fire and forget: SessionManager serialises per-session and persists the reply.
-	// Single-replica note (18.1/18.5): this entry point bypasses the session
-	// run lock — runs here serialize only within this process. Cross-replica
-	// serialization for this path lands with the 18.5 worker.
-	ch, err := d.sessionMgr.Run(ctx, sessionID, ag, msg)
-	if err == nil && ch != nil {
+	// Turns go through the coordinator when wired (18.5): the wakeup path
+	// now participates in cross-replica session leases — a session running
+	// on another replica reports busy and the messages are re-queued.
+	ch, err := d.startTurn(ctx, sessionID, ag, msg)
+	if err != nil {
+		d.requeue(ctx, sessionID, msgs)
+		return
+	}
+	if ch != nil {
 		// A failed worker turn must reach the leader (PyV2 #2386 parity).
 		go d.watchRunFailure(ctx, se, ch)
 	}
+}
+
+// startTurn launches the turn through the injected run entry (coordinator)
+// with bounded busy-retry: another replica running the session is expected to
+// finish, so we wait briefly instead of dropping drained messages.
+func (d *WakeupDispatcher) startTurn(ctx context.Context, sessionID string, ag agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
+	run := d.run
+	if run == nil {
+		run = d.sessionMgr.Run
+	}
+	bo := newBackoff(wakeupPollInterval, 2*time.Second)
+	deadline := time.Now().Add(d.busyRetryTimeout)
+	if d.busyRetryTimeout <= 0 {
+		deadline = time.Now().Add(wakeupBusyTimeout)
+	}
+	for {
+		ch, err := run(ctx, sessionID, ag, msg)
+		if err == nil {
+			return ch, nil
+		}
+		if !errors.Is(err, ErrSessionBusy) || time.Now().After(deadline) {
+			return nil, err
+		}
+		if !sleepCtx(ctx, bo.next()) {
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// requeue pushes drained messages back into the inbox and re-arms the wakeup
+// so another (or later) dispatcher attempt picks them up — drained-but-lost
+// messages must not disappear (at-least-once).
+func (d *WakeupDispatcher) requeue(ctx context.Context, sessionID string, msgs []messagebus.TeamMessage) {
+	if len(msgs) == 0 {
+		return
+	}
+	for _, m := range msgs {
+		_ = d.bus.InboxPush(ctx, sessionID, m)
+	}
+	_ = d.bus.EnqueueWakeup(ctx, sessionID)
+}
+
+// consumePendingResume restores a turn suspended on human-in-the-loop and
+// delivers the persisted resume command (23.2 state machine's executing
+// state) to it. It reports whether a resume was started; on success the
+// inbox stays untouched for the next wakeup.
+//
+// Safety: the turn starts through the coordinator entry, so the fencing
+// lease proves no other replica is still executing this session — the
+// at-most-once guarantee of 23.2 holds for concurrent replicas, and the
+// crash-takeover case is bounded by the lease TTL.
+func (d *WakeupDispatcher) consumePendingResume(ctx context.Context, se *service.Session) bool {
+	if d.storage == nil {
+		return false
+	}
+	snap, err := d.storage.GetSnapshot(ctx, se.ID)
+	if err != nil || snap == nil || snap.PendingResume == nil || snap.State == nil || snap.State.SuspendedAt == nil {
+		return false
+	}
+	cmd := snap.PendingResume
+	v2a, err := d.buildAgent(ctx, se.AgentID, se.ID)
+	if err != nil || v2a == nil {
+		return false
+	}
+	v2, ok := v2a.(agent.V2Agent)
+	if !ok {
+		return false
+	}
+	if err := v2.LoadState(snap.State); err != nil {
+		return false
+	}
+	// ReplyStream detects the suspended runtime state and resumes the turn:
+	// it re-emits RequireUserConfirm and registers the confirmation waiter
+	// the command below is delivered to. The input message is a placeholder
+	// — history is restored from the snapshot.
+	placeholder := message.NewMsg().Role(message.RoleUser).TextContent("<resume-session/>").Build()
+	ch, err := d.startTurn(ctx, se.ID, v2, placeholder)
+	if err != nil {
+		// Busy: the holder replica is alive — leave the command for it.
+		return false
+	}
+	// Deliver the persisted command once the waiter exists (the waiter is
+	// registered shortly after the turn starts; ErrNoWaiter means "try
+	// again", not "gone").
+	confirm := event.NewUserConfirmResult(cmd.ReplyID, cmd.ConfirmID, cmd.Decisions)
+	go func() {
+		deadline := time.Now().Add(wakeupResumeInjectTimeout)
+		for time.Now().Before(deadline) {
+			if err := v2.InjectEvent(ctx, confirm); err == nil {
+				return
+			}
+			if !sleepCtx(ctx, 100*time.Millisecond) {
+				return
+			}
+		}
+	}()
+	// Delete the snapshot only after the resumed turn completes (23.2:
+	// delete-on-completion, auditable crash windows).
+	go func() {
+		for range ch {
+		}
+		_ = d.storage.DeleteSnapshot(context.Background(), se.ID)
+	}()
+	return true
 }
 
 // watchRunFailure consumes the run's event stream just far enough to detect a

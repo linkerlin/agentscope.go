@@ -81,6 +81,18 @@ type Server struct {
 	// Auto-started in Start() when the bus implements TeamBus.
 	wakeupDispatcher *WakeupDispatcher
 
+	// worker roles (18.5): which long-running loops this process owns.
+	// workerRoles nil = all (single-process default); an explicitly-set empty
+	// slice = none (dedicated API replica). When the bus carries fencing
+	// leases the roles are additionally guarded by a Worker (competitive
+	// acquire, heartbeat, takeover).
+	workerRolesExplicit bool
+	workerRoles         []WorkerRole
+	worker              *Worker
+	// directRunners holds the role pairs started by the non-Worker path
+	// (no fencing leases on the bus); Close stops them.
+	directRunners []RoleRunner
+
 	// session HTTP face (16.2): lazily-built sessionapi handlers bridging
 	// the Server wiring; see sessionapi_compat.go.
 	sessionAPIBuild    sync.Once
@@ -214,33 +226,171 @@ func (s *Server) WithBackgroundTaskManager(m *BackgroundTaskManager) *Server {
 
 // Start starts background components such as the schedule cron (BackgroundTaskManager).
 // Call this after wiring routes but before serving traffic. It is safe to call multiple times.
+//
+// 18.5: the long-running loops (wakeup drain, cron scheduler, channel
+// listeners) are selected by WithWorkerRoles. When the bus carries fencing
+// leases (CoordLease) they are additionally guarded by a Worker — role
+// leases with heartbeat and takeover, so a dedicated worker process and API
+// replicas (or two workers) can coexist without double consumption. Without
+// leases the selected roles start in-process directly.
 func (s *Server) Start() {
-	if s.backgroundTaskMgr != nil {
-		s.backgroundTaskMgr.Start()
+	roles := s.workerRoles
+	if !s.workerRolesExplicit {
+		roles = AllWorkerRoles
 	}
-	s.startWakeupDispatcher()
-	s.StartChannels()
+	// Build the per-role start/stop pairs first.
+	runners := s.workerRunners(roles)
+
+	if lease := messagebus.AsCoordLease(s.messageBus); lease != nil && len(runners) > 0 {
+		w := NewWorker(lease, generateID("worker"), runners)
+		s.worker = w
+		w.Start(context.Background())
+		return
+	}
+	// No fencing leases (or no roles): start the selected roles directly —
+	// the loops run in-process exclusively; Close stops them via the
+	// recorded runners.
+	s.directRunners = runners
+	for _, r := range runners {
+		_ = r.Start()
+	}
 }
 
-// startWakeupDispatcher launches the team-collaboration wakeup loop when the
-// configured bus implements TeamBus and the required managers are present.
-// Idempotent; safe to call multiple times.
+// workerRunners binds the selected roles to idempotent start/stop pairs.
+// Components are held by the closures themselves (the Worker loop calls
+// Start/Stop serially on its own goroutine); Server fields like
+// wakeupDispatcher stay owned by the non-Worker direct path, so no shared
+// mutable state crosses goroutines.
+func (s *Server) workerRunners(roles []WorkerRole) []RoleRunner {
+	wanted := make(map[WorkerRole]bool, len(roles))
+	for _, r := range roles {
+		wanted[r] = true
+	}
+	var runners []RoleRunner
+	if wanted[RoleWakeup] && s.supportsWakeup() {
+		var disp *WakeupDispatcher
+		runners = append(runners, RoleRunner{
+			Role: RoleWakeup,
+			Start: func() error {
+				d := s.buildWakeupDispatcher()
+				if d == nil {
+					return fmt.Errorf("wakeup dispatcher unavailable")
+				}
+				if err := d.Start(context.Background()); err != nil {
+					return err
+				}
+				disp = d
+				return nil
+			},
+			Stop: func() {
+				if disp != nil {
+					disp.Stop()
+					disp = nil
+				}
+			},
+		})
+	}
+	if wanted[RoleSchedule] && s.backgroundTaskMgr != nil {
+		runners = append(runners, RoleRunner{
+			Role: RoleSchedule,
+			Start: func() error {
+				s.backgroundTaskMgr.Start()
+				return nil
+			},
+			Stop: func() { s.backgroundTaskMgr.Stop() },
+		})
+	}
+	if wanted[RoleChannel] && s.channelDispatcher != nil {
+		runners = append(runners, RoleRunner{
+			Role: RoleChannel,
+			Start: func() error {
+				go func() { _ = s.channelDispatcher.StartAll(context.Background()) }()
+				return nil
+			},
+			Stop: func() { s.channelDispatcher.Close() },
+		})
+	}
+	return runners
+}
+
+// supportsWakeup reports whether the wakeup loop can run on this server.
+func (s *Server) supportsWakeup() bool {
+	return messagebus.AsTeamBus(s.messageBus) != nil && s.sessionMgr != nil && s.storage != nil
+}
+
+// WithWorkerRoles selects which long-running loops this process owns (18.5):
+// no arguments = none (dedicated API replica); omit the call entirely = all
+// roles (single-process default).
+func (s *Server) WithWorkerRoles(roles ...WorkerRole) *Server {
+	s.workerRolesExplicit = true
+	s.workerRoles = roles
+	return s
+}
+
+// WorkerRoles reports the selected worker roles (nil before Start when the
+// default set applies).
+func (s *Server) WorkerRoles() []WorkerRole { return s.workerRoles }
+
+// CoordinatedRun returns the server's coordinated turn entry — the session
+// coordinator when wired, else the in-process session manager. Assemblers
+// inject it into ChannelRunner.Run / BackgroundTaskManager.WithSessionRun so
+// every turn source (HTTP, channel, cron, wakeup) shares one cross-replica
+// single-consumer protocol (18.5). Returns nil when neither is wired.
+func (s *Server) CoordinatedRun() sessionRunFunc {
+	if s.sessionCoord != nil {
+		return s.sessionCoord.Run
+	}
+	if s.sessionMgr != nil {
+		return s.sessionMgr.Run
+	}
+	return nil
+}
+
+// startWakeupDispatcher launches the team-collaboration wakeup loop outside
+// Start's role management (manual/legacy wiring). Idempotent. Start() itself
+// routes the wakeup role through workerRunners (18.5); this entry remains
+// for callers that assemble the loop by hand.
 func (s *Server) startWakeupDispatcher() {
 	if s.wakeupDispatcher != nil {
 		return
 	}
-	tb := messagebus.AsTeamBus(s.messageBus)
-	if tb == nil || s.sessionMgr == nil || s.storage == nil {
+	d := s.buildWakeupDispatcher()
+	if d == nil {
 		return
 	}
-	d := NewWakeupDispatcher(tb, s.sessionMgr, s.storage, s.buildSessionAgentFromStorage)
 	if err := d.Start(context.Background()); err == nil {
 		s.wakeupDispatcher = d
 	}
 }
 
-// Close stops background components (schedules, etc.). Call on shutdown.
+// buildWakeupDispatcher assembles the wakeup loop when the configured bus
+// implements TeamBus and the required managers are present; nil when the
+// prerequisites are missing. Turns go through the coordinator when one is
+// wired, and persisted resume commands are consumed here — the wakeup loop
+// is the worker tier's entry point (18.5).
+func (s *Server) buildWakeupDispatcher() *WakeupDispatcher {
+	if !s.supportsWakeup() {
+		return nil
+	}
+	tb := messagebus.AsTeamBus(s.messageBus)
+	d := NewWakeupDispatcher(tb, s.sessionMgr, s.storage, s.buildSessionAgentFromStorage)
+	if s.sessionCoord != nil {
+		d.WithRun(s.sessionCoord.Run)
+	}
+	return d
+}
+
+// Close stops background components (worker roles, schedules, etc.). Call on
+// shutdown.
 func (s *Server) Close() error {
+	if s.worker != nil {
+		s.worker.Stop()
+		s.worker = nil
+	}
+	for _, r := range s.directRunners {
+		r.Stop()
+	}
+	s.directRunners = nil
 	if s.wakeupDispatcher != nil {
 		s.wakeupDispatcher.Stop()
 	}

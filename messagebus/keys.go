@@ -70,5 +70,15 @@ func (CoordKeys) SessionCancelChannel(sessionID string) string {
 	return "as:cancel:session:" + sessionID
 }
 
+// --- Long-running worker roles (18.5) ---
+
+// WorkerRoleLockKey returns the lease key guarding a long-running worker role
+// (channel listeners, wakeup drain loop, cron scheduler). At most one worker
+// replica holds a role at a time; the lease's short TTL plus renewal gives
+// heartbeat, takeover and reconnect semantics on top of CoordLease (23.1).
+func (CoordKeys) WorkerRoleLockKey(role string) string {
+	return CoordKeys{}.LockKey("worker-role:" + role)
+}
+
 // Default CoordKeys instance for convenience.
 var Keys = CoordKeys{}

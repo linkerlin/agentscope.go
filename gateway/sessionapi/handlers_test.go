@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -244,4 +245,40 @@ func TestHandlers_ResumeIdempotencyMapping(t *testing.T) {
 	w2 := post(h2)
 	assert.Equal(t, http.StatusConflict, w2.Code)
 	assert.Contains(t, w2.Body.String(), "pending")
+}
+
+// TestHandlers_ResumeNotDeliveredNotifiesWorker: when a resume command is
+// persisted without a local waiter, the wakeup notification fires so a
+// worker replica consumes the command (18.5).
+func TestHandlers_ResumeNotDeliveredNotifiesWorker(t *testing.T) {
+	var notified []string
+	var mu sync.Mutex
+	ag := &fakeAgent{name: "fake"}
+	h := NewHandlers(Deps{
+		Sessions: &fakeSessions{},
+		Agent:    ag,
+		State:    &fakeState{resumeErr: ErrResumeNotDelivered},
+		ResolveAgent: func(r *http.Request, agentID, sessionID string) (agent.Agent, error) {
+			return ag, nil
+		},
+		EnrichCtx: func(ctx context.Context, agentID, sessionID string) context.Context { return ctx },
+		OnResumeNotified: func(sessionID string) {
+			mu.Lock()
+			defer mu.Unlock()
+			notified = append(notified, sessionID)
+		},
+	})
+	mux := http.NewServeMux()
+	h.RegisterV2(mux, nil)
+	req := httptest.NewRequest(http.MethodPost, "/v2/resume",
+		strings.NewReader(`{"session_id":"s9","reply_id":"r1","confirm_id":"c1"}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(notified) != 1 || notified[0] != "s9" {
+		t.Fatalf("wakeup notification missing or wrong: %v", notified)
+	}
 }

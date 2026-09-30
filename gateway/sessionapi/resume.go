@@ -75,7 +75,12 @@ func (h *Handlers) handleV2Resume(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(resumeErr, ErrResumeNotDelivered) {
 			// Command persisted, but this replica holds no live waiter for
-			// it — the holder replica (or a reconnect) must consume it.
+			// it. Notify the worker tier (wakeup) so the replica that can
+			// consume the command does (18.5); the command itself stays on
+			// the snapshot.
+			if h.d.OnResumeNotified != nil {
+				h.d.OnResumeNotified(req.SessionID)
+			}
 			http.Error(w, `{"error":"resume not delivered","status":"pending"}`, http.StatusConflict)
 			return
 		}

@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/channel"
@@ -21,6 +23,10 @@ type ChannelRunner struct {
 	Sessions *SessionManager
 	// Lookup returns the channel instance owning the given channel id.
 	Lookup func(channelID string) channel.Channel
+	// Run starts the turn; wired to the SessionCoordinator entry by the
+	// server (18.5) so channel-driven turns participate in cross-replica
+	// session leases. nil falls back to Sessions.Run.
+	Run sessionRunFunc
 
 	mu     sync.Mutex
 	active map[string]bool // sessionID -> running
@@ -80,12 +86,29 @@ func (r *ChannelRunner) runAndReply(ctx context.Context, sessionID string, a age
 		r.mu.Unlock()
 	}()
 
-	// Single-replica note (18.1/18.5): this entry point bypasses the session
-	// run lock — runs here serialize only within this process. Cross-replica
-	// serialization for this path lands with the 18.5 worker.
-	stream, err := r.Sessions.Run(ctx, sessionID, a, msg)
-	if err != nil {
-		return
+	// Turns go through the coordinator when wired (18.5): cross-replica
+	// single-consumer semantics for channel-driven sessions, with a bounded
+	// busy-retry so a turn running on another replica finishes instead of the
+	// channel input being dropped.
+	run := r.Run
+	if run == nil {
+		run = r.Sessions.Run
+	}
+	bo := newBackoff(500*time.Millisecond, 5*time.Second)
+	deadline := time.Now().Add(30 * time.Second)
+	var stream <-chan event.AgentEvent
+	for {
+		ch, err := run(ctx, sessionID, a, msg)
+		if err == nil {
+			stream = ch
+			break
+		}
+		if !errors.Is(err, ErrSessionBusy) || time.Now().After(deadline) {
+			return
+		}
+		if !sleepCtx(ctx, bo.next()) {
+			return
+		}
 	}
 	reply := collectFinalText(stream)
 	if reply == "" {

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/linkerlin/agentscope.go/agent"
-	"github.com/linkerlin/agentscope.go/message"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/linkerlin/agentscope.go/agent"
+	"github.com/linkerlin/agentscope.go/message"
 )
 
 // fullSession implements ClientSession, SessionWithTools and SessionWithResources

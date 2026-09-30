@@ -35,7 +35,7 @@ func TestWebUI_OffloadHintInjection(t *testing.T) {
 		t.Fatalf("status=%d body=%s", resp.StatusCode, readBody(resp))
 	}
 	streamText := readBody(resp)
-	if !(strings.Contains(streamText, "ad-ok") && strings.Contains(streamText, "system-n")) {
+	if !strings.Contains(streamText, "ad-ok") || !strings.Contains(streamText, "system-n") {
 		t.Fatalf("expected offload hint in AG-UI stream, got:\n%s", streamText)
 	}
 }

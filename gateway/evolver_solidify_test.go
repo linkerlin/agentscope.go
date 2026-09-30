@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/controlplane"
-	"github.com/linkerlin/agentscope.go/evolver"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/evolver"
 )
 
 // solidifyCapture embeds MockEvolver and captures the last SolidifyRequest.

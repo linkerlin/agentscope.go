@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ledongthuc/pdf"
+
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/rag/document"
 )

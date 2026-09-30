@@ -297,9 +297,10 @@ func (m *MockEvolver) Run(_ context.Context, cfg RunConfig) (*RunResult, error) 
 
 	// Very simplified selection: pick first matching category or first repair.
 	cat := CategoryRepair
-	if cfg.Strategy == "innovate" {
+	switch cfg.Strategy {
+	case "innovate":
 		cat = CategoryInnovate
-	} else if cfg.Strategy == "harden" || cfg.Strategy == "repair-only" {
+	case "harden", "repair-only":
 		cat = CategoryOptimize
 	}
 	genes, _ := m.ListGenes(context.Background(), cat)

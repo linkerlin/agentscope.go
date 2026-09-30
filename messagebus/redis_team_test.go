@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/messagebus"
 	bredis "github.com/redis/go-redis/v9"
+
+	"github.com/linkerlin/agentscope.go/messagebus"
 )
 
 // redisTestBus builds a RedisBus against $REDIS_URL with a unique prefix so

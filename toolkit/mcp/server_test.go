@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/message"
-	"github.com/mark3labs/mcp-go/mcp"
 )
 
 type mockAgent struct{}

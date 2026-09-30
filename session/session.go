@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid" // goimports fix placeholder (re-run will clean)
+
 	"github.com/linkerlin/agentscope.go/message"
 )
 

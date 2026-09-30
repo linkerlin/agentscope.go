@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/linkerlin/agentscope.go/message"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/linkerlin/agentscope.go/message"
 )
 
 // ReactDelegator 任务分派器

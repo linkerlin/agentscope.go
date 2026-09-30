@@ -86,7 +86,7 @@ func (a *ReActAgent) replyStreamLoop(ctx context.Context, msg *message.Msg, out 
 			CurIter:   0,
 			MaxIters:  a.maxIterations,
 			AgentName: a.Name(),
-			AgentID:   a.Base.ID,
+			AgentID:   a.ID,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -344,7 +344,7 @@ func (a *ReActAgent) replyStreamInternal(
 		// failing tool until maxIterations, and instead of surfacing the raw
 		// tool error as a turn-level error.
 		if name, count, reason := breaker.update(sigs); name != "" {
-			finalResponse = a.withCurrentUsage(breakerFinalMessage(a.Base.AgentName(), name, count, reason))
+			finalResponse = a.withCurrentUsage(breakerFinalMessage(a.AgentName(), name, count, reason))
 			// Surface the breaker message like a normal final answer: append to
 			// history + runtime state so Reply()/reconnect-resume and the UI see
 			// it instead of the model's last (tool-call) assistant message.
@@ -515,7 +515,7 @@ func (a *ReActAgent) runModelStream(
 	out chan<- event.AgentEvent,
 	replyID string,
 ) (*message.Msg, error) {
-	chain := a.Base.MiddlewareChain()
+	chain := a.MiddlewareChain()
 	if chain == nil || len(chain.Reasoning) == 0 {
 		return a.runModelStreamInner(ctx, history, chatOpts, iter, requestTools, out, replyID)
 	}
@@ -572,7 +572,7 @@ func (a *ReActAgent) runModelStreamInner(
 	// so ChatOpts/Messages mutations reach the model.
 	var ch <-chan *model.StreamChunk
 	var err error
-	if mc := a.Base.MiddlewareChain(); mc != nil && len(mc.ModelCall) > 0 {
+	if mc := a.MiddlewareChain(); mc != nil && len(mc.ModelCall) > 0 {
 		ch, err = a.invokeModelChatStream(ctx, history, chatOpts, iter)
 	} else {
 		ch, err = a.effectiveModel(ctx).ChatStream(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)

@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/controlplane"
 )
 
 func TestQuotaHeartbeatEligibleRunsTurn(t *testing.T) {

@@ -148,10 +148,10 @@ func (m *InjectionMiddleware) buildHint() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Current time: %s", now.Format(fmtStr)))
+	fmt.Fprintf(&sb, "Current time: %s", now.Format(fmtStr))
 
 	for k, v := range m.Config.ExtraFields {
-		sb.WriteString(fmt.Sprintf("\n<%s>%s</%s>", k, v, k))
+		fmt.Fprintf(&sb, "\n<%s>%s</%s>", k, v, k)
 	}
 
 	state := sb.String()

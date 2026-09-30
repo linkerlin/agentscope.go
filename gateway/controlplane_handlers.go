@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/evolver"
 	"github.com/linkerlin/agentscope.go/logging"

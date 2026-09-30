@@ -5,9 +5,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/linkerlin/agentscope.go/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/message"
 )
 
 // TestReactStepCreation 测试 ReAct 步骤创建

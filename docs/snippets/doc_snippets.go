@@ -124,12 +124,15 @@ func docHTTPServer(addr string, handler http.Handler) *http.Server {
 
 type stubAgent struct{ agentName string }
 
+// Name implements agent.Agent.
 func (s stubAgent) Name() string { return s.agentName }
 
+// Call implements agent.Agent with a canned reply.
 func (s stubAgent) Call(ctx context.Context, msg *message.Msg) (*message.Msg, error) {
 	return message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build(), nil
 }
 
+// CallStream implements agent.Agent with a one-shot stream.
 func (s stubAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *message.Msg, error) {
 	ch := make(chan *message.Msg, 1)
 	ch <- message.NewMsg().Role(message.RoleAssistant).TextContent("ok").Build()
@@ -142,34 +145,34 @@ func (s stubAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *me
 // WorkspaceBackendsDoc mirrors the "7 个后端" constructor table.
 func WorkspaceBackendsDoc(ctx context.Context) error {
 	local := workspace.NewLocalWorkspace("demo", "./sandbox")
-	defer local.Close()
+	defer func() { _ = local.Close() }()
 
 	k8s, err := workspace.NewK8sWorkspace(ctx, workspace.K8sConfig{})
 	if err != nil {
 		log.Printf("k8s unavailable: %v", err)
 	} else {
-		defer k8s.Close()
+		defer func() { _ = k8s.Close() }()
 	}
 
 	bw, err := workspace.NewBubblewrapWorkspace(workspace.BubblewrapConfig{})
 	if err != nil {
 		log.Printf("bubblewrap unavailable: %v", err)
 	} else {
-		defer bw.Close()
+		defer func() { _ = bw.Close() }()
 	}
 
 	daytona, err := workspace.NewDaytonaWorkspace(ctx, workspace.DaytonaConfig{})
 	if err != nil {
 		log.Printf("daytona unavailable: %v", err)
 	} else {
-		defer daytona.Close()
+		defer func() { _ = daytona.Close() }()
 	}
 
 	sb, err := workspace.NewOpenSandboxWorkspace(ctx, workspace.OpenSandboxConfig{})
 	if err != nil {
 		log.Printf("opensandbox unavailable: %v", err)
 	} else {
-		defer sb.Close()
+		defer func() { _ = sb.Close() }()
 	}
 
 	// Docker/E2B constructors take runtime handles; existence-checked by

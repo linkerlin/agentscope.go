@@ -87,11 +87,12 @@ func (cb *circuitBreaker) allowRequest() error {
 // onSuccess records a successful request, potentially closing the circuit.
 func (cb *circuitBreaker) onSuccess() {
 	state := cb.getState()
-	if state == CircuitHalfOpen {
+	switch state {
+	case CircuitHalfOpen:
 		// Successful probe → close circuit
 		cb.failures.Store(0)
 		cb.state.Store(int32(CircuitClosed))
-	} else if state == CircuitClosed {
+	case CircuitClosed:
 		cb.failures.Store(0)
 	}
 }

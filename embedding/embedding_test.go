@@ -16,7 +16,7 @@ func TestNewOpenAI(t *testing.T) {
 	if m.Dimensions() <= 0 {
 		t.Error("expected positive dimensions")
 	}
-	var _ model.EmbeddingModel = m
+	var _ = m
 }
 
 func TestNewOllama(t *testing.T) {
@@ -27,7 +27,7 @@ func TestNewOllama(t *testing.T) {
 	if m.Dimensions() != 768 {
 		t.Error("dim mismatch")
 	}
-	var _ model.EmbeddingModel = m
+	var _ = m
 }
 
 func TestWithFileCache(t *testing.T) {
@@ -85,7 +85,7 @@ func TestNewGemini(t *testing.T) {
 	if m.ModelName() == "" {
 		t.Error("gemini name")
 	}
-	var _ model.EmbeddingModel = m
+	var _ = m
 }
 
 func TestNewDashScope(t *testing.T) {
@@ -93,5 +93,5 @@ func TestNewDashScope(t *testing.T) {
 	if m.ModelName() == "" {
 		t.Error("dashscope name")
 	}
-	var _ model.EmbeddingModel = m
+	var _ = m
 }

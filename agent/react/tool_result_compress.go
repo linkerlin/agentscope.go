@@ -115,8 +115,8 @@ func (a *ReActAgent) sessionID() string {
 	if a.runtimeState != nil && a.runtimeState.AgentID != "" {
 		return a.runtimeState.AgentID
 	}
-	if a.Base != nil && a.Base.ID != "" {
-		return a.Base.ID
+	if a.Base != nil && a.ID != "" {
+		return a.ID
 	}
 	return a.Base.Name
 }

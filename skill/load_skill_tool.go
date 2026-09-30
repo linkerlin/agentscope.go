@@ -91,7 +91,7 @@ func buildAvailableResources(s *AgentSkill) string {
 	var sb strings.Builder
 	sb.WriteString("1. SKILL.md\n")
 	for i, p := range s.ResourcePaths() {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+2, p))
+		fmt.Fprintf(&sb, "%d. %s\n", i+2, p)
 	}
 	return sb.String()
 }

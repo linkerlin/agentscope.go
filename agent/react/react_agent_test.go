@@ -392,8 +392,8 @@ func TestReActAgent_BuilderChainAndDefaults(t *testing.T) {
 	if a.maxIterations != 5 {
 		t.Fatalf("expected maxIterations 5, got %d", a.maxIterations)
 	}
-	if a.Base.ID != "aid" {
-		t.Fatalf("expected ID aid, got %s", a.Base.ID)
+	if a.ID != "aid" {
+		t.Fatalf("expected ID aid, got %s", a.ID)
 	}
 }
 

@@ -103,7 +103,7 @@ func GenerateMarkdownWithFrontmatter(metadata map[string]string, content string)
 	if len(metadata) > 0 {
 		sb.WriteString("---\n")
 		for k, v := range metadata {
-			sb.WriteString(fmt.Sprintf("%s: %s\n", k, quoteYAMLValueIfNeeded(v)))
+			fmt.Fprintf(&sb, "%s: %s\n", k, quoteYAMLValueIfNeeded(v))
 		}
 		sb.WriteString("---\n")
 		if content != "" {

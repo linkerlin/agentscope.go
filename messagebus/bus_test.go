@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/linkerlin/agentscope.go/messagebus"
 	bredis "github.com/redis/go-redis/v9"
+
+	"github.com/linkerlin/agentscope.go/messagebus"
 )
 
 // recv pulls one message from ch or fails the test on timeout.

@@ -70,7 +70,7 @@ func (t *ParseTool) Execute(_ context.Context, input map[string]any) (*tool.Resp
 	case string:
 		typeName = "string"
 	}
-	sb.WriteString(fmt.Sprintf("\n\nType: %s", typeName))
+	fmt.Fprintf(&sb, "\n\nType: %s", typeName)
 
 	return tool.NewTextResponse(sb.String()), nil
 }

@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/controlplane"
-	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/messagebus"
 )
 
 // newAdapter builds an Adapter over a fresh in-process LocalBus CoordBus.

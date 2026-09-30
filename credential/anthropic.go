@@ -44,7 +44,7 @@ func (c *AnthropicCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 // NewAnthropic creates a new Anthropic credential (convenience).

@@ -265,7 +265,7 @@ func isEnvAssignment(tok string) bool {
 	}
 	name := tok[:i]
 	for _, ch := range name {
-		if !(unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_') {
+		if !unicode.IsLetter(ch) && !unicode.IsDigit(ch) && ch != '_' {
 			return false
 		}
 	}

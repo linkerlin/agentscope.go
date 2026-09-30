@@ -615,7 +615,7 @@ func cloneMeta(m map[string]any) map[string]any {
 	return out
 }
 
-func (a *ReActAgent) Name() string { return a.Base.AgentName() }
+func (a *ReActAgent) Name() string { return a.AgentName() }
 
 // Shutdown gracefully closes the agent and waits for ongoing calls to finish.
 func (a *ReActAgent) Shutdown(ctx context.Context) error {
@@ -653,7 +653,7 @@ func (a *ReActAgent) effectiveModel(ctx context.Context) model.ChatModel {
 }
 
 func (a *ReActAgent) addUsage(u model.ChatUsage) {
-	a.Base.AddUsage(u)
+	a.AddUsage(u)
 }
 
 func extractUsage(msg *message.Msg) model.ChatUsage {
@@ -905,9 +905,9 @@ func (a *ReActAgent) CallStream(ctx context.Context, msg *message.Msg) (<-chan *
 func (a *ReActAgent) buildHistory(ctx context.Context, userMsg *message.Msg) ([]*message.Msg, error) {
 	var history []*message.Msg
 
-	if a.Base.SysPrompt != "" {
-		prompt := a.Base.SysPrompt
-		if chain := a.Base.MiddlewareChain(); chain != nil {
+	if a.SysPrompt != "" {
+		prompt := a.SysPrompt
+		if chain := a.MiddlewareChain(); chain != nil {
 			var err error
 			prompt, err = middleware.ApplySystemPrompt(ctx, a.Base, chain, prompt)
 			if err != nil {
@@ -978,7 +978,7 @@ func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[str
 	final := func(ctx context.Context) (*tool.Response, error) {
 		return a.actingImpl(ctx, name, input)
 	}
-	chain := a.Base.MiddlewareChain()
+	chain := a.MiddlewareChain()
 	if chain != nil && len(chain.Acting) > 0 {
 		actingInput := &middleware.ActingInput{ToolName: name, ToolInput: input}
 		handler := middleware.ChainActing(chain, a.Base, actingInput, final)
@@ -1100,7 +1100,7 @@ func (a *ReActAgent) fireHooks(
 	toolName string,
 	toolInput map[string]any,
 ) ([]*message.Msg, *hook.HookResult, error) {
-	return a.Base.FireHooks(ctx, point, messages, response, toolName, toolInput)
+	return a.FireHooks(ctx, point, messages, response, toolName, toolInput)
 }
 
 // InjectEvent allows an external consumer to inject a resume event into a

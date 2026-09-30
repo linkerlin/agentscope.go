@@ -157,7 +157,7 @@ func TestConsole_ParallelToolCallsStayPaired(t *testing.T) {
 	// break this ordering.
 	ia, ib1 := strings.Index(out, "┌ tool alpha"), strings.Index(out, "body-one")
 	ib, ib2 := strings.Index(out, "┌ tool beta"), strings.Index(out, "body-two")
-	if !(ia < ib1 && ib1 < ib && ib < ib2) {
+	if ia >= ib1 || ib1 >= ib || ib >= ib2 {
 		t.Fatalf("paired blocks out of order (bled results):\n%s", out)
 	}
 }

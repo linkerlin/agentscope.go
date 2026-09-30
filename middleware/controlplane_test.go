@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linkerlin/agentscope.go/controlplane"
-	"github.com/linkerlin/agentscope.go/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/message"
 )
 
 type stubCPAgent struct{ name string }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -559,6 +560,11 @@ type BgTask struct {
 	Err        string     `json:"error,omitempty"`
 	StartedAt  time.Time  `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// Seq is the registration order (monotonic). It breaks StartedAt ties —
+	// coarse platform clocks (Windows ~0.5–15ms) register multiple tasks
+	// with identical timestamps, and the map iteration order must never
+	// decide the list order.
+	Seq int64 `json:"-"`
 }
 
 // BgTask statuses.
@@ -574,6 +580,7 @@ const (
 type BgTaskRegistry struct {
 	mu    sync.RWMutex
 	tasks map[string]*BgTask
+	seq   atomic.Int64 // registration order for deterministic listing
 }
 
 // NewBgTaskRegistry creates an empty registry.
@@ -585,10 +592,11 @@ func NewBgTaskRegistry() *BgTaskRegistry {
 // done func that marks the task finished (nil error → done, else failed).
 func (r *BgTaskRegistry) Register(sessionID, kind string) (string, func(err error)) {
 	id := uuid.NewString()
+	seq := r.seq.Add(1)
 	r.mu.Lock()
 	r.tasks[id] = &BgTask{
 		ID: id, SessionID: sessionID, Kind: kind,
-		Status: BgTaskRunning, StartedAt: time.Now().UTC(),
+		Status: BgTaskRunning, StartedAt: time.Now().UTC(), Seq: seq,
 	}
 	r.mu.Unlock()
 	done := func(err error) {
@@ -640,9 +648,10 @@ func (r *BgTaskRegistry) List(sessionID string) []BgTask {
 			out = append(out, *t)
 		}
 	}
-	// Newest first for operator-facing lists.
+	// Newest first for operator-facing lists; Seq breaks timestamp ties so
+	// the order never depends on map iteration (platform clock granularity).
 	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j].StartedAt.After(out[j-1].StartedAt); j-- {
+		for j := i; j > 0 && out[j].Seq > out[j-1].Seq; j-- {
 			out[j], out[j-1] = out[j-1], out[j]
 		}
 	}

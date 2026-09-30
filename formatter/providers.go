@@ -134,7 +134,7 @@ func (f *MultiAgentGeminiFormatter) formatMultiAgentContents(msgs []*message.Msg
 	for _, g := range GroupMessages(msgs[start:]) {
 		switch g.Type {
 		case "tool_sequence":
-			contents, _ := f.GeminiFormatter.FormatContents(g.Msgs)
+			contents, _ := f.FormatContents(g.Msgs)
 			out = append(out, contents...)
 		case "agent_message":
 			openai := formatOpenAIAgentMessageGroup(g.Msgs, firstAgent)

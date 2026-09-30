@@ -193,7 +193,7 @@ func (cm *ClusterManager) selectLeastLoadedNode() (string, error) {
 	defer cm.mu.RUnlock()
 
 	var bestURL string
-	var bestLoad float64 = 2.0
+	var bestLoad = 2.0
 
 	for url, health := range cm.nodeHealth {
 		if !health.Healthy {

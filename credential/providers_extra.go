@@ -36,7 +36,7 @@ func (c *DashScopeCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewDashScope(name, apiKey string) *DashScopeCredential {
@@ -76,7 +76,7 @@ func (c *DeepSeekCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewDeepSeek(name, apiKey string) *DeepSeekCredential {
@@ -116,7 +116,7 @@ func (c *MoonshotCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewMoonshot(name, apiKey string) *MoonshotCredential {
@@ -156,7 +156,7 @@ func (c *XAICredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewXAI(name, apiKey string) *XAICredential {
@@ -196,7 +196,7 @@ func (c *OllamaCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewOllama(name string) *OllamaCredential {
@@ -243,7 +243,7 @@ func (c *OpenAIResponseCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewOpenAIResponse(name, apiKey string) *OpenAIResponseCredential {
@@ -288,7 +288,7 @@ func (c *VLLMCredential) fromMap(data map[string]any) error {
 	if c.ID() == "" {
 		c.Base = NewBase(uuid.New().String(), c.Name(), c.Type())
 	}
-	return c.Base.Validate()
+	return c.Validate()
 }
 
 func NewVLLM(name, baseURL string) *VLLMCredential {

@@ -28,12 +28,12 @@ func TestReActAgentStateRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("load err=%v ok=%v", err, ok)
 	}
-	if b.Base.Name != "n" || b.Base.SysPrompt != "sys" || b.maxIterations != 7 || b.Base.ID != "aid" {
-		t.Fatalf("fields %+v %+v %d %+v", b.Base.Name, b.Base.SysPrompt, b.maxIterations, b.Base.ID)
+	if b.Base.Name != "n" || b.SysPrompt != "sys" || b.maxIterations != 7 || b.ID != "aid" {
+		t.Fatalf("fields %+v %+v %d %+v", b.Base.Name, b.SysPrompt, b.maxIterations, b.ID)
 	}
 	// JSON 数字默认解码为 float64
-	if v, ok := b.Base.Meta["k"].(float64); !ok || v != 1 {
-		t.Fatalf("meta %#v", b.Base.Meta)
+	if v, ok := b.Meta["k"].(float64); !ok || v != 1 {
+		t.Fatalf("meta %#v", b.Meta)
 	}
 }
 
@@ -87,8 +87,8 @@ func TestReActAgent_SaveTo_FallbackID(t *testing.T) {
 	if err := b.LoadFrom(store, "k"); err != nil {
 		t.Fatal(err)
 	}
-	if b.Base.ID != "nameID" {
-		t.Fatalf("expected ID fallback to name, got %s", b.Base.ID)
+	if b.ID != "nameID" {
+		t.Fatalf("expected ID fallback to name, got %s", b.ID)
 	}
 }
 
@@ -105,7 +105,7 @@ func TestReActAgent_applyAgentState_ZeroValues(t *testing.T) {
 	if a.maxIterations != 5 {
 		t.Fatalf("expected maxIterations unchanged when zero, got %d", a.maxIterations)
 	}
-	if a.Base.Meta != nil {
-		t.Fatalf("expected meta nil, got %v", a.Base.Meta)
+	if a.Meta != nil {
+		t.Fatalf("expected meta nil, got %v", a.Meta)
 	}
 }

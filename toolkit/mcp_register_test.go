@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/linkerlin/agentscope.go/toolkit/mcp"
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	gomcp "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/linkerlin/agentscope.go/toolkit/mcp"
 )
 
 func createTestMCPClient(t *testing.T) mcp.Client {

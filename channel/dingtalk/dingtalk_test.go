@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/channel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/channel"
 )
 
 // fakeDingtalkAPI stands in for the OpenAPI: it records requests and serves

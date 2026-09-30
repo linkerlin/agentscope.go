@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/event"
-	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/event"
+	"github.com/linkerlin/agentscope.go/messagebus"
 )
 
 // coordServer builds a Server wired with a coordinator over the shared bus

@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/controlplane"
-	"github.com/linkerlin/agentscope.go/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/controlplane"
+	"github.com/linkerlin/agentscope.go/message"
 )
 
 // setupCPWithCurrentTodo wires goal-1 with a current todo so successful turns

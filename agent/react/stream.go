@@ -11,7 +11,7 @@ import (
 )
 
 func (a *ReActAgent) fireStreamEvent(ctx context.Context, ev hook.Event) (hook.Event, *hook.StreamHookResult, error) {
-	return a.Base.FireStreamEvent(ctx, ev)
+	return a.FireStreamEvent(ctx, ev)
 }
 
 //nolint:unparam
@@ -21,7 +21,7 @@ func (a *ReActAgent) invokeModelChatStream(
 	chatOpts []model.ChatOption,
 	iter int,
 ) (<-chan *model.StreamChunk, error) {
-	chain := a.Base.MiddlewareChain()
+	chain := a.MiddlewareChain()
 	if chain == nil || len(chain.ModelCall) == 0 {
 		return a.effectiveModel(ctx).ChatStream(ctx, limitImages(history, a.contextConfig.MaxImageNum), chatOpts...)
 	}

@@ -146,7 +146,7 @@ func (a *ReActAgent) generateCompressionSummary(
 	if prompt == "" {
 		prompt = agent.DefaultContextConfig().CompressionPrompt
 	}
-	msgs := buildCompressionMessages(a.Base.SysPrompt, a.getCompressedSummary(), toCompress, prompt)
+	msgs := buildCompressionMessages(a.SysPrompt, a.getCompressedSummary(), toCompress, prompt)
 
 	schema := agent.DefaultSummarySchema()
 	estimated, err := model.CountTokens(a.chatModel, msgs, toolSpecs)
@@ -161,7 +161,7 @@ func (a *ReActAgent) generateCompressionSummary(
 	err = runner.Run(ctx, userText, schema, &summary)
 	if err != nil && contextOverflow {
 		for i := 1; i <= len(toCompress); i++ {
-			trimmed := buildCompressionMessages(a.Base.SysPrompt, a.getCompressedSummary(), toCompress[i:], prompt)
+			trimmed := buildCompressionMessages(a.SysPrompt, a.getCompressedSummary(), toCompress[i:], prompt)
 			est, estErr := model.CountTokens(a.chatModel, trimmed, toolSpecs)
 			if estErr != nil {
 				return "", estErr

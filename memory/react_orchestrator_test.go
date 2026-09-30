@@ -5,9 +5,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/linkerlin/agentscope.go/message"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/linkerlin/agentscope.go/message"
 )
 
 // TestReactOrchestratorCreation 测试编排器创建

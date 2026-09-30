@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/linkerlin/agentscope.go/service"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/linkerlin/agentscope.go/service"
 )
 
 // fakeFlushHijackWriter is a ResponseWriter that implements Flusher and

@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/linkerlin/agentscope.go/observability"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/linkerlin/agentscope.go/observability"
 )
 
 func TestTraceContextFromContext_NoSpan(t *testing.T) {

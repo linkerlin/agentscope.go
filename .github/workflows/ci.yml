@@ -128,3 +128,34 @@ jobs:
       - name: Coverage gate
         run: scripts/check_coverage.sh
         timeout-minutes: 20
+
+  api-compat:
+    name: Exported API Compat
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The diff needs the release tags and, on PRs, the merge base.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      # Prove the gate itself works before trusting it.
+      - name: Gate selftest
+        run: scripts/check_api_diff.sh --selftest
+
+      # PRs diff against the target branch tip; pushes against the most
+      # recent v* tag (23.7: breaking exported-API changes need an explicit
+      # allowlist entry + migration note).
+      - name: Exported API diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            scripts/check_api_diff.sh "origin/${{ github.base_ref }}"
+          else
+            scripts/check_api_diff.sh
+          fi

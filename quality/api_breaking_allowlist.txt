@@ -1,0 +1,9 @@
+# Exported-API breaking-change allowlist (23.7).
+#
+# Each line must EXACTLY match an apidump line ("<import-path>\t<decl>") that
+# scripts/check_api_diff.sh reported as breaking. Allowing an entry requires:
+#   1. a migration note in the PR description AND CHANGELOG,
+#   2. a reviewer's explicit sign-off.
+#
+# Format: <import path><TAB><decl>
+# (This file starts empty: 22.x/23.x kept the exported surface compatible.)

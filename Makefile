@@ -44,6 +44,9 @@ cover-save: ## Refresh the coverage baseline (quality/coverage_baseline.txt, 23.
 examples-check: ## Verify examples are indexed, link-clean and compilable (23.6)
 	scripts/check_examples.sh
 
+api-diff: ## Diff exported API vs the latest v* tag (23.7); pass a ref to override
+	scripts/check_api_diff.sh $(REF)
+
 # golangci-lint must be installed (https://golangci-lint.run/welcome/install/)
 # or use the CI job which installs it automatically.
 lint: ## Run golangci-lint (recommended)

@@ -1,0 +1,21 @@
+# Automated dependency updates (23.7).
+# - gomod: weekly batched minor/patch bumps; security fixes ungrouped so
+#   they surface immediately (the GO-2026-6222 incident sat red for days).
+# - github-actions: weekly bumps for action SHAs/versions.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

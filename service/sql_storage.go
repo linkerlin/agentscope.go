@@ -202,6 +202,29 @@ var migrations = []migration.Migration{
 			`CREATE INDEX IF NOT EXISTS idx_teams_leader ON teams(leader_session_id);`,
 		},
 	},
+	{
+		// 0002 adds the API-key hash index column: one indexed lookup replaces
+		// the O(users × credentials) verification scan in FindUserByAPIKey.
+		// The column carries the stored hash form ("sha256:<hex>") of hashed
+		// api_key credentials, NULL for everything else; existing rows are
+		// backfilled from the payload JSON so upgraded databases authenticate
+		// unchanged.
+		ID: "0002_api_key_hash_index",
+		Up: []string{
+			`ALTER TABLE credentials ADD COLUMN key_hash TEXT;`,
+			`CREATE INDEX IF NOT EXISTS idx_creds_key_hash ON credentials(key_hash);`,
+			`UPDATE credentials SET key_hash = json_extract(payload, '$.encrypted')
+				WHERE provider = 'api_key' AND key_hash IS NULL
+				AND json_extract(payload, '$.encrypted') LIKE 'sha256:%';`,
+		},
+		UpPG: []string{
+			`ALTER TABLE credentials ADD COLUMN key_hash TEXT;`,
+			`CREATE INDEX IF NOT EXISTS idx_creds_key_hash ON credentials(key_hash);`,
+			`UPDATE credentials SET key_hash = payload::jsonb->>'encrypted'
+				WHERE provider = 'api_key' AND key_hash IS NULL
+				AND (payload::jsonb->>'encrypted') LIKE 'sha256:%';`,
+		},
+	},
 }
 
 func (s *SQLStorage) initSchema(ctx context.Context) error {
@@ -442,9 +465,16 @@ func (s *SQLStorage) SaveCredential(ctx context.Context, cred *Credential) error
 		cred.CreatedAt = time.Now().UTC()
 	}
 	cred.UpdatedAt = time.Now().UTC()
+	// key_hash is the API-key hash index column (NULL for non-hashed
+	// credentials); the upsert's DO UPDATE keeps it in sync when a credential
+	// is rotated to a different key or provider.
+	var keyHash any
+	if k := apiKeyIndexKey(cred); k != "" {
+		keyHash = k
+	}
 	return s.upsert(ctx, "credentials",
-		[]string{"id", "user_id", "provider", "payload", "created_at", "updated_at"},
-		[]any{cred.ID, cred.UserID, cred.Provider, marshalJSON(credentialToPersist(cred)), nowUTC2(cred.CreatedAt), nowUTC2(cred.UpdatedAt)})
+		[]string{"id", "user_id", "provider", "key_hash", "payload", "created_at", "updated_at"},
+		[]any{cred.ID, cred.UserID, cred.Provider, keyHash, marshalJSON(credentialToPersist(cred)), nowUTC2(cred.CreatedAt), nowUTC2(cred.UpdatedAt)})
 }
 
 func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential, error) {
@@ -465,6 +495,25 @@ func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential,
 
 func (s *SQLStorage) ListCredentialsByUser(ctx context.Context, userID string) ([]*Credential, error) {
 	rows, err := s.query(ctx, "SELECT payload FROM credentials WHERE user_id = ? ORDER BY created_at DESC", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	persisted, err := scanRows[*credentialPersist](rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Credential, 0, len(persisted))
+	for _, p := range persisted {
+		out = append(out, p.toCredential())
+	}
+	return out, nil
+}
+
+// FindCredentialsByHash implements APIKeyCredentialFinder: one indexed lookup
+// (idx_creds_key_hash) replaces the per-user scan in FindUserByAPIKey.
+func (s *SQLStorage) FindCredentialsByHash(ctx context.Context, keyHash string) ([]*Credential, error) {
+	rows, err := s.query(ctx, "SELECT payload FROM credentials WHERE key_hash = ?", keyHash)
 	if err != nil {
 		return nil, err
 	}
@@ -623,8 +672,17 @@ func (s *SQLStorage) DeleteSchedule(ctx context.Context, id string) error {
 }
 
 func (s *SQLStorage) ListSessionsBySchedule(ctx context.Context, userID, scheduleID string) ([]*Session, error) {
+	// SourceScheduleID has no dedicated column — it lives in the payload
+	// JSON — so extract it dialect-appropriately (referencing a bare column
+	// name failed with "no such column" on every engine). The query is
+	// low-frequency (schedule session lists), so the unindexed expression is
+	// acceptable.
+	expr := `json_extract(payload, '$.source_schedule_id')`
+	if s.dialect == migration.DialectPostgres {
+		expr = `payload::jsonb->>'source_schedule_id'`
+	}
 	rows, err := s.query(ctx,
-		"SELECT payload FROM sessions WHERE user_id = ? AND source_schedule_id = ? ORDER BY created_at DESC",
+		"SELECT payload FROM sessions WHERE user_id = ? AND "+expr+" = ? ORDER BY created_at DESC",
 		userID, scheduleID)
 	if err != nil {
 		return nil, err
@@ -725,3 +783,9 @@ func queryIDs(tx *sql.Tx, ctx context.Context, query string, args ...any) ([]str
 	}
 	return ids, rows.Err()
 }
+
+// Compile-time checks.
+var (
+	_ Storage                = (*SQLStorage)(nil)
+	_ APIKeyCredentialFinder = (*SQLStorage)(nil)
+)

@@ -181,3 +181,71 @@ func TestPostgres_SQLStorageCRUDContract(t *testing.T) {
 		t.Fatal("message survived cascade delete")
 	}
 }
+
+// TestPostgres_SQLStorageAPIKeyIndexAndSchedule locks the hash-index and
+// schedule-session query paths on Postgres: the key_hash upsert/backfill
+// column, rotation semantics, and the jsonb source_schedule_id extraction
+// (no dedicated column — same expression family as the SQLite json_extract
+// path).
+func TestPostgres_SQLStorageAPIKeyIndexAndSchedule(t *testing.T) {
+	db := pgTestDB(t)
+	ctx := context.Background()
+
+	if err := migration.Migrate(ctx, db, migration.DialectPostgres, migrations); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := &SQLStorage{db: db, dialect: migration.DialectPostgres}
+
+	if err := s.SaveUser(ctx, &User{ID: "pg-iu1", Name: "Alice"}); err != nil {
+		t.Fatalf("save user: %v", err)
+	}
+	key, err := GenerateAPIKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyNew, _ := GenerateAPIKey()
+	if err := s.SaveCredential(ctx, &Credential{ID: "pg-ic1", UserID: "pg-iu1", Provider: "api_key", Encrypted: HashAPIKey(key)}); err != nil {
+		t.Fatalf("save credential: %v", err)
+	}
+
+	creds, err := s.FindCredentialsByHash(ctx, HashAPIKey(key))
+	if err != nil || len(creds) != 1 || creds[0].ID != "pg-ic1" {
+		t.Fatalf("find by hash: %v %+v", err, creds)
+	}
+	// Rotation clears the old hash entry.
+	if err := s.SaveCredential(ctx, &Credential{ID: "pg-ic1", UserID: "pg-iu1", Provider: "api_key", Encrypted: HashAPIKey(keyNew)}); err != nil {
+		t.Fatalf("rotate credential: %v", err)
+	}
+	creds, err = s.FindCredentialsByHash(ctx, HashAPIKey(key))
+	if err != nil || len(creds) != 0 {
+		t.Fatalf("old hash still indexed after rotation: %v %+v", err, creds)
+	}
+	creds, err = s.FindCredentialsByHash(ctx, HashAPIKey(keyNew))
+	if err != nil || len(creds) != 1 || creds[0].ID != "pg-ic1" {
+		t.Fatalf("new hash lookup: %v %+v", err, creds)
+	}
+
+	// Schedule sessions via the payload jsonb extraction.
+	sessions := []*Session{
+		{ID: "pg-ss1", UserID: "pg-iu1", SourceScheduleID: "pg-sch1"},
+		{ID: "pg-ss2", UserID: "pg-iu1"},
+		{ID: "pg-ss3", UserID: "pg-iu1", SourceScheduleID: "pg-sch2"},
+	}
+	for _, se := range sessions {
+		if err := s.SaveSession(ctx, se); err != nil {
+			t.Fatalf("save session %s: %v", se.ID, err)
+		}
+	}
+	out, err := s.ListSessionsBySchedule(ctx, "pg-iu1", "pg-sch1")
+	if err != nil {
+		t.Fatalf("list sessions by schedule: %v", err)
+	}
+	if len(out) != 1 || out[0].ID != "pg-ss1" {
+		t.Fatalf("expected [pg-ss1], got %+v", out)
+	}
+
+	// Cleanup (shared test database).
+	_, _ = db.ExecContext(ctx, `DELETE FROM sessions WHERE id LIKE 'pg-ss%';`)
+	_, _ = db.ExecContext(ctx, `DELETE FROM credentials WHERE id = 'pg-ic1';`)
+	_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = 'pg-iu1';`)
+}

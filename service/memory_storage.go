@@ -14,6 +14,7 @@ type MemoryStorage struct {
 	sessions           map[string]*Session
 	agents             map[string]*AgentConfig
 	credentials        map[string]*Credential
+	apiKeyIndex        map[string][]string         // stored api-key hash -> credential IDs
 	messages           map[string][]*StoredMessage // sessionID -> messages
 	snapshots          map[string]*AgentSnapshot
 	schedules          map[string]*Schedule
@@ -28,6 +29,7 @@ func NewMemoryStorage() *MemoryStorage {
 		sessions:           make(map[string]*Session),
 		agents:             make(map[string]*AgentConfig),
 		credentials:        make(map[string]*Credential),
+		apiKeyIndex:        make(map[string][]string),
 		messages:           make(map[string][]*StoredMessage),
 		snapshots:          make(map[string]*AgentSnapshot),
 		schedules:          make(map[string]*Schedule),
@@ -174,9 +176,47 @@ func (s *MemoryStorage) DeleteAgentConfig(ctx context.Context, id string) error 
 func (s *MemoryStorage) SaveCredential(ctx context.Context, cred *Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.credentials[cred.ID]; ok {
+		// The credential may have been rotated away from its indexed hash.
+		s.unindexAPIKey(old)
+	}
 	cred.UpdatedAt = time.Now()
 	s.credentials[cred.ID] = cred
+	s.indexAPIKey(cred)
 	return nil
+}
+
+// indexAPIKey/unindexAPIKey maintain apiKeyIndex; callers hold s.mu (write).
+func (s *MemoryStorage) indexAPIKey(c *Credential) {
+	k := apiKeyIndexKey(c)
+	if k == "" {
+		return
+	}
+	for _, id := range s.apiKeyIndex[k] {
+		if id == c.ID {
+			return
+		}
+	}
+	s.apiKeyIndex[k] = append(s.apiKeyIndex[k], c.ID)
+}
+
+func (s *MemoryStorage) unindexAPIKey(c *Credential) {
+	k := apiKeyIndexKey(c)
+	if k == "" {
+		return
+	}
+	ids := s.apiKeyIndex[k]
+	out := ids[:0]
+	for _, id := range ids {
+		if id != c.ID {
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		delete(s.apiKeyIndex, k)
+		return
+	}
+	s.apiKeyIndex[k] = out
 }
 
 func (s *MemoryStorage) GetCredential(ctx context.Context, id string) (*Credential, error) {
@@ -201,9 +241,26 @@ func (s *MemoryStorage) ListCredentialsByUser(ctx context.Context, userID string
 	return out, nil
 }
 
+// FindCredentialsByHash implements APIKeyCredentialFinder.
+func (s *MemoryStorage) FindCredentialsByHash(ctx context.Context, keyHash string) ([]*Credential, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := s.apiKeyIndex[keyHash]
+	out := make([]*Credential, 0, len(ids))
+	for _, id := range ids {
+		if c, ok := s.credentials[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 func (s *MemoryStorage) DeleteCredential(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.credentials[id]; ok {
+		s.unindexAPIKey(old)
+	}
 	delete(s.credentials, id)
 	return nil
 }
@@ -410,5 +467,8 @@ func (s *MemoryStorage) GetTeamByLeaderSession(ctx context.Context, sessionID st
 	return nil, fmt.Errorf("no team led by session: %s", sessionID)
 }
 
-// Compile-time check.
-var _ Storage = (*MemoryStorage)(nil)
+// Compile-time checks.
+var (
+	_ Storage                = (*MemoryStorage)(nil)
+	_ APIKeyCredentialFinder = (*MemoryStorage)(nil)
+)

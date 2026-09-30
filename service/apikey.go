@@ -52,15 +52,71 @@ func verifyAPIKeyHash(stored, key string) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
-// FindUserByAPIKey verifies key against every "api_key" credential and
-// returns the owning user. It is the single verification path shared by the
-// API-key authenticator and the login endpoint, so both enforce hashing.
-// The scan is linear over users; suitable for the bundled dev/test storages
-// (a production deployment fronting many users should index by hash).
+// APIKeyCredentialFinder is an optional Storage extension, implemented by
+// SQLStorage, RedisStorage and MemoryStorage: backends that can locate
+// credentials by their stored API-key hash. FindUserByAPIKey uses it to turn
+// the O(users × credentials) verification scan into one indexed lookup.
+type APIKeyCredentialFinder interface {
+	FindCredentialsByHash(ctx context.Context, keyHash string) ([]*Credential, error)
+}
+
+// apiKeyIndexKey is the hash-index key for a credential, or "" when the
+// credential carries no hashed API key (other providers, legacy plaintext).
+// All backends index by the stored hash form ("sha256:<hex>") — the same
+// value verifyAPIKeyHash expects, so index writes need no transformation.
+func apiKeyIndexKey(c *Credential) string {
+	if c.Provider == "api_key" && IsHashedAPIKey(c.Encrypted) {
+		return c.Encrypted
+	}
+	return ""
+}
+
+// FindUserByAPIKey verifies key against api_key credentials and returns the
+// owning user. It is the single verification path shared by the API-key
+// authenticator and the login endpoint, so both enforce hashing.
+//
+// Storages implementing APIKeyCredentialFinder resolve the credential with
+// one hash-indexed lookup (invalid keys are rejected in constant time);
+// every candidate is still verified in constant time against the presented
+// key before its owner is returned, so index pollution or a theoretical
+// digest collision cannot authenticate the wrong key. Other storages fall
+// back to a linear scan over users and credentials.
 func FindUserByAPIKey(ctx context.Context, storage Storage, key string) (*User, error) {
 	if key == "" {
 		return nil, fmt.Errorf("apikey: empty key")
 	}
+	if finder, ok := storage.(APIKeyCredentialFinder); ok {
+		return findUserByAPIKeyIndexed(ctx, storage, finder, key)
+	}
+	return findUserByAPIKeyScan(ctx, storage, key)
+}
+
+func findUserByAPIKeyIndexed(ctx context.Context, storage Storage, finder APIKeyCredentialFinder, key string) (*User, error) {
+	creds, err := finder.FindCredentialsByHash(ctx, HashAPIKey(key))
+	if err != nil {
+		return nil, fmt.Errorf("apikey: hash lookup failed: %w", err)
+	}
+	for _, c := range creds {
+		if c.Provider != "api_key" {
+			continue
+		}
+		if !verifyAPIKeyHash(c.Encrypted, key) {
+			continue
+		}
+		u, err := storage.GetUser(ctx, c.UserID)
+		if err != nil {
+			// Index entry points at a deleted user; keep looking.
+			continue
+		}
+		return u, nil
+	}
+	return nil, fmt.Errorf("apikey: invalid API key")
+}
+
+// findUserByAPIKeyScan is the pre-index linear fallback for storages without
+// a hash index (fine for bundled dev/test storages; a production deployment
+// should use an indexed backend).
+func findUserByAPIKeyScan(ctx context.Context, storage Storage, key string) (*User, error) {
 	users, err := storage.ListUsers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("apikey: list users failed: %w", err)

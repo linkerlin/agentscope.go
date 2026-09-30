@@ -266,9 +266,21 @@ func (s *RedisStorage) SaveCredential(ctx context.Context, cred *Credential) err
 	if err != nil {
 		return fmt.Errorf("redis: marshal credential: %w", err)
 	}
+	// Rotation: drop the old hash index entry when the credential moves to a
+	// different key (or away from api_key entirely).
+	old, _ := s.GetCredential(ctx, cred.ID)
+	newHash := apiKeyIndexKey(cred)
 	pipe := s.client.Pipeline()
 	pipe.Set(ctx, keyCredential(cred.ID), data, 0)
 	pipe.SAdd(ctx, keyCredentialsByUser(cred.UserID), cred.ID)
+	if newHash != "" {
+		pipe.SAdd(ctx, keyCredentialsByHash(newHash), cred.ID)
+	}
+	if old != nil {
+		if oldHash := apiKeyIndexKey(old); oldHash != "" && oldHash != newHash {
+			pipe.SRem(ctx, keyCredentialsByHash(oldHash), cred.ID)
+		}
+	}
 	_, err = pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("redis: save credential: %w", err)
@@ -316,12 +328,43 @@ func (s *RedisStorage) ListCredentialsByUser(ctx context.Context, userID string)
 	return out, nil
 }
 
+// FindCredentialsByHash implements APIKeyCredentialFinder: one SET lookup
+// (credentials_by_hash:<hash>) replaces the per-user scan in
+// FindUserByAPIKey.
+func (s *RedisStorage) FindCredentialsByHash(ctx context.Context, keyHash string) ([]*Credential, error) {
+	ids, err := s.client.SMembers(ctx, keyCredentialsByHash(keyHash)).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: find credentials by hash: %w", err)
+	}
+	if len(ids) == 0 {
+		return []*Credential{}, nil
+	}
+	vals, err := s.client.MGet(ctx, makeKeys(keyCredential, ids)...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("redis: mget credentials by hash: %w", err)
+	}
+	out := make([]*Credential, 0, len(vals))
+	for _, v := range vals {
+		if v == nil {
+			continue
+		}
+		var row credentialPersist
+		if err := json.Unmarshal([]byte(v.(string)), &row); err == nil {
+			out = append(out, row.toCredential())
+		}
+	}
+	return out, nil
+}
+
 func (s *RedisStorage) DeleteCredential(ctx context.Context, id string) error {
 	cred, _ := s.GetCredential(ctx, id)
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, keyCredential(id))
 	if cred != nil {
 		pipe.SRem(ctx, keyCredentialsByUser(cred.UserID), id)
+		if k := apiKeyIndexKey(cred); k != "" {
+			pipe.SRem(ctx, keyCredentialsByHash(k), id)
+		}
 	}
 	_, err := pipe.Exec(ctx)
 	if err != nil {
@@ -592,6 +635,9 @@ func keyCredential(id string) string { return fmt.Sprintf("credentials:%s", id) 
 func keyCredentialsByUser(uid string) string {
 	return fmt.Sprintf("credentials_by_user:%s", uid)
 }
+func keyCredentialsByHash(hash string) string {
+	return fmt.Sprintf("credentials_by_hash:%s", hash)
+}
 func keyMessages(sessionID string) string {
 	return fmt.Sprintf("messages:%s", sessionID)
 }
@@ -696,5 +742,8 @@ func (s *RedisStorage) GetTeamByLeaderSession(ctx context.Context, sessionID str
 	return s.GetTeam(ctx, id)
 }
 
-// Compile-time check.
-var _ Storage = (*RedisStorage)(nil)
+// Compile-time checks.
+var (
+	_ Storage                = (*RedisStorage)(nil)
+	_ APIKeyCredentialFinder = (*RedisStorage)(nil)
+)

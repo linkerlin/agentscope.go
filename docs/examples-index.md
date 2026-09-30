@@ -130,6 +130,7 @@ AgentScope.Go 提供丰富的示例程序，覆盖从基础入门到生产部署
 | GEP 自演化 | [`examples/evolver/main.go`](../examples/evolver/main.go) | GEPFlow：run → reflect → solidify 闭环 + Skill2Gene |
 | V2 事件流 | [`examples/v2_event_stream/main.go`](../examples/v2_event_stream/main.go) | 20+ 细粒度事件类型的流式消费演示 |
 | 慢工具卸载 | [`examples/shared/slowtool/slow_demo.go`](../examples/shared/slowtool/slow_demo.go) | 模拟长时运行工具，用于 Tool Offload 测试 |
+| MCP 声明式接入 | [`examples/mcp_servers/main.go`](../examples/mcp_servers/main.go) | YAML 配置批量连接 MCP Server（未装二进制优雅跳过）并列出新增工具 |
 
 ---
 

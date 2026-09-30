@@ -105,3 +105,26 @@ jobs:
       # The documentation snippets compile and the A2A round trip executes.
       - name: Compile and run doc snippets
         run: go test ./docs/snippets/ -race -count=1
+
+  quality-gates:
+    name: Coverage & Examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+
+      # Examples must be indexed, link-clean and time-limited compilable (23.6).
+      - name: Check examples
+        run: scripts/check_examples.sh
+
+      # Full-suite atomic coverage against the committed baseline: total and
+      # key packages must not regress (23.6).
+      - name: Coverage gate
+        run: scripts/check_coverage.sh
+        timeout-minutes: 20

@@ -38,6 +38,12 @@ docs-check: ## Verify docs↔docs-site sync + doc API existence + run doc snippe
 	scripts/check_docs.sh
 	go test ./docs/snippets/ -race -count=1
 
+cover-save: ## Refresh the coverage baseline (quality/coverage_baseline.txt, 23.6)
+	scripts/check_coverage.sh --save
+
+examples-check: ## Verify examples are indexed, link-clean and compilable (23.6)
+	scripts/check_examples.sh
+
 # golangci-lint must be installed (https://golangci-lint.run/welcome/install/)
 # or use the CI job which installs it automatically.
 lint: ## Run golangci-lint (recommended)
@@ -71,7 +77,7 @@ bench-mem: ## Memory profile for a specific package (usage: make bench-mem PKG=.
 	go test -bench=. -benchmem -memprofile=mem.prof -timeout=5m $(PKG)
 	@echo "Memory profile written to mem.prof (view: go tool pprof mem.prof)"
 
-ci: fmt-check vet build test release-check ## Simulate the main CI steps locally (without golangci)
+ci: fmt-check vet build test release-check examples-check ## Simulate the main CI steps locally (without golangci/coverage; see cover for the coverage gate)
 
 # Convenience: full local pre-commit check (add golangci if installed)
 precommit: fmt-check vet lint build test

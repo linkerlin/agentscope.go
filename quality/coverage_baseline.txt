@@ -1,0 +1,10 @@
+# coverage baseline (23.6). Regenerate with: scripts/check_coverage.sh --save
+# total is the whole-project statement coverage; per-package lines follow.
+total: 60.3%
+pkg github.com/linkerlin/agentscope.go/gateway: 64.4
+pkg github.com/linkerlin/agentscope.go/gateway/sessionapi: 16.7
+pkg github.com/linkerlin/agentscope.go/service: 70.1
+pkg github.com/linkerlin/agentscope.go/messagebus: 66.2
+pkg github.com/linkerlin/agentscope.go/agent: 87.7
+pkg github.com/linkerlin/agentscope.go/permission: 88.6
+pkg github.com/linkerlin/agentscope.go/internal/migration: 52.3

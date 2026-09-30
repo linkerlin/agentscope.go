@@ -26,6 +26,7 @@ react_coverage
 react_coverage_func.txt
 **/*coverage*
 !memory/TEST_COVERAGE.md
+!quality/coverage_baseline.txt
 **/coverage/
 
 # Node (examples/web_ui 零构建，此 package.json 仅本地实验)

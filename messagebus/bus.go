@@ -68,6 +68,9 @@ type LocalBus struct {
 	// owner/expiry records; the per-key monotonic counters live in fences.
 	leases map[string]*localLease
 	fences sync.Map // lease key -> *atomic.Uint64
+
+	// CoordCounter state (18.11): fixed-window counters for rate limiting.
+	counters map[string]*localCounterWindow
 }
 
 // NewLocalBus creates an empty in-process bus.
@@ -81,6 +84,7 @@ func NewLocalBus() *LocalBus {
 		queues:   map[string]*localQueue{},
 		logs:     map[string][][]byte{},
 		leases:   map[string]*localLease{},
+		counters: map[string]*localCounterWindow{},
 	}
 }
 

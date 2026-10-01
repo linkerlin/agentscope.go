@@ -293,6 +293,23 @@ func (b *LocalBus) LogAppend(ctx context.Context, ns string, value []byte) (int6
 	return idx, nil
 }
 
+// CoordIncr implements the CoordCounter capability (gateway rate limiting,
+// 18.11): fixed-window counter whose TTL starts on the first increment.
+func (b *LocalBus) CoordIncr(_ context.Context, key string, ttl time.Duration) (int64, error) {
+	now := time.Now()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return -1, ErrClosed
+	}
+	w, ok := b.counters[key]
+	if !ok || now.After(w.expiresAt) {
+		w = &localCounterWindow{expiresAt: now.Add(ttl)}
+		b.counters[key] = w
+	}
+	return w.val.Add(1), nil
+}
+
 func (b *LocalBus) LogRead(ctx context.Context, ns string, cursor int64, limit int) ([][]byte, int64, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, cursor, err

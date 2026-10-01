@@ -14,7 +14,9 @@ import (
 // Idempotent: repeated calls (directly or via RegisterAppRoutes) register
 // once. Register and /me never need a JWT authenticator; login is only
 // mounted when one is available — the explicit argument, else the one
-// remembered by NewApp / WithJWTAuth.
+// remembered by NewApp / WithJWTAuth. Register and login sit behind the
+// rate limiter (18.11): they are the two unauthenticated write endpoints a
+// flooding client would otherwise park for free.
 func (s *Server) RegisterAuthRoutes(jwtAuth *service.JWTAuthenticator) {
 	if s.storage == nil || s.authRoutesRegistered {
 		return
@@ -23,11 +25,24 @@ func (s *Server) RegisterAuthRoutes(jwtAuth *service.JWTAuthenticator) {
 		jwtAuth = s.jwtAuth
 	}
 	s.authRoutesRegistered = true
-	s.mux.HandleFunc("/api/v1/auth/register", s.handleRegister)
+	s.mux.HandleFunc("/api/v1/auth/register", s.withRateLimit(s.handleRegister))
 	if jwtAuth != nil {
-		s.mux.HandleFunc("/api/v1/auth/login", s.handleLogin(jwtAuth))
+		s.mux.HandleFunc("/api/v1/auth/login", s.withRateLimit(s.handleLogin(jwtAuth)))
 	}
 	s.mux.HandleFunc("/api/v1/me", s.requireAuth(s.handleMe))
+}
+
+// withRateLimit wraps a public write endpoint with the server's rate limiter
+// (18.11). Limiter selection at assembly time: the bus's shared CoordCounter
+// when available (exact cross-replica budget), else a process-local limiter
+// (per-replica budget — with N replicas the effective ceiling is N× the
+// configured one, the CoordCounter path exists to avoid exactly that).
+// nil limiter disables throttling (tests).
+func (s *Server) withRateLimit(next http.HandlerFunc) http.HandlerFunc {
+	if s.rateLimiter == nil {
+		return next
+	}
+	return RateLimitMiddleware(s.rateLimiter, next)
 }
 
 type registerRequest struct {
@@ -45,8 +60,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Name == "" {
@@ -109,8 +124,8 @@ func (s *Server) handleLogin(jwtAuth *service.JWTAuthenticator) http.HandlerFunc
 			return
 		}
 		var req loginRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := decodeJSONLimit(w, r, &req); err != nil {
+			writeBodyLimitError(w, err)
 			return
 		}
 		if req.APIKey == "" {

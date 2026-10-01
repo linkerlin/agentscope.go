@@ -55,6 +55,8 @@ func (s *Server) sessionAPI() *sessionapi.Handlers {
 					_ = tb.EnqueueWakeup(context.Background(), sessionID)
 				}
 			},
+			// Write endpoints share the gateway body cap (18.11).
+			MaxBodyBytes: maxBodyBytes,
 		})
 	})
 	return s.sessionAPIHandlers

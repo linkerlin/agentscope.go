@@ -73,8 +73,8 @@ type updateAgentRequest struct {
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	var req createAgentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Name == "" {
@@ -133,8 +133,8 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateAgentRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Name != nil {
@@ -227,8 +227,8 @@ type createSessionRequest struct {
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req createSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Title == "" {
@@ -294,8 +294,8 @@ func (s *Server) handleUpdateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req updateSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Title != nil {
@@ -447,8 +447,8 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := decodeJSONLimit(w, r, &req); err != nil {
+			writeBodyLimitError(w, err)
 			return
 		}
 	}
@@ -551,8 +551,8 @@ func (s *Server) handleUpdateCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req updateCredentialRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	// Production mode refuses plaintext credential writes (22.1).

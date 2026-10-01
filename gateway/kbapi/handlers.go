@@ -2,6 +2,7 @@ package kbapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -97,7 +98,12 @@ func (h *Handlers) listKnowledgeBases(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	var req createKBRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -150,7 +156,7 @@ func (h *Handlers) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	docID, mediaType, source, data, err := readUpload(r)
+	docID, mediaType, source, data, err := readUpload(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -285,7 +291,12 @@ func (h *Handlers) searchKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req searchKBRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -318,7 +329,19 @@ func newDocID() string {
 
 // readUpload extracts document bytes from either a multipart/form-data upload
 // or a JSON body. Returns (docID, mediaType, source, data, err).
-func readUpload(r *http.Request) (string, string, string, []byte, error) {
+// maxKBJSONBody caps the JSON upload fallback (18.11); the multipart path
+// keeps its own explicit size checks.
+const maxKBJSONBody = 1 << 20
+
+// decodeJSONLimit decodes a JSON body under the package cap; crossing it
+// stops reading at the boundary and returns *http.MaxBytesError.
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxKBJSONBody)
+	defer r.Body.Close()
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
+func readUpload(w http.ResponseWriter, r *http.Request) (string, string, string, []byte, error) {
 	docID := newDocID()
 	if err := r.ParseMultipartForm(32 << 20); err == nil {
 		// multipart: read the "file" field
@@ -349,7 +372,7 @@ func readUpload(r *http.Request) (string, string, string, []byte, error) {
 		MediaType string `json:"media_type"`
 		Source    string `json:"source"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONLimit(w, r, &body); err != nil {
 		return "", "", "", nil, fmt.Errorf("expected multipart file or JSON body: %w", err)
 	}
 	if body.DocID != "" {

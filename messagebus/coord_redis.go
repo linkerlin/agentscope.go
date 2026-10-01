@@ -161,6 +161,27 @@ func (b *RedisBus) LogAppend(ctx context.Context, ns string, value []byte) (int6
 	return n - 1, nil // 0-based index
 }
 
+// rateLimitIncrScript: INCR then PEXPIRE only when the key is fresh (the
+// first increment in a window starts the countdown). One round trip, atomic
+// across replicas.
+var rateLimitIncrScript = redis.NewScript(`
+local v = redis.call('INCR', KEYS[1])
+if v == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return v
+`)
+
+// CoordIncr implements the CoordCounter capability (gateway rate limiting,
+// 18.11): a shared fixed-window counter whose TTL starts on the first
+// increment of the window.
+func (b *RedisBus) CoordIncr(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	if b.client == nil {
+		return -1, ErrClosed
+	}
+	return rateLimitIncrScript.Run(ctx, b.client, []string{b.prefix + ":counter:" + key}, ttl.Milliseconds()).Int64()
+}
+
 func (b *RedisBus) LogRead(ctx context.Context, ns string, cursor int64, limit int) ([][]byte, int64, error) {
 	if b.client == nil {
 		return nil, cursor, ErrClosed

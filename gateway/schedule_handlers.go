@@ -92,8 +92,8 @@ func (s *Server) handleScheduleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req scheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.AgentID == "" || req.CronExpr == "" {
@@ -184,8 +184,8 @@ func (s *Server) handleScheduleUpdate(w http.ResponseWriter, r *http.Request, id
 	}
 
 	var req updateScheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Name != nil {

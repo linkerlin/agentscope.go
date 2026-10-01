@@ -76,8 +76,14 @@ func decodeJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
-// readAllAndClose reads the entire body and closes it.
-func readAllAndClose(body io.ReadCloser) ([]byte, error) {
+// readAllAndClose reads the request body under maxBody (18.11): bodies past
+// the cap stop reading at the boundary and return *http.MaxBytesError (the
+// handler maps it to 413). A zero maxBody means uncapped (tests, embedded
+// reuse).
+func readAllAndClose(w http.ResponseWriter, body io.ReadCloser, maxBody int64) ([]byte, error) {
 	defer body.Close()
+	if maxBody > 0 {
+		body = http.MaxBytesReader(w, body, maxBody)
+	}
 	return io.ReadAll(body)
 }

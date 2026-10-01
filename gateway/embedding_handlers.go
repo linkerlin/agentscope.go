@@ -33,8 +33,8 @@ func (s *Server) handleCreateEmbeddings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var req embeddingRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	inputs, err := normalizeEmbeddingInput(req.Input)

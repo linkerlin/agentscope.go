@@ -39,8 +39,8 @@ func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req speechRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if req.Input == "" {

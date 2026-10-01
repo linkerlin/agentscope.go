@@ -103,6 +103,10 @@ type Deps struct {
 	// wires it to the bus's wakeup enqueue so a worker replica picks the
 	// command up (18.5). Optional; nil disables the notification.
 	OnResumeNotified func(sessionID string)
+	// MaxBodyBytes caps request bodies on the write endpoints (18.11); zero
+	// or negative means uncapped (tests, embedded reuse). The gateway root
+	// wires its default (1 MiB).
+	MaxBodyBytes int64
 }
 
 // Handlers is the session HTTP face. Build via NewHandlers and mount with
@@ -214,8 +218,13 @@ func (h *Handlers) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts
 		return
 	}
 
-	body, err := readAllAndClose(r.Body)
+	body, err := readAllAndClose(w, r.Body, h.d.MaxBodyBytes)
 	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

@@ -93,6 +93,12 @@ type Server struct {
 	// (no fencing leases on the bus); Close stops them.
 	directRunners []RoleRunner
 
+	// rateLimiter guards the public write endpoints (18.11): login and
+	// register. Auto-selected at Start from the bus's CoordCounter
+	// capability; WithRateLimiter overrides, WithRateLimitDisabled opts out.
+	rateLimiter       RateLimiter
+	rateLimitDisabled bool
+
 	// session HTTP face (16.2): lazily-built sessionapi handlers bridging
 	// the Server wiring; see sessionapi_compat.go.
 	sessionAPIBuild    sync.Once
@@ -234,6 +240,17 @@ func (s *Server) WithBackgroundTaskManager(m *BackgroundTaskManager) *Server {
 // replicas (or two workers) can coexist without double consumption. Without
 // leases the selected roles start in-process directly.
 func (s *Server) Start() {
+	// Rate limiter auto-selection (18.11): shared CoordCounter when the bus
+	// provides one (exact cross-replica budget), else process-local buckets.
+	// Explicit WithRateLimiter / WithRateLimitDisabled win over auto.
+	if s.rateLimiter == nil && !s.rateLimitDisabled {
+		if cc := messagebus.AsCoordCounter(s.messageBus); cc != nil {
+			s.rateLimiter = NewCoordRateLimiter(cc, DefaultRateLimit, DefaultRateWindow)
+		} else {
+			s.rateLimiter = NewLocalRateLimiter(DefaultRateLimit, DefaultRateWindow)
+		}
+	}
+
 	roles := s.workerRoles
 	if !s.workerRolesExplicit {
 		roles = AllWorkerRoles
@@ -344,6 +361,23 @@ func (s *Server) CoordinatedRun() sessionRunFunc {
 		return s.sessionMgr.Run
 	}
 	return nil
+}
+
+// WithRateLimiter overrides the auto-selected rate limiter for the public
+// write endpoints (18.11). Call before Start.
+func (s *Server) WithRateLimiter(l RateLimiter) *Server {
+	s.rateLimiter = l
+	return s
+}
+
+// WithRateLimitDisabled opts out of endpoint throttling entirely (tests,
+// trusted inner deployments). The default is throttling with the package
+// defaults (30 req/min per identity, cross-replica when the bus provides a
+// CoordCounter).
+func (s *Server) WithRateLimitDisabled() *Server {
+	s.rateLimitDisabled = true
+	s.rateLimiter = nil
+	return s
 }
 
 // startWakeupDispatcher launches the team-collaboration wakeup loop outside

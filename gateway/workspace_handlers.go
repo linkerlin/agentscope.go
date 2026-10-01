@@ -113,8 +113,8 @@ func (s *Server) handleWorkspaceSkill(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(skills)
 	case http.MethodPost:
 		var req addSkillRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err := decodeJSONLimit(w, r, &req); err != nil {
+			writeBodyLimitError(w, err)
 			return
 		}
 		if err := s.workspaceMgr.AddSkill(r.Context(), s.storage, userID, agentID, sessionID, req.SkillPath); err != nil {
@@ -192,8 +192,8 @@ func (s *Server) handleWorkspaceSkillSelect(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req selectSkillsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := decodeJSONLimit(w, r, &req); err != nil {
+		writeBodyLimitError(w, err)
 		return
 	}
 	if err := s.workspaceMgr.SelectSkills(r.Context(), s.storage, userID, agentID, sessionID, req.Names); err != nil {

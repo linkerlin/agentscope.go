@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -94,6 +96,20 @@ func (s *Server) handleInstallMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cardID := r.PathValue("card")
+	// Optional configuration-template values (18.7): {"values": {"VAR": "…"}}
+	// fills the card's ${VAR} placeholders; a card referencing an unsupplied
+	// variable fails validation BEFORE any server process is spawned.
+	var body struct {
+		Values map[string]string `json:"values"`
+	}
+	if r.Body != nil {
+		if err := decodeJSONLimit(w, r, &body); err != nil {
+			if !errors.Is(err, io.EOF) {
+				writeBodyLimitError(w, err)
+				return
+			}
+		}
+	}
 	// find the card
 	page, _, err := h.ListMCPCards(r.Context(), "", 0, 1000)
 	if err != nil {
@@ -111,7 +127,14 @@ func (s *Server) handleInstallMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "card not found", http.StatusNotFound)
 		return
 	}
-	mgr, results := hub.InstallMCPs(r.Context(), []hub.MCPCard{*target})
+	mgr, results, err := hub.InstallMCPsWithValues(r.Context(), []hub.MCPCard{*target}, body.Values)
+	if err != nil {
+		// Template validation failure: every missing variable is listed.
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"card_id": cardID, "error": err.Error(),
+		})
+		return
+	}
 	defer mcp.CloseManager(mgr)
 	if len(results) > 0 && results[0].Err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/hub"
@@ -108,6 +109,46 @@ func TestHubRoutes_MCPInstallMissingBinary(t *testing.T) {
 	// gracefully reports 422 (binary not installed) — not a 500
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHubRoutes_MCPInstallTemplateValidation (18.7): installing a card whose
+// spec references unsupplied ${VAR} placeholders fails 400 listing the
+// missing variables, BEFORE any process spawn.
+func TestHubRoutes_MCPInstallTemplateValidation(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "mcps.json"), []byte(
+		`[{"id":"tpl","name":"Tpl","spec":{"name":"tpl","command":"no-such-binary-xyz","args":["${API_KEY}"]},"required_env":["REGION"]}]`), 0o644)
+	fsHub, err := builtin.NewFSHub(dir, "tplhub", "Tpl Hub", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(&mockAgent{})
+	srv.WithHubs(fsHub)
+	srv.RegisterHubRoutes()
+
+	// Missing values → 400 naming every variable (spec ref + required_env).
+	req := httptest.NewRequest("POST", "/api/v1/hubs/tplhub/mcps/tpl/install",
+		strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d %s", w.Code, w.Body.String())
+	}
+	for _, want := range []string{"API_KEY", "REGION"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("error must name %q: %s", want, w.Body.String())
+		}
+	}
+
+	// With values the validation passes and the install proceeds to the
+	// (expected) binary failure — proving templates no longer block.
+	req2 := httptest.NewRequest("POST", "/api/v1/hubs/tplhub/mcps/tpl/install",
+		strings.NewReader(`{"values":{"API_KEY":"k","REGION":"eu"}}`))
+	w2 := httptest.NewRecorder()
+	srv.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("with values expected 422 (binary), got %d %s", w2.Code, w2.Body.String())
 	}
 }
 

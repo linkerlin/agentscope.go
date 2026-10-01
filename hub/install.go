@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,34 +35,23 @@ func InstallMCPs(ctx context.Context, cards []MCPCard) (*mcpserver.Manager, []mc
 // downloads (a marketplace entry could point anywhere).
 const maxArchiveBytes = 64 << 20 // 64 MiB
 
+// installFetcher backs InstallSkill's downloads (18.7): the same retry /
+// Retry-After policy as the catalog fetches, and injectable for tests.
+var installFetcher = newFetcher()
+
 // InstallSkill downloads the card's archive and extracts it into destDir.
-// Extraction is hardened against zip-slip / tar-slip (path traversal) and the
-// total extracted size is bounded.
+// The download retries 429/5xx with backoff (18.7 — marketplaces rate-limit
+// bursts of installs); extraction is hardened against zip-slip / tar-slip
+// (path traversal) and the total extracted size stays bounded.
 func InstallSkill(ctx context.Context, card SkillCard, destDir string) error {
 	if card.ArchiveURL == "" {
 		return fmt.Errorf("hub: skill %q has no archive url", card.ID)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, card.ArchiveURL, nil)
+	_, body, err := installFetcher.fetchLimit(ctx, card.ArchiveURL, "", maxArchiveBytes)
 	if err != nil {
-		return fmt.Errorf("hub: build request: %w", err)
+		return err
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("hub: download %s: %w", card.ArchiveURL, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("hub: download %s: status %s", card.ArchiveURL, resp.Status)
-	}
-	limited := io.LimitReader(resp.Body, maxArchiveBytes+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return fmt.Errorf("hub: read archive: %w", err)
-	}
-	if len(data) > maxArchiveBytes {
-		return fmt.Errorf("hub: archive exceeds %d bytes", maxArchiveBytes)
-	}
-	return extractArchive(data, destDir)
+	return extractArchive(body, destDir)
 }
 
 // extractArchive unpacks zip / tar / tar.gz bytes into destDir, sanitising

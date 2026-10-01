@@ -27,6 +27,10 @@ type Card struct {
 type MCPCard struct {
 	Card
 	Spec mcpserver.ServerSpec `json:"spec"`
+	// RequiredEnv lists configuration-template variables the installer must
+	// supply (${VAR} placeholders in Spec, 18.7) — validated before any
+	// connection attempt.
+	RequiredEnv []string `json:"required_env,omitempty"`
 }
 
 // SkillCard is a marketplace entry for a skill. ArchiveURL points to the

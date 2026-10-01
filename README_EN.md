@@ -8,20 +8,18 @@ AgentScope.Go — a production-grade AI Agent development framework that lets yo
 
 AgentScope.Go provides everything needed to build intelligent agents using the ReAct (reason + act) paradigm: tool calling, memory management, multi-agent collaboration, a **terminal TUI**, a **long-horizon control plane**, **multi-platform chatbots (Webhook / Discord / Feishu)**, and an **ecosystem marketplace (MCP / Skill)** — all in idiomatic Go.
 
-Current release: **v2.6.0**. Open work: [TODO.md](TODO.md). Roadmap: [演进方案.md](演进方案.md) (Chinese).
+Current release: **v2.7.0**. Open work: [TODO.md](TODO.md). Roadmap: [演进方案.md](演进方案.md) (Chinese).
 
-## What's New (v2.6.0)
+## What's New (v2.7.0)
 
 <!-- BEGIN NEWS -->
+- **Reliable multi-replica**: fencing leases (short TTL + token-CAS renewal + lose-lease-stop), recoverable HITL (idempotent resume commands, tools run at most once, delete-on-completion), session retention (buffer caps / log trim / reaper).
+- **Long-running worker**: channel / wakeup / cron loops can be split out of API replicas (`WithWorkerRoles`); role-lease heartbeat and takeover; all four turn sources share session leases — no double consumption across replicas.
+- **Auth hot-path index**: API-key hash index (SQL migration 0002 / Redis / Memory); invalid keys rejected in O(1).
+- **Delivery gates**: doc contracts + coverage baseline + Dependabot + exported-API diff — four CI gates; Postgres migration dialect contract (advisory-lock mutual exclusion + placeholder adaptation).
 - **`console/` terminal TUI**: bubbletea state machine (idle/running/confirming), HITL `y/n/a` confirms, Ctrl+C interrupt, three verbosity levels.
 - **Workspace as a service**: artifact `list_dir`/`read_file`, git status, shared workspaces, agent-level skill allowlists.
 - **Governance → evolution loop**: completing a `controlplane` Goal can opt-in `evolver.Solidify`; `POST /v2/sessions/{id}/steer|interrupt`; quota heartbeat.
-- **Multi-tenant session isolation**: cross-user session access returns 404 (no existence leak).
-- **KB observability**: chunk listing / raw-document preview / enriched counts.
-- **`Channel`**: Webhook / Discord / Feishu (incl. `send_message`/`list_chats`).
-- **`Hub` marketplace**: browse + install MCP/Skill cards (FSHub, zip-slip hardened).
-- **RAG managed KBs**: parsers (Text/PDF/PPTX/Image/Word/Excel) → chunker → blob → kb → index + HTTP API.
-- **Zero-build Web UI**: Chat / KB / System, `go:embed` single binary.
 <!-- END NEWS -->
 
 ## Quickstart
@@ -789,7 +787,7 @@ See also:
 - Production deployment guide: [docs/deployment.md](docs/deployment.md)
 - Migrating from Python AgentScope or older versions: [docs/MIGRATION.md](docs/MIGRATION.md)
 - Release process: [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
-- Release notes: [RELEASE_NOTES_v2.6.0.md](RELEASE_NOTES_v2.6.0.md)
+- Release notes: [RELEASE_NOTES_v2.7.0.md](RELEASE_NOTES_v2.7.0.md) (and [v2.6.0](RELEASE_NOTES_v2.6.0.md))
 
 ## Contributing & Community
 

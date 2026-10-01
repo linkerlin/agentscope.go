@@ -29,7 +29,7 @@ AgentScope.Go 是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 
 
 ## 版本信息
 
-- **当前版本**：v2.6.0
+- **当前版本**：v2.7.0
 - **Go 版本要求**：1.25+
 - **许可证**：Apache 2.0
 

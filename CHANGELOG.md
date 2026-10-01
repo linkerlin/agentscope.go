@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-10-01 — 可靠多副本与交付门禁（v2.7）+ 认证热路径索引 + 长连接 worker
+
+> 详见 [RELEASE_NOTES_v2.7.0.md](RELEASE_NOTES_v2.7.0.md)。
+
+覆盖 tag `v2.6.0` 之后已在 HEAD 的全部行为：Phase 23（可靠多副本与交付门禁）七项、认证哈希索引、18.5 长连接 worker、依赖与 CI 修复。
+
+### Added
+
+- **可续租会话租约（fencing）**（23.1）：`messagebus.CoordLease`（短 TTL、token CAS 续租、`ErrLeaseLost`）+ `RegistryCAS`；Redis 获取走 Lua 一步原子 `INCR fence + SET NX PX`；`SessionCoordinator` 租约路径（15s TTL、TTL/3 续租、失租立即 `Terminate` 防双执行、registry marker CAS 清理）
+- **可恢复 HITL**（23.2）：`AgentSnapshot.PendingResume` 幂等 resume 命令（ConfirmID 幂等键、Version 单调、pending→executing 状态机、与快照同记录原子持久化）；重复确认 `409 executing` 拒绝再投递（工具至多一次）；`agent.ErrNoWaiter` → `409 pending`，命令留持久层；turn 完成才删快照（崩溃窗口可审计）
+- **会话保留与清理**（23.3）：completed buffer 上限（1024 条/1h TTL）+ 事件日志摊销 trim（`LogTrimmer`，峰值 ≤2×cap）+ `ErrLogCursorStale` 哨兵 + `StartReaper`（CAS 删过期 run marker）+ DELETE session 联动 Purge
+- **长连接 worker**（18.5）：`WorkerRole`（wakeup/schedule/channel）角色租约主循环——非阻塞抢角色、TTL/3 续租心跳兼对账、失租停组件、指数退避待命接管；`WithRun`/`Run`/`WithSessionRun` 三入口注入 `SessionCoordinator.Run`，HTTP/channel/cron/wakeup 四类 turn 共享同一套会话租约（双副本不重复消费）；wakeup busy 回推 inbox + 重排 wakeup（at-least-once）；resume 命令跨副本消费闭环（`OnResumeNotified` → worker `consumePendingResume`）；`WithWorkerRoles`/`AppConfig.Worker` 拆分 API/worker 副本部署
+- **认证热路径哈希索引**：`service.APIKeyCredentialFinder` 可选接口，SQL/Redis/Memory 三后端实现；`FindUserByAPIKey` 无效 key O(1) 拒绝（原为 O(用户×凭据) 线性扫描）；SQL 迁移 0002 `credentials.key_hash` 列 + 索引 + 存量回填
+- **交付门禁四件**（23.5–23.7）：文档契约门禁（假 API 清剿 + 镜像同步 + 片段可编译，CI `docs-consistency`）；覆盖率门禁（atomic 基线 + 关键包非回退，CI `quality-gates`）+ 示例防腐烂（孤儿/死链/限时编译）；Dependabot（gomod + github-actions weekly）；导出 API 兼容门禁（`internal/apidump` 4078 符号清单 + git worktree diff + 精确白名单，CI `api-compat`，`make api-diff`）
+
+### Security
+
+- **存储迁移与方言契约**（23.4）：迁移方言白名单；Postgres `pg_advisory_lock` 并发启动互斥 + 唯一冲突识别竞争收敛；`SQLStorage` 占位符自适应（`?`→`$n`）；PG 门控测试真实 CRUD 契约（替代"只验 schema"的虚假声明）
+- **依赖漏洞修复**：`x/image` v0.45.0（GO-2026-6222，VP8L 内存耗尽）；Go 工具链全线升 1.26.6（修复 7 个 stdlib 可达漏洞）；新增 Dependabot 使安全更新不再滞留
+- **CI 与发布一致性修复**：lint 双轨修复（golangci v2 schema + 增量阻断）；Windows 时钟精度排序 bug（`BgTask.Seq` 原子序号）；docs-site 大小写（macOS 不敏感 FS 盲区）；`check_release.sh` + CI `release-consistency` job（22.5）
+
+### Fixed
+
+- `SQLStorage.ListSessionsBySchedule` 引用不存在的 `source_schedule_id` 列——SQL 后端下每次调用 "no such column"（该字段只在 payload JSON）；改为按方言提取表达式
+- `SessionManager.Subscribe` 读锁下 append 的多订阅者死锁（并发订阅互相覆盖、被覆盖 channel 永不 close）——改写锁（22.4 一并入库）
+
+### Breaking / 迁移说明
+
+- **登录请求体**：`POST /api/v1/auth/login` 只接受 `{"api_key"}`（持有证明）；user_id 换 token 的旧路径已废除（22.1，v2.6.0 已引入、此版固化）。客户端改用注册时返回的 API key 登录。
+- **旧明文 API key 凭据不再认证**：仅存 `sha256:` 哈希形态的凭据可通过验证，legacy 明文行 fail-closed（重新注册或重置 key 即恢复）。
+- **未知 session ID 一律 404**：storage 模式下不再接受客户端自造 ID（服务端铸造，见 22.2）；内置 Web UI（`examples/web_ui`）在接入 storage 的部署中需升级到采纳响应头 `Agent-Session-Id` 的版本（18.10 路线项）。
+- **跨用户资源访问默认拒绝**：AgentConfig 归属校验经 `AccessPolicy`（nil = DenyAll），共享需显式配置策略。
+
 ## [2.6.0] - 2026-09-28 — 终端 TUI + Workspace 服务化 + 治理-演化闭环 + 生产边界
 
 > 详见 [RELEASE_NOTES_v2.6.0.md](RELEASE_NOTES_v2.6.0.md)。

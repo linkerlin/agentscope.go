@@ -8,20 +8,18 @@ AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 
 
 AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作、**终端 TUI**、**长时序治理平面**、**多平台聊天机器人（Webhook/Discord/飞书）**、**生态市场（MCP/Skill）** 等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
-当前版本 **v2.6.0**。未完成项见 [TODO.md](TODO.md)，顺序与验收见 [演进方案.md](演进方案.md)。
+当前版本 **v2.7.0**。未完成项见 [TODO.md](TODO.md)，顺序与验收见 [演进方案.md](演进方案.md)。
 
-## 新增能力（v2.6.0）
+## 新增能力（v2.7.0）
 
 <!-- BEGIN NEWS -->
+- **可靠多副本**：fencing 租约（短 TTL + token CAS 续租 + 失租即停）、可恢复 HITL（幂等 resume 命令、工具至多一次、完成才删快照）、会话保留与清理（buffer 上限 / 日志 trim / reaper）。
+- **长连接 worker**：渠道 / wakeup / 定时任务可拆出 API 副本（`WithWorkerRoles`），角色租约心跳与接管，四类 turn 来源共享会话租约，双副本不重复消费。
+- **认证热路径索引**：API key 哈希索引（SQL 迁移 0002 / Redis / Memory），无效 key O(1) 拒绝。
+- **交付门禁**：文档契约 + 覆盖率基线 + Dependabot + 导出 API 兼容 diff 四道 CI 门禁；Postgres 迁移方言契约（advisory lock 并发互斥 + 占位符自适应）。
 - **`console/` 终端 TUI**：bubbletea 三态机（idle/running/confirming），HITL `y/n/a` 确认、Ctrl+C 中断、三档事件渲染。
 - **Workspace 服务化**：artifact `list_dir`/`read_file`、git status、跨 agent 共享工作区、agent 级 skills 白名单。
 - **治理-演化闭环**：`controlplane` Goal 完成可 opt-in 触发 `evolver.Solidify`；`POST /v2/sessions/{id}/steer|interrupt`；配额心跳。
-- **多租户会话隔离**：跨用户访问他人 session 一律 404（不泄露存在性）。
-- **KB 可观测性**：文档分块浏览 / 原文溯源 / 列表计数富化。
-- **`Channel` 三平台**：Webhook / Discord / 飞书（含 `send_message`/`list_chats`）。
-- **`Hub` 市场**：浏览 + 安装 MCP/Skill（FSHub，zip-slip 防护）。
-- **RAG 托管知识库**：parser（Text/PDF/PPTX/Image/Word/Excel）→ chunker → blob → kb → index + HTTP API。
-- **零构建 Web UI**：Chat / KB / System，`go:embed` 单二进制。
 <!-- END NEWS -->
 
 ## 快速开始
@@ -788,7 +786,7 @@ hits, _ := flow.Client.Recall(ctx, evolver.RecallRequest{Query: "timeout", Categ
 - 生产部署指南：[docs/deployment.md](docs/deployment.md)
 - 从 Python AgentScope 或旧版本迁移：[docs/MIGRATION.md](docs/MIGRATION.md)
 - 版本发布流程：[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
-- 发布说明：[RELEASE_NOTES_v2.6.0.md](RELEASE_NOTES_v2.6.0.md)
+- 发布说明：[RELEASE_NOTES_v2.7.0.md](RELEASE_NOTES_v2.7.0.md)（[v2.6.0](RELEASE_NOTES_v2.6.0.md)）
 
 ## 贡献与社区
 

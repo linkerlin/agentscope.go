@@ -290,3 +290,117 @@ func TestServerRateLimitAutoSelection(t *testing.T) {
 		t.Fatal("disabled flag must clear the limiter")
 	}
 }
+
+// TestServerRateLimitRegistrationOrder is the production-order regression:
+// routes are registered BEFORE Start() (NewApp / RegisterAppRoutes order),
+// and limiter auto-selection happens inside Start(). A registration-time
+// snapshot of a nil limiter would bake "unthrottled" into the wrapped
+// handler forever — this locks that the Start-time limiter still reaches
+// the already-registered login route.
+func TestServerRateLimitRegistrationOrder(t *testing.T) {
+	storage := service.NewMemoryStorage()
+	srv := NewServer(&fakeV2Agent{}).WithStorage(storage)
+	srv.WithJWTAuth(service.NewJWTAuthenticator([]byte("test-secret-order"), "test"))
+	// Production order: register first, no explicit limiter wired.
+	srv.RegisterAuthRoutes(nil)
+	srv.WithMessageBus(messagebus.NewLocalBus())
+	srv.Start()
+	defer srv.Close()
+	if srv.rateLimiter == nil {
+		t.Fatal("Start did not auto-select a limiter")
+	}
+
+	// Default budget is DefaultRateLimit per minute from one client IP:
+	// requests past it must throttle even though registration preceded Start.
+	body := `{"api_key":"nonexistent"}`
+	throttled := 0
+	for i := 0; i < DefaultRateLimit+5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code == http.StatusTooManyRequests {
+			throttled++
+		} else if w.Code != http.StatusUnauthorized {
+			t.Fatalf("unexpected status %d", w.Code)
+		}
+	}
+	if throttled == 0 {
+		t.Fatal("login route not throttled after Start-time limiter selection (registration-order bug)")
+	}
+}
+
+// TestSessionAPICreateRateLimit: session minting (POST /v2/chat) throttles
+// with the same limiter as login (18.11 acceptance covers both), while the
+// GET reconnect stream is never throttled by the POST budget.
+func TestSessionAPICreateRateLimit(t *testing.T) {
+	srv := NewServer(&fakeV2Agent{})
+	srv.WithRateLimiter(NewLocalRateLimiter(2, time.Minute))
+	srv.sessionAPI() // force handler build with the root's wiring
+	h := srv.sessionAPIHandlers
+
+	mux := http.NewServeMux()
+	h.RegisterV2(mux, nil)
+
+	post := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/v2/chat", strings.NewReader(`{"text":"hi"}`))
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	codes := []int{post(), post(), post()}
+	ok, throttled := 0, 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusOK, http.StatusBadRequest, http.StatusServiceUnavailable, http.StatusNotFound:
+			ok++ // past the throttle, into later session resolution
+		case http.StatusTooManyRequests:
+			throttled++
+		default:
+			t.Fatalf("unexpected POST status %d", c)
+		}
+	}
+	if ok != 2 || throttled != 1 {
+		t.Fatalf("expected 2 passes + 1 throttled POST, got %v", codes)
+	}
+
+	// GET reconnect is a read, not a write: it must pass even with the POST
+	// budget exhausted (any status but 429 proves the throttle did not apply).
+	req := httptest.NewRequest(http.MethodGet, "/v2/chat?session_id=whatever", nil)
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code == http.StatusTooManyRequests {
+		t.Fatal("GET reconnect stream must not consume the POST mint budget")
+	}
+}
+
+// TestSessionAPISteerResumeBodyLimit: the steer and resume bodies are capped
+// like /v2/chat (18.11 gap — both decoded without a limit before).
+func TestSessionAPISteerResumeBodyLimit(t *testing.T) {
+	srv := NewServer(&fakeV2Agent{}).WithSessionManager(NewSessionManager())
+	srv.sessionAPI()
+	h := srv.sessionAPIHandlers
+
+	mux := http.NewServeMux()
+	h.RegisterV2(mux, nil)
+
+	big := strings.Repeat("a", int(DefaultMaxBodyBytes)+1024)
+
+	req := httptest.NewRequest(http.MethodPost, "/v2/sessions/s1/steer",
+		strings.NewReader(`{"text":"`+big+`"}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("over-cap steer body not 413: %d", w.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/v2/resume",
+		strings.NewReader(`{"session_id":"s1","confirm_id":"c1","decisions":[{"tool_call_id":"`+big+`","decision":"y"}]}`))
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("over-cap resume body not 413: %d", w2.Code)
+	}
+}

@@ -28,10 +28,98 @@ if (sessionId) {
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+// ───────────────────────── auth (JWT console) ─────────────────────────
+
+// Storage-backed deployments (WEBUI_STORAGE + WEBUI_API_SECRET, 18.10) enforce
+// JWT: every fetch carries the token minted by /api/v1/auth/login. The token
+// lives in localStorage; anonymous demo deployments simply never set it.
+const TOKEN_STORAGE_KEY = "agentscope-go.jwt";
+let authToken = localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+
+function authHeaders() {
+  return authToken ? { Authorization: "Bearer " + authToken } : {};
+}
+
+function clearAuth() {
+  authToken = "";
+  try { localStorage.removeItem(TOKEN_STORAGE_KEY); } catch (_) {}
+  updateAuthBadge();
+}
+
+// Login flow: the API key is proof-of-possession (22.1) — it is exchanged for
+// a short-lived token and never stored client-side beyond the request.
+async function loginWithAPIKey(key) {
+  const res = await fetch("/api/v1/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: key }),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  if (!data || !data.token) throw new Error("login response missing token");
+  authToken = data.token;
+  try { localStorage.setItem(TOKEN_STORAGE_KEY, authToken); } catch (_) {}
+  updateAuthBadge();
+  return authToken;
+}
+
+// One shared 401 path: a rejected token clears the stored credential and
+// prompts for a fresh API key, so a browser session against a JWT-enabled
+// deployment never dead-ends on stale tokens.
+function handleAuthFailure() {
+  if (!authToken) return; // anonymous demo: 401 is a deployment mismatch, not stale state
+  clearAuth();
+  promptForLogin("登录已过期，请重新输入 API Key。");
+}
+
+function promptForLogin(message) {
+  const key = window.prompt(message || "此部署已启用认证。请输入 API Key 登录：");
+  if (!key) return;
+  loginWithAPIKey(key.trim()).catch(err => {
+    appendSystemNotice("登录失败：" + err.message);
+  });
+}
+
+function updateAuthBadge() {
+  const el = document.getElementById("auth-badge");
+  if (!el) return;
+  if (authToken) {
+    el.textContent = "已登录";
+    el.classList.add("logged-in");
+  } else {
+    el.textContent = "匿名";
+    el.classList.remove("logged-in");
+  }
+}
+
+function appendSystemNotice(text) {
+  const log = document.getElementById("chat-log");
+  if (!log) return;
+  const div = document.createElement("div");
+  div.className = "error-banner";
+  div.textContent = text;
+  log.appendChild(div);
+}
+
+// The sidebar badge doubles as the login/logout entry point.
+document.addEventListener("DOMContentLoaded", () => {
+  const badge = document.getElementById("auth-badge");
+  if (!badge) return;
+  updateAuthBadge();
+  badge.addEventListener("click", () => {
+    if (authToken) {
+      if (window.confirm("退出登录？")) clearAuth();
+    } else {
+      promptForLogin();
+    }
+  });
+});
 async function api(method, path, body) {
-  const opts = { method, headers: {} };
+  const opts = { method, headers: Object.assign({}, authHeaders()) };
   if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const res = await fetch(path, opts);
+  if (res.status === 401) { handleAuthFailure(); throw new Error("401: 未登录或登录已过期"); }
   if (res.status === 204) return null;
   const txt = await res.text();
   let data = txt;
@@ -190,7 +278,7 @@ async function reconnectOnLoad() {
   const run = createAssistantRun(); run.meta.textContent = "Assistant · 重连中…";
   try {
     const url = `/v2/chat?protocol=agui&session_id=${encodeURIComponent(sessionId)}`;
-    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId }, signal: controller.signal });
+    const res = await fetch(url, { method: "GET", headers: Object.assign({ Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId }, authHeaders()), signal: controller.signal });
     if (res.status === 404 || res.status === 503) {
       // Unknown or gone: drop the stale ID and let the next POST mint one.
       try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (_) {}
@@ -220,7 +308,7 @@ async function sendMessage(text) {
   try {
     // First packet omits session_id entirely (18.10): the server mints one
     // and returns it via Agent-Session-Id; later turns reuse the adopted ID.
-    const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+    const headers = Object.assign({ "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, authHeaders());
     const payload = { text };
     if (sessionId) {
       headers["Agent-Session-Id"] = sessionId;
@@ -232,6 +320,16 @@ async function sendMessage(text) {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    if (res.status === 401) { handleAuthFailure(); throw new Error("401: 未登录或登录已过期"); }
+    if (res.status === 404 && sessionId) {
+      // The adopted session is gone server-side (storage rotated, purge):
+      // drop the stale ID so the next POST mints a fresh one (18.10 — same
+      // recovery the on-load reconnect performs).
+      try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (_) {}
+      sessionId = "";
+      document.getElementById("session-id").textContent = "(服务端分配中…)";
+      throw new Error("会话已失效，已重置；请重新发送。");
+    }
     if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
     adoptSessionId(res.headers.get("Agent-Session-Id"));
     await consumeEventStream(res, run, controller.signal);
@@ -368,7 +466,7 @@ document.getElementById("kb-upload-input").addEventListener("change", async (e) 
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const res = await fetch(`/api/v1/knowledge-bases/${encodeURIComponent(currentKB)}/documents`, { method: "POST", body: fd });
+      const res = await fetch(`/api/v1/knowledge-bases/${encodeURIComponent(currentKB)}/documents`, { method: "POST", headers: authHeaders(), body: fd });
       if (!res.ok) { const t = await res.text(); alert(`上传 ${file.name} 失败: ${t}`); }
     } catch (err) { alert(`上传 ${file.name} 失败: ${err.message}`); }
   }
@@ -632,7 +730,8 @@ async function cpSupersedeTodo(goalId, todoId) {
   } catch (err) { alert("Supersede 失败：" + err.message); }
 }
 
-// Record a reward policy: prompts for class + content, then POSTs it.document.getElementById("cp-reward-btn").addEventListener("click", () => {
+// Record a reward policy: prompts for class + content, then POSTs it.
+document.getElementById("cp-reward-btn").addEventListener("click", () => {
   if (!currentCPGoal) return;
   const cls = prompt("策略类别（hard_policy = 否决，soft_preference = 建议）", "hard_policy");
   if (!cls) return;

@@ -103,7 +103,15 @@ func buildGateway(ag agent.Agent, toolOffload *gateway.ToolOffloadManager) *gate
 	default:
 		panic(fmt.Sprintf("unknown WEBUI_STORAGE %q (supported: sqlite, redis)", mode))
 	}
-	jwt := service.NewJWTAuthenticator([]byte(envOr("WEBUI_API_SECRET", "webui-dev-secret")), "agentscope-webui")
+	// Fail closed (22.1 discipline): a storage-backed deployment is a
+	// multi-tenant, potentially internet-facing assembly; a known literal
+	// signing secret would let anyone forge tokens. Require an explicit
+	// secret instead of silently falling back to one.
+	secret := envOr("WEBUI_API_SECRET", "")
+	if secret == "" {
+		panic("WEBUI_STORAGE requires WEBUI_API_SECRET (JWT signing key); refusing to start with a guessable secret")
+	}
+	jwt := service.NewJWTAuthenticator([]byte(secret), "agentscope-webui")
 	srv = srv.WithJWTAuth(jwt).WithAuthenticator(jwt)
 	srv.RegisterAuthRoutes(jwt)
 	fmt.Println("Storage-backed mode:", mode, "(session ownership + JWT auth enforced)")

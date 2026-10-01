@@ -57,6 +57,17 @@ func (s *Server) sessionAPI() *sessionapi.Handlers {
 			},
 			// Write endpoints share the gateway body cap (18.11).
 			MaxBodyBytes: maxBodyBytes,
+			// Session minting throttles like login (18.11). Read the
+			// limiter per request: auto-selection runs in Start(), after
+			// these handlers are wired (same registration-order contract as
+			// withRateLimit).
+			AllowRequest: func(r *http.Request) bool {
+				l := s.rateLimiter
+				if l == nil || s.rateLimitDisabled {
+					return true
+				}
+				return l.Allow(r.Context(), rateLimitKey(r))
+			},
 		})
 	})
 	return s.sessionAPIHandlers

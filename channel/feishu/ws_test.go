@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -302,4 +303,55 @@ func TestFeishuWebSocketReconnect(t *testing.T) {
 	if !reconnected {
 		t.Fatal("adapter never resumed event delivery after reconnect")
 	}
+}
+
+// TestFeishuWebSocketIdleWatchdog: a silently-dead peer (no frames, TCP
+// still open) must not park ReadMessage forever — the read deadline /
+// watchdog close the transport and the adapter redials within the idle
+// window.
+func TestFeishuWebSocketIdleWatchdog(t *testing.T) {
+	restore := wsPingTimeout
+	wsPingTimeout = 500 * time.Millisecond
+	defer func() { wsPingTimeout = restore }()
+
+	var dialed atomic.Int32
+	h := &wsHub{complete: make(chan struct{}, 8)}
+	up := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		dialed.Add(1)
+		h.mu.Lock()
+		h.conn = conn
+		h.mu.Unlock()
+		// Silent server: accept, never send. The client must notice the
+		// idle connection and tear it down itself.
+	}))
+	defer srv.Close()
+
+	w := NewWebSocket("fs-ws3", "app", "secret", wsURL(srv.URL))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_ = w.Start(ctx, func(ev channel.ChannelEvent) error { return nil })
+	}()
+	<-started
+
+	// First connection lands, then the idle window (500ms) plus the 5s
+	// watchdog tick must produce a redial without any server traffic.
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		firstUp := h.conn != nil
+		h.mu.Unlock()
+		if firstUp && dialed.Load() >= 2 {
+			return // idle-dead connection was recycled and redialled
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("idle-dead connection never redialled (dialed=%d)", dialed.Load())
 }

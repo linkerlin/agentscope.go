@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -286,6 +287,75 @@ func (s *RedisStorage) SaveCredential(ctx context.Context, cred *Credential) err
 		return fmt.Errorf("redis: save credential: %w", err)
 	}
 	return nil
+}
+
+// redisCredentialCAS is one atomic conditional write: KEYS[1] is the
+// credential key; ARGV[1] the new payload JSON, ARGV[2] the allowed-status
+// list (comma-joined), ARGV[3] the hash-index key prefix, ARGV[4] the
+// credential id, ARGV[5] the by-user set key. Replies {0, <current payload>}
+// when the condition fails and {1, ""} on success.
+var redisCredentialCAS = redis.NewScript(`
+local cur = redis.call('GET', KEYS[1])
+if not cur then return {0, ''} end
+local okStatus = false
+local st = cjson.decode(cur)['status']
+if st == nil or st == '' then okStatus = true end
+if not okStatus then
+  for allowed in string.gmatch(ARGV[2], '[^,]+') do
+    if st == allowed then okStatus = true end
+  end
+end
+if not okStatus then return {0, cur} end
+local oldEnc = cjson.decode(cur)['encrypted']
+if oldEnc and string.sub(oldEnc, 1, 7) == 'sha256:' then
+  redis.call('SREM', ARGV[3] .. oldEnc, ARGV[4])
+end
+redis.call('SET', KEYS[1], ARGV[1])
+local newEnc = cjson.decode(ARGV[1])['encrypted']
+if newEnc and string.sub(newEnc, 1, 7) == 'sha256:' then
+  redis.call('SADD', ARGV[3] .. newEnc, ARGV[4])
+end
+redis.call('SADD', ARGV[5], ARGV[4])
+return {1, ''}
+`)
+
+// SaveCredentialIfCurrent implements CredentialConditionalWriter (18.4
+// review fix): GET + judge + SET + index maintenance in one Lua script, so
+// racing writers across processes cannot both pass the check.
+func (s *RedisStorage) SaveCredentialIfCurrent(ctx context.Context, id string, next *Credential, allowedCurrent ...CredentialStatus) (*Credential, bool, error) {
+	if len(allowedCurrent) == 0 {
+		cur, err := s.GetCredential(ctx, id)
+		return cur, false, err
+	}
+	next.UpdatedAt = time.Now()
+	data, err := json.Marshal(credentialToPersist(next))
+	if err != nil {
+		return nil, false, fmt.Errorf("redis: marshal credential: %w", err)
+	}
+	parts := make([]string, len(allowedCurrent))
+	for i, a := range allowedCurrent {
+		parts[i] = string(a)
+	}
+	res, err := redisCredentialCAS.Run(ctx, s.client,
+		[]string{keyCredential(id)},
+		string(data), strings.Join(parts, ","), "credentials_by_hash:", id, keyCredentialsByUser(next.UserID),
+	).Slice()
+	if err != nil {
+		return nil, false, fmt.Errorf("redis: conditional credential save: %w", err)
+	}
+	swapped, _ := res[0].(int64)
+	if swapped == 1 {
+		return next, true, nil
+	}
+	curPayload, _ := res[1].(string)
+	if curPayload == "" {
+		return nil, false, fmt.Errorf("credential not found: %s", id)
+	}
+	var row credentialPersist
+	if err := json.Unmarshal([]byte(curPayload), &row); err != nil {
+		return nil, false, err
+	}
+	return row.toCredential(), false, nil
 }
 
 func (s *RedisStorage) GetCredential(ctx context.Context, id string) (*Credential, error) {

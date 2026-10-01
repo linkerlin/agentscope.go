@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -31,8 +32,11 @@ import (
 const (
 	wsReconnectBase = 500 * time.Millisecond
 	wsReconnectMax  = 30 * time.Second
-	wsPingTimeout   = 45 * time.Second // no server traffic for this long → redial
 )
+
+// wsPingTimeout is how long without server traffic before the connection is
+// considered dead and redialled. A var (not const) so tests can shorten it.
+var wsPingTimeout = 45 * time.Second
 
 // WSChannel is the WebSocket-mode Feishu adapter. It reuses the REST sender
 // of the webhook Channel (token/SendText/React/ListChats carry over) and
@@ -47,6 +51,10 @@ type WSChannel struct {
 	emitFn   func(channel.ChannelEvent) error
 	sequence int64 // last processed message id guard (duplicate ack suppression)
 	lastMsg  map[string]bool
+	// pingTimeout snapshots wsPingTimeout at construction so tests can
+	// shorten the idle window without racing the reader goroutine on the
+	// package-level var.
+	pingTimeout time.Duration
 }
 
 // NewWebSocket creates the long-connection variant. url defaults to the
@@ -56,10 +64,11 @@ func NewWebSocket(id, appID, appSecret, url string) *WSChannel {
 		url = "wss://open.feishu.cn/open-apis/event/ws"
 	}
 	return &WSChannel{
-		Channel: New(id, appID, appSecret),
-		url:     url,
-		dialer:  &websocket.Dialer{HandshakeTimeout: 10 * time.Second},
-		lastMsg: map[string]bool{},
+		Channel:     New(id, appID, appSecret),
+		url:         url,
+		dialer:      &websocket.Dialer{HandshakeTimeout: 10 * time.Second},
+		lastMsg:     map[string]bool{},
+		pingTimeout: wsPingTimeout,
 	}
 }
 
@@ -106,7 +115,10 @@ func (w *WSChannel) Start(ctx context.Context, emit func(channel.ChannelEvent) e
 // serveConn reads one connection until an error; each event frame is
 // normalised, emitted, and acked.
 func (w *WSChannel) serveConn(ctx context.Context, conn *websocket.Conn) error {
-	lastTraffic := time.Now()
+	// lastTraffic is written by the read loop and read by the watchdog
+	// goroutine — atomic, not a plain variable (race-detector clean).
+	var lastTraffic atomic.Int64
+	lastTraffic.Store(time.Now().UnixNano())
 	gone := make(chan struct{}) // closed by the watchdog when the socket is idle-dead
 	stop := make(chan struct{}) // closed on return: stops the watchdog
 	var once sync.Once
@@ -120,13 +132,24 @@ func (w *WSChannel) serveConn(ctx context.Context, conn *websocket.Conn) error {
 			case <-stop:
 				return
 			case <-t.C:
-				if time.Since(lastTraffic) > wsPingTimeout || ctx.Err() != nil {
+				if ctx.Err() != nil || time.Since(time.Unix(0, lastTraffic.Load())) > w.pingTimeout {
+					// Close the socket, not just the signal channel: a
+					// ReadMessage parked on a silently-dead peer blocks
+					// forever unless the transport is torn down (or the
+					// read deadline below fires first — this is the second
+					// line of defence).
+					_ = conn.Close()
 					return
 				}
 			}
 		}
 	}()
 	defer close(stop)
+
+	// Read deadline as the FIRST line of defence: a parked ReadMessage wakes
+	// with a timeout error even if the watchdog goroutine itself is delayed,
+	// and the deadline doubles as the idle cut-off.
+	_ = conn.SetReadDeadline(time.Now().Add(w.pingTimeout))
 
 	for {
 		select {
@@ -140,7 +163,8 @@ func (w *WSChannel) serveConn(ctx context.Context, conn *websocket.Conn) error {
 		if err != nil {
 			return err
 		}
-		lastTraffic = time.Now()
+		lastTraffic.Store(time.Now().UnixNano())
+		_ = conn.SetReadDeadline(time.Now().Add(w.pingTimeout))
 
 		var frame struct {
 			Type      string          `json:"type"`

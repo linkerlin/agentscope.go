@@ -30,12 +30,21 @@ func (h *Handlers) handleV2Resume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	body, err := readAllAndClose(w, r.Body, h.d.MaxBodyBytes)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, fmt.Sprintf("read error: %v", err), http.StatusBadRequest)
+		return
+	}
 	var req resumeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, fmt.Sprintf("parse error: %v", err), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	if req.SessionID == "" {
 		http.Error(w, "session_id is required", http.StatusBadRequest)

@@ -204,3 +204,17 @@ body {
 .lane-stage { font-size: 11px; padding: 2px 8px; background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px; }
 .lane-stage.gated { border-color: #d29922; }
 .lane-arrow { color: var(--text-dim); font-size: 11px; }
+
+/* Auth badge (JWT console, 18.10): login/logout entry in the sidebar footer. */
+.auth-badge {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.auth-badge.logged-in { color: var(--green); border-color: var(--green); }
+.auth-badge:hover { background: rgba(255,255,255,0.06); }

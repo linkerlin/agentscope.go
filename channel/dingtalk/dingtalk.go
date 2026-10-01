@@ -202,7 +202,12 @@ type outgoingPayload struct {
 // sign = base64(HMAC-SHA256(secret, timestamp + "\n" + secret)).
 func (c *Channel) verifySignature(r *http.Request) bool {
 	if c.robotSecret == "" {
-		return true // verification disabled (private-network deployments)
+		// Fail closed (review finding): the callback endpoints carry no
+		// tenant JWT — the HMAC pair IS the authentication. With no secret
+		// configured, passing every request would make HITL injection
+		// anonymous on any network the endpoint reaches. Deployments that
+		// truly want unsigned callbacks must not expose the routes.
+		return false
 	}
 	ts := r.Header.Get("timestamp")
 	sig := r.Header.Get("sign")
@@ -217,8 +222,10 @@ func (c *Channel) verifySignature(r *http.Request) bool {
 
 // VerifyRequest is the exported signature check for callbacks the gateway
 // routes on this channel's behalf (card callbacks, 18.3) — same HMAC pair
-// as the outgoing-robot endpoint. With no robot secret configured every
-// request passes (private-network deployments opt out explicitly).
+// as the outgoing-robot endpoint. Fail closed: with no robot secret
+// configured every request is REJECTED — the HMAC pair is the only
+// authentication these machine-to-platform endpoints have (review finding:
+// an empty secret made HITL injection anonymous).
 func (c *Channel) VerifyRequest(r *http.Request) bool { return c.verifySignature(r) }
 
 // normalize maps an outgoing callback payload onto a ChannelEvent.

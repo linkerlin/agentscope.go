@@ -102,6 +102,17 @@ func TestChannel_ServeHTTP_SignatureAndNormalize(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Empty(t, got)
 
+	// No robot secret configured at all -> 401 as well (fail closed: the
+	// HMAC pair is the only auth these endpoints have; an empty secret must
+	// not degrade into anonymous acceptance).
+	bare := New("dt-bare", "app-key", "app-secret")
+	reqBare := httptest.NewRequest(http.MethodPost, "/callback", strings.NewReader(`{}`))
+	reqBare.Header.Set("Content-Type", "application/json")
+	wBare := httptest.NewRecorder()
+	bare.ServeHTTP(wBare, reqBare)
+	assert.Equal(t, http.StatusUnauthorized, wBare.Code)
+	assert.False(t, bare.VerifyRequest(reqBare))
+
 	// Valid signature + text message -> forwarded and normalized.
 	w = post(`{"conversationId":"cid-9","conversationTitle":"ops","senderStaffId":"u1","senderNick":"Alice","msgId":"m1","msgtype":"text","text":{"content":"deploy now"},"sessionWebhook":"https://oapi/callback"}`, true, false)
 	assert.Equal(t, http.StatusOK, w.Code)

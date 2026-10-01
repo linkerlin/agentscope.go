@@ -477,6 +477,59 @@ func (s *SQLStorage) SaveCredential(ctx context.Context, cred *Credential) error
 		[]any{cred.ID, cred.UserID, cred.Provider, keyHash, marshalJSON(credentialToPersist(cred)), nowUTC2(cred.CreatedAt), nowUTC2(cred.UpdatedAt)})
 }
 
+// SaveCredentialIfCurrent implements CredentialConditionalWriter (18.4
+// review fix): one conditional UPDATE — the WHERE clause re-checks the
+// stored status inside the statement, so racing writers cannot pass the
+// check simultaneously; the loser sees 0 affected rows and re-reads.
+func (s *SQLStorage) SaveCredentialIfCurrent(ctx context.Context, id string, next *Credential, allowedCurrent ...CredentialStatus) (*Credential, bool, error) {
+	if len(allowedCurrent) == 0 {
+		cur, err := s.GetCredential(ctx, id)
+		return cur, false, err
+	}
+	statusExpr := `json_extract(payload, '$.status')`
+	if s.dialect == migration.DialectPostgres {
+		statusExpr = `payload::jsonb->>'status'`
+	}
+	// (status IS NULL OR status = '' OR status IN (...)) — NULL/empty are
+	// the pre-18.4 legacy forms.
+	var conds []string
+	var args []any
+	for _, a := range allowedCurrent {
+		conds = append(conds, statusExpr+" = ?")
+		args = append(args, string(a))
+	}
+	where := "(" + statusExpr + " IS NULL OR " + statusExpr + " = '' OR " + strings.Join(conds, " OR ") + ")"
+
+	// Empty status snapshots read as AUTHORIZED (NormalizedStatus); a legacy
+	// row only satisfies the transition when AUTHORIZED itself is allowed
+	// (same-target no-op path), which the '' clause above covers.
+
+	if next.CreatedAt.IsZero() {
+		next.CreatedAt = time.Now().UTC()
+	}
+	next.UpdatedAt = time.Now().UTC()
+	var keyHash any
+	if k := apiKeyIndexKey(next); k != "" {
+		keyHash = k
+	}
+	res, err := s.exec(ctx,
+		"UPDATE credentials SET user_id = ?, provider = ?, key_hash = ?, payload = ?, created_at = ?, updated_at = ? WHERE id = ? AND "+where,
+		append([]any{next.UserID, next.Provider, keyHash, marshalJSON(credentialToPersist(next)), nowUTC2(next.CreatedAt), nowUTC2(next.UpdatedAt), id}, args...)...)
+	if err != nil {
+		return nil, false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Lost the race (or the row vanished): hand the caller the current
+		// record for re-judging.
+		cur, gerr := s.GetCredential(ctx, id)
+		if gerr != nil {
+			return nil, false, gerr
+		}
+		return cur, false, nil
+	}
+	return next, true, nil
+}
+
 func (s *SQLStorage) GetCredential(ctx context.Context, id string) (*Credential, error) {
 	var payload string
 	err := s.queryRow(ctx, "SELECT payload FROM credentials WHERE id = ?", id).Scan(&payload)

@@ -107,6 +107,11 @@ type Deps struct {
 	// or negative means uncapped (tests, embedded reuse). The gateway root
 	// wires its default (1 MiB).
 	MaxBodyBytes int64
+	// AllowRequest reports whether a mutating session request (chat POST —
+	// the session-minting write) is within budget (18.11 acceptance: login
+	// AND session creation throttle). Checked inside the POST branch so the
+	// GET reconnect stream is never throttled. nil allows everything.
+	AllowRequest func(r *http.Request) bool
 }
 
 // Handlers is the session HTTP face. Build via NewHandlers and mount with
@@ -213,6 +218,15 @@ func (h *Handlers) handleV2ChatStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleV2ChatPost(w http.ResponseWriter, r *http.Request, opts chatStreamParams) {
+	// Session creation is a public-style write (18.11 acceptance: login AND
+	// session minting throttle). Checked per request so the Start-time
+	// limiter reaches routes registered earlier; the GET reconnect stream
+	// below is not throttled.
+	if h.d.AllowRequest != nil && !h.d.AllowRequest(r) {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 	if opts.strictAccept && !acceptsStreamableHTTP(r) {
 		http.Error(w, "Accept must include application/json and text/event-stream", http.StatusNotAcceptable)
 		return
@@ -524,7 +538,12 @@ func (h *Handlers) handleV2Steer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req steerRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSONLimitBody(w, r, &req, h.d.MaxBodyBytes); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}

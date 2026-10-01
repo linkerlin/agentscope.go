@@ -249,3 +249,38 @@ func TestPostgres_SQLStorageAPIKeyIndexAndSchedule(t *testing.T) {
 	_, _ = db.ExecContext(ctx, `DELETE FROM credentials WHERE id = 'pg-ic1';`)
 	_, _ = db.ExecContext(ctx, `DELETE FROM users WHERE id = 'pg-iu1';`)
 }
+
+// TestPostgres_CredentialConditionalWriter runs the 18.4 review-fix CAS
+// contract against the real jsonb expression path (the SQLite json_extract
+// variant is covered by TestCredentialCASContract).
+func TestPostgres_CredentialConditionalWriter(t *testing.T) {
+	db := pgTestDB(t)
+	ctx := context.Background()
+	if err := migration.Migrate(ctx, db, migration.DialectPostgres, migrations); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	s := &SQLStorage{db: db, dialect: migration.DialectPostgres}
+	_, _ = db.ExecContext(ctx, `DELETE FROM credentials WHERE id = 'pg-cas1';`)
+
+	if err := s.SaveCredential(ctx, &Credential{ID: "pg-cas1", UserID: "pg-u1", Provider: "p", Status: CredentialPending}); err != nil {
+		t.Fatal(err)
+	}
+	next := &Credential{ID: "pg-cas1", UserID: "pg-u1", Provider: "p", Status: CredentialAuthorized, Encrypted: "enc-cas"}
+	cur, swapped, err := s.SaveCredentialIfCurrent(ctx, "pg-cas1", next, CredentialPending, CredentialAuthorized)
+	if err != nil || !swapped {
+		t.Fatalf("PENDING must swap: swapped=%v err=%v", swapped, err)
+	}
+	if cur.Encrypted != "enc-cas" {
+		t.Fatalf("stored record missing secret: %+v", cur)
+	}
+
+	cancel := &Credential{ID: "pg-cas1", UserID: "pg-u1", Provider: "p", Status: CredentialCancelled}
+	cur, swapped, err = s.SaveCredentialIfCurrent(ctx, "pg-cas1", cancel, CredentialPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swapped || cur.NormalizedStatus() != CredentialAuthorized || cur.Encrypted != "enc-cas" {
+		t.Fatalf("AUTHORIZED row must refuse CANCELLED and keep its secret: swapped=%v cur=%+v", swapped, cur)
+	}
+	_, _ = db.ExecContext(ctx, `DELETE FROM credentials WHERE id = 'pg-cas1';`)
+}

@@ -37,12 +37,21 @@ func (s *Server) RegisterAuthRoutes(jwtAuth *service.JWTAuthenticator) {
 // when available (exact cross-replica budget), else a process-local limiter
 // (per-replica budget — with N replicas the effective ceiling is N× the
 // configured one, the CoordCounter path exists to avoid exactly that).
-// nil limiter disables throttling (tests).
+//
+// The limiter is read per request, NOT at registration: auto-selection runs
+// in Start(), which by contract happens after routes are registered
+// (NewApp / RegisterAppRoutes order), so a registration-time nil would
+// permanently bake "no throttling" into the wrapped handler and production
+// logins would run unthrottled. A nil (or disabled) limiter passes through.
 func (s *Server) withRateLimit(next http.HandlerFunc) http.HandlerFunc {
-	if s.rateLimiter == nil {
-		return next
+	return func(w http.ResponseWriter, r *http.Request) {
+		l := s.rateLimiter
+		if l == nil || s.rateLimitDisabled {
+			next(w, r)
+			return
+		}
+		RateLimitMiddleware(l, next)(w, r)
 	}
-	return RateLimitMiddleware(s.rateLimiter, next)
 }
 
 type registerRequest struct {

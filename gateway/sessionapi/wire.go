@@ -76,6 +76,18 @@ func decodeJSON(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
+// decodeJSONLimitBody decodes a JSON body under maxBody (18.11): over-limit
+// reads stop at the boundary and surface *http.MaxBytesError so the caller
+// can answer 413 (malformed JSON stays the caller's 400). A zero maxBody
+// means uncapped.
+func decodeJSONLimitBody(w http.ResponseWriter, r *http.Request, v any, maxBody int64) error {
+	body, err := readAllAndClose(w, r.Body, maxBody)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, v)
+}
+
 // readAllAndClose reads the request body under maxBody (18.11): bodies past
 // the cap stop reading at the boundary and return *http.MaxBytesError (the
 // handler maps it to 413). A zero maxBody means uncapped (tests, embedded

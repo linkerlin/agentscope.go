@@ -28,6 +28,25 @@ func terminalCredentialStatus(s CredentialStatus) bool {
 	return s == CredentialAuthorized || s == CredentialFailed || s == CredentialCancelled
 }
 
+// CredentialConditionalWriter is the atomic transition capability (review
+// finding: a plain read-judge-write lets two replicas that both read PENDING
+// overwrite each other's terminal write — including replacing an already
+// delivered secret with a later, different-outcome write). Storages that
+// implement it serialize the judge+persist step:
+//
+//	SaveCredentialIfCurrent persists next only when the stored record's
+//	normalized status is one of allowedCurrent; it returns the freshly
+//
+// stored record and swapped=true on success, or the CURRENTLY stored
+// record and swapped=false when the condition no longer held (the caller
+// re-judges). Errors are storage failures only.
+//
+// The gateway root's Memory/SQL/Redis storages all implement it; other
+// Storage implementations fall back to the unconditional path below.
+type CredentialConditionalWriter interface {
+	SaveCredentialIfCurrent(ctx context.Context, id string, next *Credential, allowedCurrent ...CredentialStatus) (current *Credential, swapped bool, err error)
+}
+
 // TransitionCredential moves the credential idempotently to target:
 //
 //   - unknown id → ErrCredentialNotFound;
@@ -42,18 +61,23 @@ func terminalCredentialStatus(s CredentialStatus) bool {
 //     then the new status is persisted.
 //
 // apply is optional; it mutates the in-memory record before save (e.g. the
-// authorize callback delivering the encrypted secret). The read-judge-write
-// window is inherent to the Storage interface; it is safe because every
-// reachable end state is valid and writes are idempotent per target — a
-// concurrent FAILED vs CANCELLED race ends in whichever terminal state
-// landed last, never in a corrupt or half-written record.
+// authorize callback delivering the encrypted secret).
 //
-// The transition writes a copy: storages hand out shared pointers
+// Terminal states are irreversible BY CONSTRUCTION on storages implementing
+// CredentialConditionalWriter: the persist step is conditional on the stored
+// status still being PENDING (or already equal to target — same-outcome
+// races stay idempotent), so a losing writer re-reads the winner and either
+// no-ops (same target) or reports ErrCredentialFinalized. An authorized
+// secret cannot be overwritten by a later different-outcome write. On
+// storages without the capability the unconditional save keeps the inherent
+// read-judge-write window (same-outcome races remain harmless; documented
+// limitation, not a guarantee).
+//
+// The transition also works on a copy: storages hand out shared pointers
 // (MemoryStorage returns the stored *Credential itself), so mutating the
-// fetched record races concurrent readers and writers of the same object
-// (data race, and under -race a spurious test failure). Copying once keeps
-// every goroutine on its own object; storage-level locking then serialises
-// the final write.
+// fetched record would race concurrent readers and writers of the same
+// object. Copying once keeps every goroutine on its own object;
+// storage-level locking then serialises the final write.
 func TransitionCredential(ctx context.Context, storage Storage, id string, target CredentialStatus, apply func(*Credential) error) (*Credential, error) {
 	if !terminalCredentialStatus(target) && target != CredentialPending {
 		return nil, fmt.Errorf("credential: unknown target status %q", target)
@@ -79,6 +103,31 @@ func TransitionCredential(ctx context.Context, storage Storage, id string, targe
 		}
 	}
 	cred.Status = target
+
+	// Atomic path: the write is conditional on the stored status still
+	// being PENDING (or already equal to target, keeping same-outcome
+	// races idempotent). A lost race re-judges against the persisted
+	// winner instead of silently overwriting it.
+	if cw, ok := storage.(CredentialConditionalWriter); ok {
+		cur, swapped, err := cw.SaveCredentialIfCurrent(ctx, id, cred, CredentialPending, target)
+		if err != nil {
+			return nil, fmt.Errorf("credential: persist transition: %w", err)
+		}
+		if swapped {
+			return cred, nil
+		}
+		if cur == nil {
+			return nil, fmt.Errorf("%w: %s", ErrCredentialNotFound, id)
+		}
+		if now := cur.NormalizedStatus(); now == target {
+			return cur, nil // same outcome landed first — idempotent success
+		} else {
+			return cur, fmt.Errorf("%w: %s is %s, wanted %s", ErrCredentialFinalized, id, now, target)
+		}
+	}
+
+	// Unconditional fallback (storages without the capability): the
+	// read-judge-write window is inherent; last writer wins.
 	cred.UpdatedAt = time.Now()
 	if err := storage.SaveCredential(ctx, cred); err != nil {
 		return nil, fmt.Errorf("credential: persist transition: %w", err)

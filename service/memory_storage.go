@@ -173,6 +173,34 @@ func (s *MemoryStorage) DeleteAgentConfig(ctx context.Context, id string) error 
 	return nil
 }
 
+// SaveCredentialIfCurrent implements CredentialConditionalWriter (18.4
+// review fix): the judge+persist step runs under the storage lock, so a
+// terminal write cannot be overwritten by a racing writer that read the
+// pre-transition state.
+func (s *MemoryStorage) SaveCredentialIfCurrent(ctx context.Context, id string, next *Credential, allowedCurrent ...CredentialStatus) (*Credential, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, ok := s.credentials[id]
+	if !ok {
+		return nil, false, fmt.Errorf("credential not found: %s", id)
+	}
+	allowed := false
+	for _, a := range allowedCurrent {
+		if cur.NormalizedStatus() == a {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return cur, false, nil
+	}
+	s.unindexAPIKey(cur)
+	next.UpdatedAt = time.Now()
+	s.credentials[id] = next
+	s.indexAPIKey(next)
+	return next, true, nil
+}
+
 func (s *MemoryStorage) SaveCredential(ctx context.Context, cred *Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 
+	"github.com/linkerlin/agentscope.go/gateway/scheduleapi"
 	"github.com/linkerlin/agentscope.go/schedule"
 )
 
@@ -12,14 +13,14 @@ type scheduleManagerAdapter struct {
 }
 
 func (a scheduleManagerAdapter) Schedule(ctx context.Context, job *schedule.Job) error {
-	if a.btm.storage != nil {
-		return a.btm.UpsertSchedule(ctx, jobToSchedule(job, nil))
+	if a.btm.Storage() != nil {
+		return a.btm.UpsertSchedule(ctx, scheduleapi.JobToSchedule(job, nil))
 	}
 	return a.btm.Schedule(ctx, job)
 }
 
 func (a scheduleManagerAdapter) Cancel(ctx context.Context, jobID string) error {
-	if a.btm.storage != nil {
+	if a.btm.Storage() != nil {
 		sched, err := a.btm.GetSchedule(ctx, jobID)
 		if err == nil {
 			sched.Enabled = false

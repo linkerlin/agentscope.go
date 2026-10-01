@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/gateway/scheduleapi"
 	"github.com/linkerlin/agentscope.go/service"
 )
 
@@ -21,7 +22,7 @@ func TestSchedule_PersistedCRUD(t *testing.T) {
 	srv.WithStorage(storage).WithBackgroundTaskManager(btm)
 	srv.RegisterScheduleRoutes()
 
-	body, _ := json.Marshal(scheduleRequest{
+	body, _ := json.Marshal(scheduleapi.ScheduleRequest{
 		ID:       "j1",
 		UserID:   "u1",
 		AgentID:  "a1",
@@ -51,7 +52,7 @@ func TestSchedule_PersistedCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list: expected 200, got %d", rr.Code)
 	}
-	var listed listSchedulesResponse
+	var listed scheduleapi.ListSchedulesResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestSchedule_PersistedCRUD(t *testing.T) {
 		t.Fatalf("expected 1 schedule, got %d", listed.Total)
 	}
 
-	patchBody, _ := json.Marshal(updateScheduleRequest{Payload: strPtr("pong")})
+	patchBody, _ := json.Marshal(scheduleapi.UpdateScheduleRequest{Payload: strPtr("pong")})
 	req = httptest.NewRequest(http.MethodPatch, "/schedule/j1", bytes.NewReader(patchBody))
 	req = req.WithContext(context.WithValue(req.Context(), service.ContextKeyUserID, "u1"))
 	rr = httptest.NewRecorder()

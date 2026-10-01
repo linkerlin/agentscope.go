@@ -1,9 +1,15 @@
-// Package gateway — wakeup_dispatcher.go realises Python agentscope's
-// WakeupDispatcher: a single background loop subscribes to the bus's wakeup
-// signal stream and, for each idle session, drains its inbox of pending
-// <team-message> blocks and re-runs the agent with them as input. Busy
-// sessions are retried until idle (messages stay persisted in the inbox).
-package gateway
+// Package wakeupapi is the 16.2 fourth registration-functionized cluster:
+// the team-collaboration wakeup dispatcher. Dependencies are narrowed to
+// small interfaces (Sessions: Run/IsActive) plus messagebus.TeamBus and
+// service.Storage so the cluster does not import the gateway root; the root
+// keeps a type alias and a thin constructor (see gateway/wakeup_compat.go).
+//
+// The dispatcher realises Python agentscope's WakeupDispatcher: a single
+// background loop subscribes to the bus's wakeup signal stream and, for each
+// idle session, drains its inbox of pending <team-message> blocks and
+// re-runs the agent with them as input. Busy sessions are retried until
+// idle (messages stay persisted in the inbox).
+package wakeupapi
 
 import (
 	"context"
@@ -14,6 +20,7 @@ import (
 
 	"github.com/linkerlin/agentscope.go/agent"
 	"github.com/linkerlin/agentscope.go/event"
+	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 	"github.com/linkerlin/agentscope.go/message"
 	"github.com/linkerlin/agentscope.go/messagebus"
 	"github.com/linkerlin/agentscope.go/service"
@@ -30,25 +37,32 @@ const wakeupPollInterval = 200 * time.Millisecond
 // the restored turn to register its confirmation waiter.
 const wakeupResumeInjectTimeout = 10 * time.Second
 
-// sessionRunFunc starts a session turn, usually through the coordinator
+// Sessions starts session turns and reports liveness (satisfied structurally
+// by the gateway root's *SessionManager).
+type Sessions interface {
+	Run(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error)
+	IsActive(sessionID string) bool
+}
+
+// RunFunc starts a session turn, usually through the coordinator
 // (cross-replica single-consumer semantics, 18.5). nil means "use the
-// in-process SessionManager".
-type sessionRunFunc func(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error)
+// injected Sessions".
+type RunFunc func(ctx context.Context, sessionID string, a agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error)
 
 // WakeupDispatcher drains team inboxes and re-runs idle worker sessions. It is
 // the async collaboration engine: TeamSay/AgentCreate enqueue wakeups; this
 // loop turns them into actual agent runs. Mirrors Python agentscope's
 // app/_manager/_wakeup_dispatcher.py.
 type WakeupDispatcher struct {
-	bus        messagebus.TeamBus
-	sessionMgr *SessionManager
-	storage    service.Storage
+	bus      messagebus.TeamBus
+	sessions Sessions
+	storage  service.Storage
 	// buildAgent constructs a fresh agent for a session (Server.buildSessionAgentFromStorage).
 	buildAgent func(ctx context.Context, agentID, sessionID string) (agent.Agent, error)
 	// run starts the turn; injected by Server.Start as the coordinator entry
 	// (18.5): wakeup-driven turns then participate in cross-replica session
-	// leases like HTTP-driven ones. nil falls back to sessionMgr.Run.
-	run sessionRunFunc
+	// leases like HTTP-driven ones. nil falls back to sessions.Run.
+	run RunFunc
 	// busyRetryTimeout bounds startTurn's busy-retry window.
 	busyRetryTimeout time.Duration
 
@@ -60,13 +74,13 @@ type WakeupDispatcher struct {
 // Server.buildSessionAgentFromStorage (or an equivalent per-session builder).
 func NewWakeupDispatcher(
 	bus messagebus.TeamBus,
-	sm *SessionManager,
+	sm Sessions,
 	storage service.Storage,
 	buildAgent func(ctx context.Context, agentID, sessionID string) (agent.Agent, error),
 ) *WakeupDispatcher {
 	return &WakeupDispatcher{
 		bus:              bus,
-		sessionMgr:       sm,
+		sessions:         sm,
 		storage:          storage,
 		buildAgent:       buildAgent,
 		busyRetryTimeout: wakeupBusyTimeout,
@@ -75,8 +89,8 @@ func NewWakeupDispatcher(
 
 // WithRun routes wakeup-driven turns through fn (typically
 // SessionCoordinator.Run). Without it the dispatcher uses the in-process
-// SessionManager only.
-func (d *WakeupDispatcher) WithRun(fn sessionRunFunc) *WakeupDispatcher {
+// Sessions only.
+func (d *WakeupDispatcher) WithRun(fn RunFunc) *WakeupDispatcher {
 	d.run = fn
 	return d
 }
@@ -140,7 +154,7 @@ func (d *WakeupDispatcher) handleWakeup(ctx context.Context, sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	if d.sessionMgr != nil && d.sessionMgr.IsActive(sessionID) {
+	if d.sessions != nil && d.sessions.IsActive(sessionID) {
 		go d.waitAndRun(ctx, sessionID)
 		return
 	}
@@ -157,7 +171,7 @@ func (d *WakeupDispatcher) waitAndRun(ctx context.Context, sessionID string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if d.sessionMgr == nil || !d.sessionMgr.IsActive(sessionID) {
+			if d.sessions == nil || !d.sessions.IsActive(sessionID) {
 				d.drainAndRun(ctx, sessionID)
 				return
 			}
@@ -219,7 +233,7 @@ func (d *WakeupDispatcher) drainAndRun(ctx context.Context, sessionID string) {
 func (d *WakeupDispatcher) startTurn(ctx context.Context, sessionID string, ag agent.Agent, msg *message.Msg) (<-chan event.AgentEvent, error) {
 	run := d.run
 	if run == nil {
-		run = d.sessionMgr.Run
+		run = d.sessions.Run
 	}
 	bo := newBackoff(wakeupPollInterval, 2*time.Second)
 	deadline := time.Now().Add(d.busyRetryTimeout)
@@ -231,7 +245,7 @@ func (d *WakeupDispatcher) startTurn(ctx context.Context, sessionID string, ag a
 		if err == nil {
 			return ch, nil
 		}
-		if !errors.Is(err, ErrSessionBusy) || time.Now().After(deadline) {
+		if !errors.Is(err, sessionapi.ErrSessionBusy) || time.Now().After(deadline) {
 			return nil, err
 		}
 		if !sleepCtx(ctx, bo.next()) {
@@ -352,4 +366,40 @@ func (d *WakeupDispatcher) notifyLeaderOfFailure(ctx context.Context, se *servic
 			se.ID, errMsg),
 	})
 	_ = d.bus.EnqueueWakeup(ctx, team.LeaderSessionID)
+}
+
+// --- local backoff helpers (16.2 move; verbatim from the gateway root's
+// worker.go, which keeps its own copies for the role-lease loop) ---
+
+// backoff is exponential with a ceiling; reset returns to the base.
+type backoff struct {
+	base, cur, max time.Duration
+}
+
+func newBackoff(base, max time.Duration) backoff {
+	return backoff{base: base, cur: base, max: max}
+}
+
+func (b *backoff) next() time.Duration {
+	d := b.cur
+	b.cur *= 2
+	if b.cur > b.max {
+		b.cur = b.max
+	}
+	return d
+}
+
+func (b *backoff) reset() { b.cur = b.base }
+
+// sleepCtx waits for d or ctx.Done; it reports whether the wait elapsed
+// (false means the context is done and the caller should exit).
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }

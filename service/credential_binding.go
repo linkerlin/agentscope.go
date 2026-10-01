@@ -47,6 +47,13 @@ func terminalCredentialStatus(s CredentialStatus) bool {
 // reachable end state is valid and writes are idempotent per target — a
 // concurrent FAILED vs CANCELLED race ends in whichever terminal state
 // landed last, never in a corrupt or half-written record.
+//
+// The transition writes a copy: storages hand out shared pointers
+// (MemoryStorage returns the stored *Credential itself), so mutating the
+// fetched record races concurrent readers and writers of the same object
+// (data race, and under -race a spurious test failure). Copying once keeps
+// every goroutine on its own object; storage-level locking then serialises
+// the final write.
 func TransitionCredential(ctx context.Context, storage Storage, id string, target CredentialStatus, apply func(*Credential) error) (*Credential, error) {
 	if !terminalCredentialStatus(target) && target != CredentialPending {
 		return nil, fmt.Errorf("credential: unknown target status %q", target)
@@ -55,6 +62,10 @@ func TransitionCredential(ctx context.Context, storage Storage, id string, targe
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrCredentialNotFound, id)
 	}
+	// Work on a copy from here on: the fetched pointer may be the stored
+	// object itself (shared with concurrent transitions).
+	copied := *cred
+	cred = &copied
 	current := cred.NormalizedStatus()
 	if current == target {
 		return cred, nil // idempotent no-op

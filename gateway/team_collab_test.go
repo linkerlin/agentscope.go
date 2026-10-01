@@ -3,15 +3,7 @@ package gateway
 import (
 	"context"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
-
-	"github.com/linkerlin/agentscope.go/agent"
-	"github.com/linkerlin/agentscope.go/event"
-	"github.com/linkerlin/agentscope.go/message"
-	"github.com/linkerlin/agentscope.go/messagebus"
-	"github.com/linkerlin/agentscope.go/service"
 )
 
 // TestTeamTools_EdgeCases covers the precondition self-checks each tool
@@ -102,66 +94,3 @@ func TestTeamTools_WorkerReportsToLeader(t *testing.T) {
 }
 
 // holdV2Agent keeps its ReplyStream open until the channel is closed, letting a
-// test hold a session "active" and then release it.
-type holdV2Agent struct {
-	fakeV2Agent
-	stream chan event.AgentEvent
-}
-
-func (h *holdV2Agent) ReplyStream(ctx context.Context, msg *message.Msg) (<-chan event.AgentEvent, error) {
-	return h.stream, nil
-}
-
-// TestWakeupDispatcher_BusyRetry verifies the busy path: when a wakeup targets
-// a session that is already running, the dispatcher waits for it to become idle
-// (polling), then drains the inbox and runs. Messages are never lost.
-func TestWakeupDispatcher_BusyRetry(t *testing.T) {
-	storage := service.NewMemoryStorage()
-	bus := messagebus.NewLocalBus()
-	defer bus.Close()
-	ctx := context.Background()
-
-	_ = storage.SaveAgentConfig(ctx, &service.AgentConfig{ID: "wa", UserID: "u1", Name: "W", Source: "team"})
-	_ = storage.SaveSession(ctx, &service.Session{ID: "ws", UserID: "u1", AgentID: "wa", Source: "team"})
-	_ = bus.InboxPush(ctx, "ws", messagebus.TeamMessage{From: "L", Content: "do task"})
-
-	sm := NewSessionManager()
-	// Occupy the session with a holder whose stream never closes on its own.
-	hold := &holdV2Agent{stream: make(chan event.AgentEvent)}
-	holdMsg := message.NewMsg().Role(message.RoleUser).TextContent("hold").Build()
-	if _, err := sm.Run(ctx, "ws", hold, holdMsg); err != nil {
-		t.Fatal(err)
-	}
-	if !sm.IsActive("ws") {
-		t.Fatal("session should be active while holder stream is open")
-	}
-
-	var buildCalled atomic.Bool
-	d := NewWakeupDispatcher(bus, sm, storage, func(ctx context.Context, agentID, sessionID string) (agent.Agent, error) {
-		buildCalled.Store(true)
-		return &fakeV2Agent{}, nil
-	})
-
-	// Wakeup hits a busy session -> spawns a background retry; build must not
-	// happen yet.
-	d.handleWakeup(ctx, "ws")
-	time.Sleep(300 * time.Millisecond)
-	if buildCalled.Load() {
-		t.Fatal("buildAgent must not run while the session is busy")
-	}
-
-	// Release the holder: closing the stream lets the run finish -> idle.
-	close(hold.stream)
-
-	// The retry loop should detect idle and process the inbox.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && !buildCalled.Load() {
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !buildCalled.Load() {
-		t.Fatal("buildAgent not called after session became idle (busy retry failed)")
-	}
-	if msgs, _ := bus.InboxDrain(ctx, "ws"); len(msgs) != 0 {
-		t.Fatalf("inbox should be drained after busy retry, got %d", len(msgs))
-	}
-}

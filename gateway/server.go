@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/linkerlin/agentscope.go/gateway/channelapi"
+	"github.com/linkerlin/agentscope.go/gateway/scheduleapi"
 	"github.com/linkerlin/agentscope.go/gateway/sessionapi"
 
 	agentscope "github.com/linkerlin/agentscope.go"
@@ -98,6 +100,12 @@ type Server struct {
 	// capability; WithRateLimiter overrides, WithRateLimitDisabled opts out.
 	rateLimiter       RateLimiter
 	rateLimitDisabled bool
+
+	// schedule HTTP face (16.2): lazily-built scheduleapi handlers.
+	scheduleAPIBuild    sync.Once
+	scheduleAPIHandlers *scheduleapi.Handlers
+	channelAPIBuild     sync.Once
+	channelAPIHandlers  *channelapi.Handlers
 
 	// dingtalkAgentResolver resolves the agent for a HITL card callback
 	// (18.3); nil = buildSessionAgentFromStorage. Injectable for custom

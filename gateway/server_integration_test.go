@@ -3,12 +3,12 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/linkerlin/agentscope.go/event"
+	"github.com/linkerlin/agentscope.go/gateway/scheduleapi"
+	"github.com/linkerlin/agentscope.go/service"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/linkerlin/agentscope.go/event"
-	"github.com/linkerlin/agentscope.go/service"
 )
 
 func TestServer_WithRegistry(t *testing.T) {
@@ -87,7 +87,7 @@ func TestServer_ScheduleRoutes_NotConfigured(t *testing.T) {
 	srv := NewServer(&mockAgent{name: "test"})
 	srv.RegisterScheduleRoutes()
 
-	body, _ := json.Marshal(scheduleRequest{ID: "j1", AgentID: "a1", CronExpr: "* * * * *"})
+	body, _ := json.Marshal(scheduleapi.ScheduleRequest{ID: "j1", AgentID: "a1", CronExpr: "* * * * *"})
 	req := httptest.NewRequest(http.MethodPost, "/schedule", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
@@ -112,14 +112,14 @@ func TestServer_ScheduleCreateAndDelete(t *testing.T) {
 	srv.RegisterScheduleRoutes()
 
 	// Create
-	body, _ := json.Marshal(scheduleRequest{ID: "j1", AgentID: "a1", CronExpr: "*/5 * * * *", Payload: "hi"})
+	body, _ := json.Marshal(scheduleapi.ScheduleRequest{ID: "j1", AgentID: "a1", CronExpr: "*/5 * * * *", Payload: "hi"})
 	req := httptest.NewRequest(http.MethodPost, "/schedule", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected 201 on create, got %d: %s", rr.Code, rr.Body.String())
 	}
-	var resp scheduleResponse
+	var resp scheduleapi.ScheduleResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}

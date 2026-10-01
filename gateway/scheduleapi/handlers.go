@@ -1,4 +1,7 @@
-package gateway
+// gateway/scheduleapi/handlers.go — the schedule CRUD HTTP face (16.2):
+// same URLs, auth wrapping and behaviours as the pre-extraction root
+// handlers; the root's RegisterScheduleRoutes delegates here.
+package scheduleapi
 
 import (
 	"encoding/json"
@@ -11,7 +14,57 @@ import (
 	"github.com/linkerlin/agentscope.go/service"
 )
 
-type scheduleRequest struct {
+// DefaultMaxBodyBytes caps the JSON write endpoints (18.11 parity).
+const DefaultMaxBodyBytes = 1 << 20
+
+// Deps carries the handlers' narrow dependency surface.
+type Deps struct {
+	// BTM executes and persists schedules.
+	BTM *BackgroundTaskManager
+	// Storage backs the schedule-sessions listing; nil → 503 on that one
+	// endpoint only.
+	Storage service.Storage
+	// MaxBodyBytes caps request bodies; 0 = DefaultMaxBodyBytes.
+	MaxBodyBytes int64
+}
+
+// Handlers is the schedule HTTP face.
+type Handlers struct {
+	d Deps
+}
+
+// NewHandlers builds the handlers over the deps.
+func NewHandlers(d Deps) *Handlers { return &Handlers{d: d} }
+
+// Register mounts the schedule CRUD endpoints (URLs unchanged from the
+// pre-extraction root routes). wrap is the caller's auth middleware.
+func (h *Handlers) Register(mux *http.ServeMux, wrap func(http.HandlerFunc) http.HandlerFunc) {
+	if wrap == nil {
+		wrap = func(hf http.HandlerFunc) http.HandlerFunc { return hf }
+	}
+	mux.HandleFunc("/schedule", wrap(h.handleCollection))
+	mux.HandleFunc("/schedule/{id}", wrap(h.handleItem))
+	mux.HandleFunc("/schedule/{id}/sessions", wrap(h.handleSessions))
+	// Legacy delete endpoint kept for backward compatibility.
+	mux.HandleFunc("/schedule/delete", wrap(h.handleDeleteLegacy))
+}
+
+func (h *Handlers) maxBody() int64 {
+	if h.d.MaxBodyBytes > 0 {
+		return h.d.MaxBodyBytes
+	}
+	return DefaultMaxBodyBytes
+}
+
+// decodeJSONLimit decodes the body under the cap; over-limit bodies stop
+// reading at the boundary (18.11 semantics).
+func (h *Handlers) decodeJSONLimit(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxBody())
+	defer r.Body.Close()
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
+type ScheduleRequest struct {
 	ID              string `json:"id,omitempty"`
 	Name            string `json:"name,omitempty"`
 	Description     string `json:"description,omitempty"`
@@ -28,7 +81,7 @@ type scheduleRequest struct {
 	SourceSessionID string `json:"source_session_id,omitempty"`
 }
 
-type updateScheduleRequest struct {
+type UpdateScheduleRequest struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
 	CronExpr    *string `json:"cron_expr,omitempty"`
@@ -40,40 +93,40 @@ type updateScheduleRequest struct {
 	Timeout     *string `json:"timeout,omitempty"`
 }
 
-type scheduleResponse struct {
+type ScheduleResponse struct {
 	ID      string    `json:"id"`
 	NextRun time.Time `json:"next_run,omitempty"`
 	Error   string    `json:"error,omitempty"`
 }
 
-type listSchedulesResponse struct {
+type ListSchedulesResponse struct {
 	Schedules []*service.Schedule `json:"schedules"`
 	Total     int                 `json:"total"`
 }
 
-type scheduleSessionsResponse struct {
+type ScheduleSessionsResponse struct {
 	Sessions []*service.Session `json:"sessions"`
 	Total    int                `json:"total"`
 }
 
-func (s *Server) handleScheduleCollection(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handleCollection(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.handleScheduleList(w, r)
+		h.handleList(w, r)
 	case http.MethodPost:
-		s.handleScheduleCreate(w, r)
+		h.handleCreate(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (s *Server) handleScheduleList(w http.ResponseWriter, r *http.Request) {
-	if s.backgroundTaskMgr == nil {
+func (h *Handlers) handleList(w http.ResponseWriter, r *http.Request) {
+	if h.d.BTM == nil {
 		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
 		return
 	}
 	userID := service.UserIDFromContext(r.Context())
-	schedules, err := s.backgroundTaskMgr.ListSchedules(r.Context(), userID)
+	schedules, err := h.d.BTM.ListSchedules(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -82,18 +135,18 @@ func (s *Server) handleScheduleList(w http.ResponseWriter, r *http.Request) {
 		schedules = []*service.Schedule{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(listSchedulesResponse{Schedules: schedules, Total: len(schedules)})
+	_ = json.NewEncoder(w).Encode(ListSchedulesResponse{Schedules: schedules, Total: len(schedules)})
 }
 
-func (s *Server) handleScheduleCreate(w http.ResponseWriter, r *http.Request) {
-	if s.backgroundTaskMgr == nil {
+func (h *Handlers) handleCreate(w http.ResponseWriter, r *http.Request) {
+	if h.d.BTM == nil {
 		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	var req scheduleRequest
-	if err := decodeJSONLimit(w, r, &req); err != nil {
-		writeBodyLimitError(w, err)
+	var req ScheduleRequest
+	if err := h.decodeJSONLimit(w, r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.AgentID == "" || req.CronExpr == "" {
@@ -144,18 +197,18 @@ func (s *Server) handleScheduleCreate(w http.ResponseWriter, r *http.Request) {
 		sched.Source = "USER"
 	}
 
-	if err := s.backgroundTaskMgr.UpsertSchedule(r.Context(), sched); err != nil {
+	if err := h.d.BTM.UpsertSchedule(r.Context(), sched); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	next, _ := s.backgroundTaskMgr.NextRun(req.ID)
+	next, _ := h.d.BTM.NextRun(req.ID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(scheduleResponse{ID: req.ID, NextRun: next})
+	_ = json.NewEncoder(w).Encode(ScheduleResponse{ID: req.ID, NextRun: next})
 }
 
-func (s *Server) handleScheduleItem(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handleItem(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		http.Error(w, "id is required", http.StatusBadRequest)
@@ -163,29 +216,29 @@ func (s *Server) handleScheduleItem(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodPatch:
-		s.handleScheduleUpdate(w, r, id)
+		h.handleUpdate(w, r, id)
 	case http.MethodDelete:
-		s.handleScheduleDeleteByID(w, r, id)
+		h.handleDeleteByID(w, r, id)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (s *Server) handleScheduleUpdate(w http.ResponseWriter, r *http.Request, id string) {
-	if s.backgroundTaskMgr == nil {
+func (h *Handlers) handleUpdate(w http.ResponseWriter, r *http.Request, id string) {
+	if h.d.BTM == nil {
 		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
 		return
 	}
 	userID := service.UserIDFromContext(r.Context())
-	sched, err := s.backgroundTaskMgr.GetSchedule(r.Context(), id)
+	sched, err := h.d.BTM.GetSchedule(r.Context(), id)
 	if err != nil || (userID != "" && sched.UserID != userID) {
 		http.Error(w, fmt.Sprintf("schedule not found: %s", id), http.StatusNotFound)
 		return
 	}
 
-	var req updateScheduleRequest
-	if err := decodeJSONLimit(w, r, &req); err != nil {
-		writeBodyLimitError(w, err)
+	var req UpdateScheduleRequest
+	if err := h.decodeJSONLimit(w, r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Name != nil {
@@ -221,40 +274,40 @@ func (s *Server) handleScheduleUpdate(w http.ResponseWriter, r *http.Request, id
 	}
 	sched.UpdatedAt = time.Now()
 
-	if err := s.backgroundTaskMgr.UpsertSchedule(r.Context(), sched); err != nil {
+	if err := h.d.BTM.UpsertSchedule(r.Context(), sched); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	next, _ := s.backgroundTaskMgr.NextRun(id)
+	next, _ := h.d.BTM.NextRun(id)
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(scheduleResponse{ID: id, NextRun: next})
+	_ = json.NewEncoder(w).Encode(ScheduleResponse{ID: id, NextRun: next})
 }
 
-func (s *Server) handleScheduleDeleteByID(w http.ResponseWriter, r *http.Request, id string) {
-	if s.backgroundTaskMgr == nil {
+func (h *Handlers) handleDeleteByID(w http.ResponseWriter, r *http.Request, id string) {
+	if h.d.BTM == nil {
 		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
 		return
 	}
 	userID := service.UserIDFromContext(r.Context())
-	if err := s.backgroundTaskMgr.DeleteSchedule(r.Context(), userID, id); err != nil {
+	if err := h.d.BTM.DeleteSchedule(r.Context(), userID, id); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleScheduleSessions(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.storage == nil {
+	if h.d.Storage == nil {
 		http.Error(w, "storage not configured", http.StatusServiceUnavailable)
 		return
 	}
 	scheduleID := r.PathValue("id")
 	userID := service.UserIDFromContext(r.Context())
-	sessions, err := s.storage.ListSessionsBySchedule(r.Context(), userID, scheduleID)
+	sessions, err := h.d.Storage.ListSessionsBySchedule(r.Context(), userID, scheduleID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -263,15 +316,15 @@ func (s *Server) handleScheduleSessions(w http.ResponseWriter, r *http.Request) 
 		sessions = []*service.Session{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(scheduleSessionsResponse{Sessions: sessions, Total: len(sessions)})
+	_ = json.NewEncoder(w).Encode(ScheduleSessionsResponse{Sessions: sessions, Total: len(sessions)})
 }
 
-func (s *Server) handleScheduleDeleteLegacy(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) handleDeleteLegacy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if s.backgroundTaskMgr == nil {
+	if h.d.BTM == nil {
 		http.Error(w, "background task manager not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -281,18 +334,9 @@ func (s *Server) handleScheduleDeleteLegacy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	userID := service.UserIDFromContext(r.Context())
-	if err := s.backgroundTaskMgr.DeleteSchedule(r.Context(), userID, jobID); err != nil {
+	if err := h.d.BTM.DeleteSchedule(r.Context(), userID, jobID); err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// RegisterScheduleRoutes adds schedule CRUD endpoints aligned with PyV2 /schedule.
-func (s *Server) RegisterScheduleRoutes() {
-	s.mux.HandleFunc("/schedule", s.requireAuth(s.handleScheduleCollection))
-	s.mux.HandleFunc("/schedule/{id}", s.requireAuth(s.handleScheduleItem))
-	s.mux.HandleFunc("/schedule/{id}/sessions", s.requireAuth(s.handleScheduleSessions))
-	// Legacy delete endpoint kept for backward compatibility.
-	s.mux.HandleFunc("/schedule/delete", s.requireAuth(s.handleScheduleDeleteLegacy))
 }

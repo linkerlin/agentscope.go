@@ -201,6 +201,93 @@ func (c *Channel) SendText(ctx context.Context, chatID, text string) error {
 	return c.sendMessage(ctx, chatID, "text", map[string]any{"text": text})
 }
 
+// MaxTextLen declares the per-message rune limit the platform tolerates for
+// one text message; DeliverText splits longer replies at this boundary
+// (18.6). Conservative by design: Feishu accepts large bodies, but giant
+// bubbles are unreadable in chat.
+func (c *Channel) MaxTextLen() int { return 4000 }
+
+// Capabilities declares what this adapter supports (18.6): reactions on
+// messages, chat listing, and — with NewWebSocket — a long-lived inbound
+// connection.
+func (c *Channel) Capabilities() []channel.Capability {
+	return []channel.Capability{channel.CapReaction, channel.CapListChats, channel.CapWebSocket}
+}
+
+// React adds an emoji reaction to a message.
+// Docs: POST /im/v1/messages/{message_id}/reactions
+func (c *Channel) React(ctx context.Context, messageID, emoji string) error {
+	tok, err := c.token(ctx)
+	if err != nil {
+		return err
+	}
+	body, _ := json.Marshal(map[string]any{
+		"reaction_type": map[string]string{"emoji_type": emoji},
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+"/im/v1/messages/"+messageID+"/reactions", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.httpc.Do(req)
+	if err != nil {
+		return fmt.Errorf("feishu: react: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var data struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal(raw, &data); err == nil && data.Code != 0 {
+		return fmt.Errorf("feishu: react failed code=%d msg=%s", data.Code, data.Msg)
+	}
+	return nil
+}
+
+// Chat is one group the bot belongs to (ListChats result row).
+type Chat struct {
+	ID   string `json:"chat_id"`
+	Name string `json:"name"`
+}
+
+// ListChats lists the chats the bot is a member of.
+// Docs: GET /im/v1/chats
+func (c *Channel) ListChats(ctx context.Context) ([]Chat, error) {
+	tok, err := c.token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+"/im/v1/chats?page_size=100", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.httpc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("feishu: list chats: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	var data struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Items []Chat `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, fmt.Errorf("feishu: decode chats: %w", err)
+	}
+	if data.Code != 0 {
+		return nil, fmt.Errorf("feishu: list chats failed code=%d msg=%s", data.Code, data.Msg)
+	}
+	return data.Data.Items, nil
+}
+
 // sendMessage posts a message of the given type to a chat.
 func (c *Channel) sendMessage(ctx context.Context, chatID, msgType string, content map[string]any) error {
 	tok, err := c.token(ctx)

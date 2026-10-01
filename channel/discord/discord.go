@@ -108,6 +108,14 @@ func (c *Channel) SendText(ctx context.Context, chatID, text string) error {
 	return nil
 }
 
+// MaxTextLen declares Discord's per-message cap (2000 chars, 18.6).
+func (c *Channel) MaxTextLen() int { return 2000 }
+
+// Capabilities declares the platform abilities (18.6).
+func (c *Channel) Capabilities() []channel.Capability {
+	return []channel.Capability{channel.CapReaction}
+}
+
 // Close disconnects the gateway if connected (idempotent).
 func (c *Channel) Close() error {
 	if c.session != nil {

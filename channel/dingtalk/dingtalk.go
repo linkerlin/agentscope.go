@@ -80,6 +80,15 @@ func (c *Channel) ID() string { return c.id }
 // ChannelKind self-describes the adapter for gateway listings (18.3).
 func (c *Channel) ChannelKind() string { return "dingtalk" }
 
+// MaxTextLen declares the conservative per-message cap for robot group
+// messages (18.6); DeliverText splits longer replies here.
+func (c *Channel) MaxTextLen() int { return 3000 }
+
+// Capabilities declares the platform abilities (18.6): streaming AI cards.
+func (c *Channel) Capabilities() []channel.Capability {
+	return []channel.Capability{channel.CapCardStream}
+}
+
 // Close implements channel.Channel (stateless HTTP; nothing to tear down).
 func (c *Channel) Close() error { return nil }
 

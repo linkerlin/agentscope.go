@@ -115,7 +115,10 @@ func (r *ChannelRunner) runAndReply(ctx context.Context, sessionID string, a age
 		return
 	}
 	if ch := r.Lookup(ev.ChannelID); ch != nil {
-		_ = ch.SendText(ctx, ev.ChatID, reply)
+		// Capability-driven delivery (18.6): long replies split at the
+		// channel's declared per-message limit; undeclared channels send
+		// exactly as before.
+		_ = channel.DeliverText(ctx, ch, ev.ChatID, reply)
 	}
 }
 

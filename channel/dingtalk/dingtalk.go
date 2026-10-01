@@ -206,6 +206,12 @@ func (c *Channel) verifySignature(r *http.Request) bool {
 	return hmac.Equal([]byte(want), []byte(sig))
 }
 
+// VerifyRequest is the exported signature check for callbacks the gateway
+// routes on this channel's behalf (card callbacks, 18.3) — same HMAC pair
+// as the outgoing-robot endpoint. With no robot secret configured every
+// request passes (private-network deployments opt out explicitly).
+func (c *Channel) VerifyRequest(r *http.Request) bool { return c.verifySignature(r) }
+
 // normalize maps an outgoing callback payload onto a ChannelEvent.
 func (c *Channel) normalize(p outgoingPayload) channel.ChannelEvent {
 	now := time.Now()

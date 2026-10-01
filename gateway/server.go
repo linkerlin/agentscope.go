@@ -99,6 +99,11 @@ type Server struct {
 	rateLimiter       RateLimiter
 	rateLimitDisabled bool
 
+	// dingtalkAgentResolver resolves the agent for a HITL card callback
+	// (18.3); nil = buildSessionAgentFromStorage. Injectable for custom
+	// session-agent resolution.
+	dingtalkAgentResolver func(ctx context.Context, agentID, sessionID string) (agent.Agent, error)
+
 	// session HTTP face (16.2): lazily-built sessionapi handlers bridging
 	// the Server wiring; see sessionapi_compat.go.
 	sessionAPIBuild    sync.Once

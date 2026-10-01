@@ -134,14 +134,24 @@ type hitlAction struct {
 	} `json:"decisions"`
 }
 
+// HitlAction is the public shape of a HITL decision embedded in a card
+// callback (18.3): the gateway bridge needs SessionID to route the resume,
+// which ConfirmDecisionFromCallback's event alone does not carry.
+type HitlAction struct {
+	SessionID string
+	ReplyID   string
+	ConfirmID string
+	Decisions []event.ConfirmDecision
+}
+
 // ErrNotHITLAction is returned when a callback's ActionValue is not a HITL
 // decision (custom card actions are free to exist alongside).
 var ErrNotHITLAction = fmt.Errorf("dingtalk: callback action is not a hitl_decision")
 
-// ConfirmDecisionFromCallback maps a card callback onto the UserConfirmResult
-// event that resumes a HITL-suspended agent. Non-HITL actions return
-// ErrNotHITLAction so callers can route them elsewhere.
-func ConfirmDecisionFromCallback(cb *CardCallback) (*event.UserConfirmResultEvent, error) {
+// ParseHitlAction decodes a card callback into the public HITL action shape.
+// Non-HITL actions return ErrNotHITLAction so callers can route them
+// elsewhere (custom buttons, bot commands).
+func ParseHitlAction(cb *CardCallback) (*HitlAction, error) {
 	var action hitlAction
 	if len(cb.ActionValue) == 0 {
 		return nil, ErrNotHITLAction
@@ -155,12 +165,27 @@ func ConfirmDecisionFromCallback(cb *CardCallback) (*event.UserConfirmResultEven
 	if action.SessionID == "" || action.ConfirmID == "" {
 		return nil, fmt.Errorf("dingtalk: hitl action missing session_id/confirm_id")
 	}
-	decisions := make([]event.ConfirmDecision, 0, len(action.Decisions))
+	out := &HitlAction{
+		SessionID: action.SessionID,
+		ReplyID:   action.ReplyID,
+		ConfirmID: action.ConfirmID,
+	}
 	for _, d := range action.Decisions {
-		decisions = append(decisions, event.ConfirmDecision{
+		out.Decisions = append(out.Decisions, event.ConfirmDecision{
 			ToolCallID: d.ToolCallID,
 			Decision:   d.Decision,
 		})
 	}
-	return event.NewUserConfirmResult(action.ReplyID, action.ConfirmID, decisions), nil
+	return out, nil
+}
+
+// ConfirmDecisionFromCallback maps a card callback onto the UserConfirmResult
+// event that resumes a HITL-suspended agent. Non-HITL actions return
+// ErrNotHITLAction so callers can route them elsewhere.
+func ConfirmDecisionFromCallback(cb *CardCallback) (*event.UserConfirmResultEvent, error) {
+	action, err := ParseHitlAction(cb)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewUserConfirmResult(action.ReplyID, action.ConfirmID, action.Decisions), nil
 }

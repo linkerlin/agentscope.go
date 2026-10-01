@@ -37,6 +37,11 @@ func (s *Server) RegisterChannelRoutes() {
 	}
 	s.mux.HandleFunc("GET /api/v1/channels", s.requireAuth(s.handleListChannels))
 	s.mux.HandleFunc("POST /api/v1/channels/{id}/webhook", s.handleWebhookDelivery)
+	// DingTalk AI-card callbacks (18.3): authenticated by the platform's
+	// HMAC signature pair inside the handler, not by a tenant JWT — a
+	// machine-to-platform callback cannot carry one. The HITL decision is
+	// injected through the 23.2 idempotent resume state machine.
+	s.mux.HandleFunc("POST /api/v1/channels/{id}/dingtalk/card-callback", s.handleDingtalkCardCallback)
 }
 
 type channelInfo struct {

@@ -15,8 +15,9 @@ import (
 // sessionIdentityFixture builds a storage+auth server exactly the way the
 // web_ui production assembly does (18.10): MemoryStorage, JWT, V2 routes.
 type sessionIdentityFixture struct {
-	srv   *Server
-	token string
+	srv     *Server
+	token   string
+	storage service.Storage
 }
 
 func newSessionIdentityFixture(t *testing.T) *sessionIdentityFixture {
@@ -29,6 +30,7 @@ func newSessionIdentityFixture(t *testing.T) *sessionIdentityFixture {
 		WithAuthenticator(jwtAuth)
 	srv.RegisterAuthRoutes(jwtAuth)
 	srv.RegisterV2Routes()
+	srv.RegisterServiceRoutes()
 
 	// Register + login → bearer token (22.1 proof-of-possession flow).
 	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
@@ -53,7 +55,7 @@ func newSessionIdentityFixture(t *testing.T) *sessionIdentityFixture {
 	if err := json.Unmarshal(loginRec.Body.Bytes(), &loginResp); err != nil {
 		t.Fatal(err)
 	}
-	return &sessionIdentityFixture{srv: srv, token: loginResp.Token}
+	return &sessionIdentityFixture{srv: srv, token: loginResp.Token, storage: storage}
 }
 
 func (f *sessionIdentityFixture) post(t *testing.T, path, body string, sessionID string) *httptest.ResponseRecorder {

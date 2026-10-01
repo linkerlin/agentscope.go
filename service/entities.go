@@ -114,6 +114,41 @@ type Credential struct {
 	Encrypted string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Status is the interactive-binding state machine (18.4): credentials can
+	// be created PENDING (binding initiated, secret not yet delivered) and
+	// move to AUTHORIZED / FAILED / CANCELLED via idempotent transitions.
+	// Empty reads as AUTHORIZED — pre-18.4 rows were created usable and stay
+	// usable unchanged.
+	Status CredentialStatus `json:"status,omitempty"`
+	// BindingRef carries the interactive binding's external reference (an
+	// authorization-flow ID, a platform union id, …). A reference only:
+	// interaction payloads and secrets never land on this field (18.4).
+	BindingRef string `json:"binding_ref,omitempty"`
+}
+
+// CredentialStatus is the interactive-binding lifecycle (18.4). The zero
+// value "" normalizes to CredentialAuthorized for backward compatibility.
+type CredentialStatus string
+
+const (
+	// CredentialPending: the binding was initiated but the secret has not
+	// been delivered. Interactive transitions may still move it anywhere.
+	CredentialPending CredentialStatus = "PENDING"
+	// CredentialAuthorized: the credential is complete and usable. Terminal.
+	CredentialAuthorized CredentialStatus = "AUTHORIZED"
+	// CredentialFailed: the binding flow reported failure. Terminal.
+	CredentialFailed CredentialStatus = "FAILED"
+	// CredentialCancelled: the user cancelled the binding. Terminal.
+	CredentialCancelled CredentialStatus = "CANCELLED"
+)
+
+// NormalizedStatus returns the effective status: "" reads as AUTHORIZED so
+// credentials written before 18.4 keep their semantics.
+func (c *Credential) NormalizedStatus() CredentialStatus {
+	if c == nil || c.Status == "" {
+		return CredentialAuthorized
+	}
+	return c.Status
 }
 
 // credentialPersist mirrors Credential with the secret included in its
@@ -123,26 +158,30 @@ type Credential struct {
 // serialized shape matches the historical payload, so existing rows load
 // unchanged.
 type credentialPersist struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Provider  string    `json:"provider"`
-	Label     string    `json:"label"`
-	Encrypted string    `json:"encrypted"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID         string           `json:"id"`
+	UserID     string           `json:"user_id"`
+	Provider   string           `json:"provider"`
+	Label      string           `json:"label"`
+	Encrypted  string           `json:"encrypted"`
+	Status     CredentialStatus `json:"status,omitempty"`
+	BindingRef string           `json:"binding_ref,omitempty"`
+	CreatedAt  time.Time        `json:"created_at"`
+	UpdatedAt  time.Time        `json:"updated_at"`
 }
 
 func credentialToPersist(c *Credential) credentialPersist {
 	return credentialPersist{
 		ID: c.ID, UserID: c.UserID, Provider: c.Provider, Label: c.Label,
-		Encrypted: c.Encrypted, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Encrypted: c.Encrypted, Status: c.Status, BindingRef: c.BindingRef,
+		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 }
 
 func (p credentialPersist) toCredential() *Credential {
 	return &Credential{
 		ID: p.ID, UserID: p.UserID, Provider: p.Provider, Label: p.Label,
-		Encrypted: p.Encrypted, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Encrypted: p.Encrypted, Status: p.Status, BindingRef: p.BindingRef,
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 

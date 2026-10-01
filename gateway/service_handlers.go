@@ -39,6 +39,10 @@ func (s *Server) RegisterServiceRoutes() {
 	s.mux.HandleFunc("GET /api/v1/credentials/{id}", s.requireAuth(s.handleGetCredential))
 	s.mux.HandleFunc("PATCH /api/v1/credentials/{id}", s.requireAuth(s.handleUpdateCredential))
 	s.mux.HandleFunc("DELETE /api/v1/credentials/{id}", s.requireAuth(s.handleDeleteCredential))
+	// Interactive binding transitions (18.4): idempotent, callback-facing.
+	s.mux.HandleFunc("POST /api/v1/credentials/{id}/authorize", s.requireAuth(s.handleAuthorizeCredential))
+	s.mux.HandleFunc("POST /api/v1/credentials/{id}/fail", s.requireAuth(s.handleFailCredential))
+	s.mux.HandleFunc("POST /api/v1/credentials/{id}/cancel", s.requireAuth(s.handleCancelCredential))
 }
 
 // --- Agent Configs ---
@@ -409,6 +413,10 @@ type createCredentialRequest struct {
 	Label    string         `json:"label"`
 	Value    string         `json:"value"`
 	Data     map[string]any `json:"data"` // preferred for typed credentials (supports /schemas)
+	// BindingRef initiates an interactive binding (18.4): the credential is
+	// created PENDING with this external reference and no secret — completion
+	// goes through the authorize/fail/cancel endpoints.
+	BindingRef string `json:"binding_ref,omitempty"`
 }
 
 type updateCredentialRequest struct {
@@ -454,10 +462,14 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 	}
 
 	userID := service.UserIDFromContext(r.Context())
+	binding := req.BindingRef != ""
 
 	// Production mode refuses plaintext credential storage (22.1): without a
 	// cipher the value would be readable by anyone with database access.
-	if s.production && s.cipher == nil {
+	// Interactive bindings (18.4) carry no secret at creation, so they are
+	// exempt — the delivered secret still goes through the cipher at
+	// authorize time.
+	if s.production && s.cipher == nil && !binding {
 		http.Error(w, "credential storage requires a cipher in production mode (configure AppConfig.Cipher)", http.StatusBadRequest)
 		return
 	}
@@ -487,7 +499,30 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 		if sc.Provider == "" {
 			sc.Provider = c.Provider()
 		}
+		if binding {
+			// Interactive binding (18.4): PENDING with the reference only —
+			// the typed data delivered here is NOT stored as the secret; it
+			// arrives at authorize time instead.
+			sc.Status = service.CredentialPending
+			sc.BindingRef = req.BindingRef
+			sc.Encrypted = ""
+		}
 		cred = sc
+	} else if binding {
+		// Interactive binding (18.4): reference-only creation, no secret.
+		if req.Provider == "" {
+			http.Error(w, "provider is required", http.StatusBadRequest)
+			return
+		}
+		cred = &service.Credential{
+			ID:         generateID("cred"),
+			UserID:     userID,
+			Provider:   req.Provider,
+			Label:      req.Label,
+			Status:     service.CredentialPending,
+			BindingRef: req.BindingRef,
+			CreatedAt:  time.Now(),
+		}
 	} else {
 		// Legacy flat path (provider + value)
 		if req.Provider == "" || req.Value == "" {
@@ -509,6 +544,7 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 			Provider:  req.Provider,
 			Label:     req.Label,
 			Encrypted: encrypted,
+			Status:    service.CredentialAuthorized,
 			CreatedAt: time.Now(),
 		}
 	}

@@ -4,14 +4,26 @@
 
 // ───────────────────────── shared helpers ─────────────────────────
 
-function getSessionId() {
-  const KEY = "agentscope-go.session-id";
-  let id = localStorage.getItem(KEY);
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem(KEY, id); }
-  return id;
+// Session identity (18.10): the server mints session IDs (22.2) — the
+// client never invents one. The first chat POST omits session_id; the
+// server's Agent-Session-Id response header is then adopted and reused for
+// steering, interrupts and reconnects. With storage-backed deployments a
+// client-supplied ID for an unknown session is a hard 404, which is exactly
+// what letting the server lead prevents.
+const SESSION_STORAGE_KEY = "agentscope-go.session-id";
+let sessionId = localStorage.getItem(SESSION_STORAGE_KEY) || "";
+
+function adoptSessionId(id) {
+  if (!id || id === sessionId) return;
+  sessionId = id;
+  try { localStorage.setItem(SESSION_STORAGE_KEY, id); } catch (_) {}
+  document.getElementById("session-id").textContent = sessionId.slice(0, 8) + "…";
 }
-const sessionId = getSessionId();
-document.getElementById("session-id").textContent = sessionId.slice(0, 8) + "…";
+if (sessionId) {
+  document.getElementById("session-id").textContent = sessionId.slice(0, 8) + "…";
+} else {
+  document.getElementById("session-id").textContent = "(服务端分配中…)";
+}
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -45,7 +57,6 @@ document.querySelectorAll(".nav-item").forEach(btn => {
 
 // ───────────────────────── chat (AG-UI SSE) ─────────────────────────
 
-const SESSION_STORAGE_KEY = "agentscope-go.session-id";
 const messagesEl = document.getElementById("messages");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("input");
@@ -81,13 +92,14 @@ function appendSystemNote(text) {
 }
 if (steerBtn) steerBtn.addEventListener("click", () => {
   const text = (steerInput.value || "").trim();
-  if (!text) return;
+  if (!text || !sessionId) return;
   steerInput.value = "";
   api("POST", `/v2/sessions/${encodeURIComponent(sessionId)}/steer`, { text })
     .then(() => appendSystemNote("steer 注入: " + text))
     .catch(err => appendSystemNote("steer 失败: " + err.message));
 });
 if (interruptBtn) interruptBtn.addEventListener("click", () => {
+  if (!sessionId) return;
   api("POST", `/v2/sessions/${encodeURIComponent(sessionId)}/interrupt`)
     .then(() => appendSystemNote("已发送打断"))
     .catch(err => appendSystemNote("打断失败: " + err.message));
@@ -170,14 +182,24 @@ async function consumeEventStream(res, run, signal) {
   return meaningful;
 }
 async function reconnectOnLoad() {
+  // No server-adopted session yet: nothing to reconnect to (18.10 — we do
+  // not fabricate an ID just to probe).
+  if (!sessionId) { setReconnectStatus(""); return; }
   setReconnectStatus("重连中…"); sendBtn.disabled = true;
   const controller = new AbortController(); activeStream = controller;
   const run = createAssistantRun(); run.meta.textContent = "Assistant · 重连中…";
   try {
     const url = `/v2/chat?protocol=agui&session_id=${encodeURIComponent(sessionId)}`;
     const res = await fetch(url, { method: "GET", headers: { Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId }, signal: controller.signal });
-    if (res.status === 404 || res.status === 503) { run.wrap.remove(); setReconnectStatus(""); return; }
+    if (res.status === 404 || res.status === 503) {
+      // Unknown or gone: drop the stale ID and let the next POST mint one.
+      try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (_) {}
+      sessionId = "";
+      document.getElementById("session-id").textContent = "(服务端分配中…)";
+      run.wrap.remove(); setReconnectStatus(""); return;
+    }
     if (!res.ok) { run.wrap.remove(); setReconnectStatus(`重连失败 (${res.status})`); return; }
+    adoptSessionId(res.headers.get("Agent-Session-Id"));
     const meaningful = await consumeEventStream(res, run, controller.signal);
     if (!meaningful) { run.wrap.remove(); setReconnectStatus(""); return; }
     run.textEl.classList.remove("typing");
@@ -196,13 +218,22 @@ async function sendMessage(text) {
   sendBtn.disabled = true; setReconnectStatus("");
   const controller = new AbortController(); activeStream = controller;
   try {
+    // First packet omits session_id entirely (18.10): the server mints one
+    // and returns it via Agent-Session-Id; later turns reuse the adopted ID.
+    const headers = { "Content-Type": "application/json", Accept: "application/json, text/event-stream" };
+    const payload = { text };
+    if (sessionId) {
+      headers["Agent-Session-Id"] = sessionId;
+      payload.session_id = sessionId;
+    }
     const res = await fetch("/v2/chat?protocol=agui", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId },
-      body: JSON.stringify({ text, session_id: sessionId }),
+      headers,
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
+    adoptSessionId(res.headers.get("Agent-Session-Id"));
     await consumeEventStream(res, run, controller.signal);
   } catch (err) {
     if (err.name !== "AbortError") { run.textEl.classList.remove("typing"); run.textEl.innerHTML = `<span class="error-banner">${escapeHtml(err.message)}</span>`; }

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/linkerlin/agentscope.go/agent"
@@ -12,8 +14,11 @@ import (
 	"github.com/linkerlin/agentscope.go/gateway"
 	"github.com/linkerlin/agentscope.go/model/dashscope"
 	"github.com/linkerlin/agentscope.go/permission"
+	"github.com/linkerlin/agentscope.go/service"
 	"github.com/linkerlin/agentscope.go/toolkit"
 	"github.com/linkerlin/agentscope.go/workspace"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/linkerlin/agentscope.go/examples/shared/slowtool"
 	"github.com/linkerlin/agentscope.go/skill"
@@ -72,9 +77,37 @@ func buildDashScopeAgent(apiKey, modelName, baseURL string, toolOffload *gateway
 }
 
 func buildGateway(ag agent.Agent, toolOffload *gateway.ToolOffloadManager) *gateway.Server {
-	return gateway.NewServer(ag).
+	srv := gateway.NewServer(ag).
 		WithSessionManager(gateway.NewSessionManager()).
 		WithToolOffloadManager(toolOffload)
+
+	// Production-style assembly (18.10, opt-in): WEBUI_STORAGE=redis|sqlite
+	// plus WEBUI_API_SECRET enables multi-tenant storage, session ownership
+	// checks (22.2) and JWT auth. Without it the demo stays anonymous —
+	// explicit opt-in, and the console's server-minted session flow (first
+	// packet without session_id, adopt Agent-Session-Id) works in both modes.
+	mode := strings.ToLower(envOr("WEBUI_STORAGE", ""))
+	if mode == "" {
+		return srv
+	}
+	switch mode {
+	case "sqlite":
+		st, err := service.NewSQLStorage(context.Background(), envOr("WEBUI_SQLITE_PATH", ".webui.db"))
+		if err != nil {
+			panic(err)
+		}
+		srv = srv.WithStorage(st)
+	case "redis":
+		client := redis.NewClient(&redis.Options{Addr: envOr("WEBUI_REDIS_ADDR", "127.0.0.1:6379")})
+		srv = srv.WithStorage(service.NewRedisStorage(client))
+	default:
+		panic(fmt.Sprintf("unknown WEBUI_STORAGE %q (supported: sqlite, redis)", mode))
+	}
+	jwt := service.NewJWTAuthenticator([]byte(envOr("WEBUI_API_SECRET", "webui-dev-secret")), "agentscope-webui")
+	srv = srv.WithJWTAuth(jwt).WithAuthenticator(jwt)
+	srv.RegisterAuthRoutes(jwt)
+	fmt.Println("Storage-backed mode:", mode, "(session ownership + JWT auth enforced)")
+	return srv
 }
 
 func offloadTimeoutFromEnv() time.Duration {

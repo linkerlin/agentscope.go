@@ -518,6 +518,11 @@ func (h *Handlers) handleV2Steer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := r.PathValue("session_id")
+	// Ownership before body work (22.2, tightened in 18.10): steer was the
+	// one V2 write endpoint that skipped checkSessionAccess.
+	if !h.checkSessionAccess(w, r, sessionID) {
+		return
+	}
 	var req steerRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
@@ -542,6 +547,10 @@ func (h *Handlers) handleV2Interrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionID := r.PathValue("session_id")
+	// Same ownership gate as steer (22.2, tightened in 18.10).
+	if !h.checkSessionAccess(w, r, sessionID) {
+		return
+	}
 	if !h.d.Sessions.Terminate(sessionID) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no active run for session " + sessionID})
 		return

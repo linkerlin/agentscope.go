@@ -218,3 +218,19 @@ body {
 }
 .auth-badge.logged-in { color: var(--green); border-color: var(--green); }
 .auth-badge:hover { background: rgba(255,255,255,0.06); }
+
+/* Platform view (21.1): hub marketplace cards + tabs */
+.hub-tabs { margin-bottom: 10px; }
+.hub-tab { margin-right: 6px; }
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.hub-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg-soft);
+}
+.hub-card h4 { margin: 0 0 4px; font-size: 13px; }

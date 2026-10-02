@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Web UI Platform 视图（21.1）**：零构建控制台新增三能力——Hub 市场（浏览 + 安装 MCP/Skill 卡片，`required_env` 模板卡安装时逐项收集值，服务端 spawn 前校验）、Channel 管理（注册渠道列表，`WEBUI_WEBHOOK_CHANNELS` 启用零依赖 webhook 渠道演示）、workspace git status（按会话查工作区目录 + 分支/变更，storage 部署可用、匿名 demo 空态提示）。web_ui 装配补 `WithWorkspaceManager`、`WithHubs`（内嵌 demo FS 市场）、channel 装配与 `/workspace/` 路由分发；`examples/web_ui/hub/` 自带演示市场。**Studio 自此标记 deprecated**——web_ui 是唯一持续演进的 UI，不进入 v3.0。
 - **`memory.Facade` 单一记忆装配入口**（20.8）：`memory.NewFacade(FacadeOptions)` 一次构造四档记忆——Window（会话内窗口）/ ReMe（跨会话检索，Store+Embed 双设走向量、缺省走文件）/ Agentic（agent 自管 Markdown）/ LongTerm（mem0 式长期记忆，经 `middleware.NewFuncLongTermMemory` 闭包桥接 facade 自己的向量 ReMe 档）。各档可选（nil=不装），装配点 `Window()`/`ReMe()`/`Hooks()`/`Middlewares()`；Store/Embed 只设其一、LongTerm 无向量 ReMe 档均显式报错。示例 `examples/memory_facade`。
 
 ### Removed

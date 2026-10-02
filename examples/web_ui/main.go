@@ -9,8 +9,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/linkerlin/agentscope.go/channel"
 	"github.com/linkerlin/agentscope.go/controlplane"
 	"github.com/linkerlin/agentscope.go/gateway"
+	"github.com/linkerlin/agentscope.go/hub/builtin"
 	"github.com/linkerlin/agentscope.go/rag/blob"
 	"github.com/linkerlin/agentscope.go/rag/chunker"
 	"github.com/linkerlin/agentscope.go/rag/kb"
@@ -46,12 +48,55 @@ func buildKBService() *gateway.KBService {
 }
 
 func main() {
-	_, srv := buildApp()
+	demoAgent, srv := buildApp()
 	srv.RegisterV2Routes()
 	srv.WithKBService(buildKBService())
 	srv.RegisterKBRoutes()
 	srv.RegisterModelRoutes()
 	srv.RegisterProjectionRoutes()
+
+	// Hub marketplace (21.1): browse + install MCP/skill cards from the
+	// bundled demo market (examples/web_ui/hub). The filesystem hub keeps the
+	// console self-contained; remote hubs (18.7) can be added the same way.
+	if demoHub, err := builtin.NewFSHub("hub", "demo", "Console Demo Hub", "Bundled MCP + skill cards for the web UI demo"); err == nil {
+		srv.WithHubs(demoHub)
+		srv.RegisterHubRoutes()
+		fmt.Printf("  Hub marketplace:   GET /api/v1/hubs (demo FS hub)\n")
+	} else {
+		fmt.Println("  Hub marketplace disabled (hub/ not found:", err, ")")
+	}
+
+	// Channel management (21.1): opt-in webhook channels via
+	// WEBUI_WEBHOOK_CHANNELS=id1,id2 — zero-dependency channels so the
+	// console can list them and exercise POST /api/v1/channels/{id}/webhook
+	// (each inbound POST becomes a user turn on the derived chat session).
+	if ids := envOr("WEBUI_WEBHOOK_CHANNELS", ""); ids != "" {
+		reg := channel.NewRegistry()
+		lookup := map[string]channel.Channel{}
+		for _, id := range strings.Split(ids, ",") {
+			if id = strings.TrimSpace(id); id == "" {
+				continue
+			}
+			ch := channel.NewWebhookChannel(id)
+			if err := reg.Register(ch); err == nil {
+				lookup[id] = ch
+			}
+		}
+		agentReg := gateway.NewAgentRegistry()
+		agentReg.Register("web-ui", demoAgent)
+		runner := gateway.NewChannelRunner(agentReg, gateway.NewSessionManager()).
+			WithLookup(func(channelID string) channel.Channel { return lookup[channelID] })
+		router := channelRouter{}
+		srv.WithChannelGateway(reg, channel.NewGateway(router, runner))
+		srv.RegisterChannelRoutes()
+		srv.StartChannels()
+		fmt.Printf("  Channels:          GET /api/v1/channels (webhook: %s)\n", ids)
+	}
+
+	// Workspace management (21.1): dir listing / file read / git status per
+	// session workspace. Functional with WEBUI_STORAGE (needs the manager +
+	// storage); the console shows an empty state in anonymous demo mode.
+	srv.RegisterWorkspaceRoutes()
 
 	// Control plane (LoopX-style long-running agent governance). Opt-in via
 	// the CP env var; when enabled the /api/v1/controlplane/* routes are
@@ -72,6 +117,7 @@ func main() {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v2/") || strings.HasPrefix(r.URL.Path, "/api/") ||
+			strings.HasPrefix(r.URL.Path, "/workspace/") ||
 			r.URL.Path == "/health" || r.URL.Path == "/chat" || strings.HasPrefix(r.URL.Path, "/chat/") {
 			apiHandler.ServeHTTP(w, r)
 			return
@@ -94,6 +140,15 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// channelRouter routes every channel event to the demo agent ("web-ui") on a
+// per-chat session derived from the channel + chat ids.
+type channelRouter struct{}
+
+func (channelRouter) Resolve(_ context.Context, ev channel.ChannelEvent) (string, string, error) {
+	session := "chan-" + ev.ChannelID + "-" + ev.ChatID
+	return "web-ui", session, nil
 }
 
 func staticFileHandler(root fs.FS) http.Handler {

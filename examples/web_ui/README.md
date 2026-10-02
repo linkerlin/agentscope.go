@@ -34,6 +34,14 @@ DASHSCOPE_API_KEY=sk-... go run .
 - Health 检查
 - 模型列表（`/api/v1/models`）
 
+### ⬡ Platform（21.1）
+- **Hub Marketplace**：浏览并安装 MCP/Skill 卡片（默认装配 `hub/` 目录的演示 FS 市场；`required_env` 卡片安装时逐项提示填值，缺值由服务端在 spawn 前校验 400）
+- **Channels**：已注册渠道列表；`WEBUI_WEBHOOK_CHANNELS=id1,id2` 可启用零依赖 webhook 渠道（`POST /api/v1/channels/{id}/webhook` 即收事件并驱动 agent 回合）
+- **Workspace Git Status**：按会话查询工作区目录 + git 分支/变更（`GET /workspace/status`）；依赖 `WEBUI_STORAGE` 部署（workspace manager + storage），匿名 demo 模式显示空态提示
+
+### ◈ Control Plane（`CP` 环境变量启用）
+- 生命周期目标 / ShouldRun / 门 / 配额 / 看板（详见视图内提示）
+
 ## 架构
 
 ```

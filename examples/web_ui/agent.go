@@ -114,6 +114,11 @@ func buildGateway(ag agent.Agent, toolOffload *gateway.ToolOffloadManager) *gate
 	jwt := service.NewJWTAuthenticator([]byte(secret), "agentscope-webui")
 	srv = srv.WithJWTAuth(jwt).WithAuthenticator(jwt)
 	srv.RegisterAuthRoutes(jwt)
+	// Workspace management APIs (21.1): the console's workspace panel reads
+	// /workspace/status (dir + git branch/changes) per session. Needs the
+	// manager plus storage — demo mode stays without both, and the panel
+	// shows a "not configured" empty state there.
+	srv = srv.WithWorkspaceManager(gateway.NewWorkspaceManager("", ""))
 	fmt.Println("Storage-backed mode:", mode, "(session ownership + JWT auth enforced)")
 	return srv
 }

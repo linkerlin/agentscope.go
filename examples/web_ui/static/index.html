@@ -26,6 +26,9 @@
         <button class="nav-item" data-view="cp">
           <span class="nav-ico">◈</span> Control Plane
         </button>
+        <button class="nav-item" data-view="platform">
+          <span class="nav-ico">⬡</span> Platform
+        </button>
       </nav>
       <div class="sidebar-footer">
         <div class="session-box">
@@ -153,6 +156,29 @@
             <button class="btn" id="cp-kanban-btn" style="margin-left:8px">刷新看板</button>
           </h4>
           <div id="cp-kanban" class="kanban-board"></div>
+        </div>
+      </section>
+      <!-- Platform view (21.1): hub marketplace, channel management, workspace git status -->
+      <section id="view-platform" class="view">
+        <header class="view-head"><h2>Platform</h2></header>
+        <div class="cards">
+          <div class="card">
+            <h3>Hub Marketplace</h3>
+            <div id="hub-tabs" class="hub-tabs"></div>
+            <div id="hub-cards" class="hub-grid"></div>
+          </div>
+          <div class="card">
+            <h3>Channels</h3>
+            <div id="channel-list" class="doc-list"></div>
+          </div>
+          <div class="card">
+            <h3>Workspace · Git Status</h3>
+            <div class="kb-actions">
+              <input type="text" id="ws-agent-input" class="text-input" placeholder="agent_id" value="web-ui" style="max-width:180px" />
+              <button class="btn" id="ws-status-btn">刷新状态</button>
+            </div>
+            <pre id="ws-status" class="mono">加载中…</pre>
+          </div>
         </div>
       </section>
     </main>

@@ -143,6 +143,7 @@ document.querySelectorAll(".nav-item").forEach(btn => {
     if (view === "kb") loadKBList();
     if (view === "system") loadSystem();
     if (view === "cp") loadCPGoals();
+    if (view === "platform") loadPlatform();
   });
 });
 
@@ -795,3 +796,155 @@ function renderKanbanCard(card) {
     <div class="dim" style="font-size:11px">${escapeHtml(t.task_class || "")}${owner}</div>
   </div>`;
 }
+
+// ───────────────────────── platform (21.1) ─────────────────────────
+// Hub marketplace (browse + install MCP/skill cards), channel management
+// (registered channels) and per-session workspace git status. All three read
+// the gateway management APIs registered by RegisterHubRoutes /
+// RegisterChannelRoutes / RegisterWorkspaceRoutes.
+
+let currentHub = null;
+let currentHubKind = "mcps";
+
+async function loadPlatform() {
+  loadChannels();
+  loadWorkspaceStatus();
+  loadHubs();
+}
+
+// ── Hub marketplace ──
+async function loadHubs() {
+  const tabsEl = document.getElementById("hub-tabs");
+  const cardsEl = document.getElementById("hub-cards");
+  try {
+    const data = await api("GET", "/api/v1/hubs");
+    const hubs = (data && data.hubs) || [];
+    if (!hubs.length) {
+      tabsEl.innerHTML = "";
+      cardsEl.innerHTML = `<div class="empty">无已配置 Hub（服务端 WithHubs / hub/ 目录缺失）。</div>`;
+      return;
+    }
+    currentHub = currentHub || hubs[0].id;
+    tabsEl.innerHTML = hubs.map(h =>
+      `<button class="btn hub-tab${h.id === currentHub ? " primary" : ""}" data-hub="${escapeHtml(h.id)}">${escapeHtml(h.display_name || h.id)}</button>`
+    ).join(" ");
+    tabsEl.querySelectorAll("[data-hub]").forEach(b => {
+      b.addEventListener("click", () => { currentHub = b.dataset.hub; loadHubs(); });
+    });
+    await loadHubCards();
+  } catch (err) {
+    cardsEl.innerHTML = `<div class="empty">Hub API 不可用：${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function loadHubCards() {
+  const cardsEl = document.getElementById("hub-cards");
+  cardsEl.innerHTML = `<div class="empty">加载中…</div>`;
+  try {
+    const [mcps, skills] = await Promise.all([
+      api("GET", `/api/v1/hubs/${encodeURIComponent(currentHub)}/mcps`).catch(() => ({ cards: [] })),
+      api("GET", `/api/v1/hubs/${encodeURIComponent(currentHub)}/skills`).catch(() => ({ cards: [] })),
+    ]);
+    const mcpCards = (mcps && mcps.cards) || [];
+    const skillCards = (skills && skills.cards) || [];
+    if (!mcpCards.length && !skillCards.length) {
+      cardsEl.innerHTML = `<div class="empty">该 Hub 无卡片。</div>`;
+      return;
+    }
+    cardsEl.innerHTML =
+      mcpCards.map(c => renderHubCard("mcps", c, c.required_env)).join("") +
+      skillCards.map(c => renderHubCard("skills", c, [])).join("");
+    cardsEl.querySelectorAll("[data-install]").forEach(btn => {
+      btn.addEventListener("click", () => installHubCard(btn.dataset.install, btn.dataset.kind));
+    });
+  } catch (err) {
+    cardsEl.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderHubCard(kind, card, requiredEnv) {
+  const req = (requiredEnv || []).length
+    ? `<div class="dim" style="font-size:11px;margin-top:4px">需配置: ${requiredEnv.map(v => escapeHtml(v)).join(", ")}</div>`
+    : "";
+  return `<div class="hub-card">
+    <h4>${escapeHtml(card.name || card.id)}</h4>
+    <div class="dim" style="font-size:12px">${escapeHtml(card.description || "")}</div>
+    ${req}
+    <div style="margin-top:8px"><button class="btn primary" data-install="${escapeHtml(card.id)}" data-kind="${kind}">安装</button></div>
+  </div>`;
+}
+
+async function installHubCard(cardID, kind) {
+  let values;
+  if (kind === "mcps") {
+    // Configuration-template cards (18.7): collect each ${VAR} value up
+    // front; the server validates BEFORE spawning any process.
+    try {
+      const page = await api("GET", `/api/v1/hubs/${encodeURIComponent(currentHub)}/mcps`);
+      const card = ((page && page.cards) || []).find(c => c.id === cardID);
+      const env = (card && card.required_env) || [];
+      values = {};
+      for (const v of env) {
+        const val = window.prompt(`请输入 ${v} 的值：`);
+        if (val === null) return; // cancelled
+        values[v] = val;
+      }
+    } catch (err) { alert("读取卡片失败：" + err.message); return; }
+  }
+  try {
+    const body = values && Object.keys(values).length ? { values } : {};
+    await api("POST", `/api/v1/hubs/${encodeURIComponent(currentHub)}/${kind}/${encodeURIComponent(cardID)}/install`, body);
+    alert(`安装成功：${cardID}`);
+  } catch (err) {
+    alert(`安装失败：${cardID}\n${err.message}`);
+  }
+}
+
+// ── Channel management ──
+async function loadChannels() {
+  const el = document.getElementById("channel-list");
+  try {
+    const data = await api("GET", "/api/v1/channels");
+    const channels = (data && data.channels) || [];
+    if (!channels.length) {
+      el.innerHTML = `<div class="empty">无注册渠道。设置 WEBUI_WEBHOOK_CHANNELS=<id> 可启用 webhook 渠道演示。</div>`;
+      return;
+    }
+    el.innerHTML = channels.map(c => `
+      <div class="doc-item">
+        <span>📡 <strong>${escapeHtml(c.id)}</strong> <span class="badge">${escapeHtml(c.type || "channel")}</span></span>
+        <span class="dim mono" style="font-size:11px">POST /api/v1/channels/${escapeHtml(c.id)}/webhook</span>
+      </div>`).join("");
+  } catch (err) {
+    el.innerHTML = `<div class="empty">Channel API 不可用：${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// ── Workspace git status ──
+async function loadWorkspaceStatus() {
+  const el = document.getElementById("ws-status");
+  const agentID = (document.getElementById("ws-agent-input").value || "").trim() || "web-ui";
+  if (!sessionId) {
+    el.textContent = "(尚无会话 — 先在 Chat 发送一条消息以获取服务端分配的 session)";
+    return;
+  }
+  el.textContent = "查询中…";
+  try {
+    const st = await api("GET", `/workspace/status?agent_id=${encodeURIComponent(agentID)}&session_id=${encodeURIComponent(sessionId)}`);
+    const lines = [
+      `dir: ${st.dir || "—"}`,
+      `git repo: ${st.is_git_repo ? "yes" : "no"}`,
+    ];
+    if (st.git_branch) lines.push(`branch: ${st.git_branch}`);
+    if (st.git_changes && st.git_changes.length) {
+      lines.push("changes:");
+      for (const c of st.git_changes) lines.push("  " + c);
+    } else if (st.is_git_repo) {
+      lines.push("changes: (clean)");
+    }
+    el.textContent = lines.join("\n");
+  } catch (err) {
+    el.innerHTML = `<span class="dim">${escapeHtml(err.message)}（需 WEBUI_STORAGE 部署：workspace 管理依赖 storage + workspace manager）</span>`;
+  }
+}
+document.getElementById("ws-status-btn").addEventListener("click", loadWorkspaceStatus);

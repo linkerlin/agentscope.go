@@ -1,0 +1,9 @@
+[
+  {
+    "id": "web-ui-helper",
+    "name": "Web UI Helper",
+    "description": "Bundled tips skill for the console demo (installed into the workspace skills root)",
+    "tags": ["skill", "demo"],
+    "archive_url": "https://raw.githubusercontent.com/linkerlin/agentscope.go/main/examples/web_ui/hub/skills/web-ui-helper.zip"
+  }
+]

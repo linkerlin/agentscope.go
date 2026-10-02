@@ -10,7 +10,6 @@
 
 ## P2 · v3.0 平台收敛
 
-- [ ] **21.1** 单一 Web UI：Hub 安装、Channel 管理、workspace git status；标记 studio deprecated
 - [ ] **21.2** 全功能 TUI：语音、AskUser 表单、工具分组在同一终端
 - [ ] **21.3** 本地 Gene 仓库：无需外部 MCP 即可 Run / Reflect / Solidify 并在 UI 列出
 - [ ] **21.4** 主热路径性能门禁：基准进入 CI，超出经确认的阈值即失败

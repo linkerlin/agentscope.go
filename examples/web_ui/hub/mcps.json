@@ -1,0 +1,28 @@
+[
+  {
+    "id": "filesystem",
+    "name": "Filesystem",
+    "description": "MCP filesystem server (npx @modelcontextprotocol/server-filesystem); install is skipped gracefully when npx is absent",
+    "tags": ["mcp", "files"],
+    "spec": {
+      "name": "filesystem",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    }
+  },
+  {
+    "id": "web-search",
+    "name": "Web Search",
+    "description": "MCP web search server with a configuration template — installing prompts for the required value (18.7)",
+    "tags": ["mcp", "web"],
+    "required_env": ["SEARCH_REGION"],
+    "spec": {
+      "name": "web-search",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": { "SEARCH_REGION": "${SEARCH_REGION}" }
+    }
+  }
+]

@@ -1,3 +1,15 @@
+// Studio — DEPRECATED since 21.1.
+//
+// The zero-build web console (examples/web_ui) is now the single supported
+// UI: it covers chat (AG-UI SSE), knowledge bases, hub marketplace, channel
+// management, workspace git status and the control plane, with the same
+// server-minted session identity and JWT flow. Studio stays as a reference
+// for the HTMX approach but receives no new features; it will not be
+// carried into v3.0 (21.7 API convergence).
+//
+// Studio — 自 21.1 起标记 deprecated：examples/web_ui 零构建控制台是唯一
+// 持续演进的 UI（聊天/知识库/Hub 市场/渠道管理/workspace git 状态/治理平面）。
+// Studio 仅作为 HTMX 方式的参考保留，不再新增功能，不进入 v3.0。
 package main
 
 import (

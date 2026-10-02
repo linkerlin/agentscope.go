@@ -77,6 +77,7 @@ AgentScope.Go 提供丰富的示例程序，覆盖从基础入门到生产部署
 | Web UI | [`examples/web_ui/main.go`](../examples/web_ui/main.go) | 零构建 SPA：Chat / KB / System（go:embed，AG-UI SSE） |
 | Studio | [`examples/studio/main.go`](../examples/studio/main.go) | 纯 Go + HTMX 管理后台：凭证/Agent/记忆/A2A/Evolver |
 | 终端 Console | [`examples/console/main.go`](../examples/console/main.go) | bubbletea TUI：HITL 确认 + 中断 |
+| 语音 Console（手工冒烟） | [`examples/console_voice/main.go`](../examples/console_voice/main.go) | 实时语音会话：stdin/stdout 管道接 sox 录音播放，VAD 打断 + 文本切换（自动化验收用假 Transport 在 console 包内） |
 
 ---
 

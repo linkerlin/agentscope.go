@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **19.7** console 语音入口：假 Transport 覆盖文本切换、打断和 HITL，设备 I/O 仅做显式手工冒烟
 - [ ] **19.8** TTS：Gemini TTS、CosyVoice v3、gpt-4o-mini-tts 卡片与请求 / 错误契约；音频隐私、留存与成本指标有明确默认策略
 - [ ] **20.3** 火山方舟 Ark：doubao-seed 后端、formatter、流式和结构化输出契约
 - [ ] **20.4** Moonshot：Kimi K3 / K2.7 卡片与跨后端统一 thinking 参数

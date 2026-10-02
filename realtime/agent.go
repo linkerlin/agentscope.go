@@ -97,6 +97,43 @@ func NewRealtimeAgent(m Model, cfg AgentConfig) *RealtimeAgent {
 // device advances it; barge-in truncation reads it).
 func (a *RealtimeAgent) Playout() *Playout { return a.playout }
 
+// SendAudio forwards one input audio chunk to the live session (the console
+// tier, 19.7, is the reference consumer; no-op error before Connect).
+func (a *RealtimeAgent) SendAudio(ctx context.Context, chunk []byte) error {
+	a.mu.Lock()
+	sess := a.session
+	a.mu.Unlock()
+	if sess == nil {
+		return fmt.Errorf("realtime: send audio: not connected")
+	}
+	return sess.SendAudio(ctx, chunk)
+}
+
+// SendText injects a text input turn on the live session.
+func (a *RealtimeAgent) SendText(ctx context.Context, text string) error {
+	a.mu.Lock()
+	sess := a.session
+	a.mu.Unlock()
+	if sess == nil {
+		return fmt.Errorf("realtime: send text: not connected")
+	}
+	return sess.SendText(ctx, text)
+}
+
+// BargeIn triggers a manual interrupt cut (the voice "stop talking" action).
+// Equivalent to the UserTranscribed path: every truncation mode stops
+// generation; client cards additionally cut the local playout at the
+// confirmed (heard) position.
+func (a *RealtimeAgent) BargeIn() {
+	a.mu.Lock()
+	sess := a.session
+	a.mu.Unlock()
+	if sess == nil {
+		return
+	}
+	a.bargeIn(context.Background(), sess, a.model.Card().Truncation.Normalized())
+}
+
 // Format reports the negotiated session audio format (after Connect).
 func (a *RealtimeAgent) Format() AudioFormat { return a.format }
 

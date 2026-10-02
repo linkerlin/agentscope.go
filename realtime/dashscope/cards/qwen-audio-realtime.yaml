@@ -1,0 +1,12 @@
+id: qwen-audio-realtime
+provider: dashscope
+display_name: Qwen Audio Realtime (speech in, text out)
+model: qwen-audio-realtime
+formats: [pcm]
+realtime: true
+multilingual: true
+truncation: server
+input_modalities: [audio, text]
+audio_in:
+  - {codec: pcm, sample_rate: 16000, channels: 1}
+tools: true

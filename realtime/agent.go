@@ -52,6 +52,9 @@ type AgentConfig struct {
 	// while the assistant speaks triggers the barge-in (text-only sessions
 	// rely on UserTranscribed instead).
 	VAD *VAD
+	// OnTurnMetrics fires when one response turn completes (ResponseDone)
+	// with the collected TurnMetrics (19.4). Optional observability hook.
+	OnTurnMetrics func(TurnMetrics)
 }
 
 // RealtimeAgent orchestrates one voice conversation. Build per session;
@@ -71,7 +74,9 @@ type RealtimeAgent struct {
 	// doneResponses marks responses already finalised (their late deltas
 	// are backlog noise).
 	doneResponses map[string]bool
-	closed        bool
+	// metrics collects one record per completed turn (Metrics snapshot).
+	metrics []TurnMetrics
+	closed  bool
 }
 
 // NewRealtimeAgent builds an agent over a realtime model.
@@ -94,6 +99,14 @@ func (a *RealtimeAgent) Playout() *Playout { return a.playout }
 
 // Format reports the negotiated session audio format (after Connect).
 func (a *RealtimeAgent) Format() AudioFormat { return a.format }
+
+// Metrics returns the per-turn metrics snapshot of the conversation so far
+// (one record per completed response turn, in completion order).
+func (a *RealtimeAgent) Metrics() []TurnMetrics {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]TurnMetrics(nil), a.metrics...)
+}
 
 // Connect opens the session under the configured offer and returns the
 // event pump. The pump owns session-event consumption: audio flows to the
@@ -123,6 +136,7 @@ func (a *RealtimeAgent) pump(ctx context.Context, sess Session, out chan<- Event
 	defer close(out)
 	var currentResponse string
 	var speaking bool
+	var turn *TurnMetrics // metrics of the in-flight response (nil between turns)
 	trunc := a.model.Card().Truncation.Normalized()
 
 	for {
@@ -152,6 +166,7 @@ func (a *RealtimeAgent) pump(ctx context.Context, sess Session, out chan<- Event
 			// audio floods the playout a second time.
 			if _, seen := a.seenSeq[e.ResponseID]; !seen {
 				a.seenSeq[e.ResponseID] = -1
+				turn = &TurnMetrics{ResponseID: e.ResponseID, StartedAt: time.Now()}
 			}
 			a.mu.Unlock()
 
@@ -162,6 +177,22 @@ func (a *RealtimeAgent) pump(ctx context.Context, sess Session, out chan<- Event
 			a.doneResponses[e.ResponseID] = true
 			a.mu.Unlock()
 			speaking = false
+			if t := turn; t != nil {
+				t.DoneAt = time.Now()
+				t.Final = e.Final
+				turn = nil
+				a.mu.Lock()
+				a.metrics = append(a.metrics, *t)
+				a.mu.Unlock()
+				if a.cfg.OnTurnMetrics != nil {
+					a.cfg.OnTurnMetrics(*t)
+				}
+			}
+
+		case TranscriptDelta:
+			if turn != nil && turn.FirstTextAt.IsZero() {
+				turn.FirstTextAt = time.Now()
+			}
 
 		case AudioOutDelta:
 			a.mu.Lock()
@@ -177,6 +208,13 @@ func (a *RealtimeAgent) pump(ctx context.Context, sess Session, out chan<- Event
 				continue
 			}
 			a.playout.Enqueue(e.Sequence, e.Data)
+			if turn != nil {
+				turn.AudioChunks++
+				turn.AudioBytes += len(e.Data)
+				if turn.FirstAudioAt.IsZero() {
+					turn.FirstAudioAt = time.Now()
+				}
+			}
 
 		case UserTranscribed:
 			// A complete user utterance while the assistant speaks is the
@@ -188,6 +226,9 @@ func (a *RealtimeAgent) pump(ctx context.Context, sess Session, out chan<- Event
 		case ToolCall:
 			// The call itself is forwarded (vocabulary completeness); the
 			// handler's outcome follows as a synthesized ToolResult.
+			if turn != nil {
+				turn.ToolCalls++
+			}
 			out <- ev
 			if a.tools != nil {
 				out <- a.runTool(ctx, e)

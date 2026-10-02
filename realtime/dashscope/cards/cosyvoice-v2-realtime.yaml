@@ -1,0 +1,12 @@
+id: cosyvoice-v2-realtime
+provider: dashscope
+display_name: CosyVoice v2 Realtime (streaming speech synthesis)
+model: cosyvoice-v2
+default_voice: longxiaochun
+formats: [pcm]
+realtime: true
+multilingual: true
+truncation: none
+input_modalities: [text]
+audio_out:
+  - {codec: pcm, sample_rate: 24000, channels: 1}

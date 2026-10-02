@@ -1,0 +1,15 @@
+id: qwen-omni-turbo-realtime
+provider: dashscope
+display_name: Qwen Omni Turbo Realtime (duplex voice)
+model: qwen-omni-turbo-realtime
+default_voice: Cherry
+formats: [pcm]
+realtime: true
+multilingual: true
+truncation: server
+input_modalities: [audio, text]
+audio_in:
+  - {codec: pcm, sample_rate: 16000, channels: 1}
+audio_out:
+  - {codec: pcm, sample_rate: 24000, channels: 1}
+tools: true

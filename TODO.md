@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **19.4** DashScope realtime：qwen-omni / qwen-audio + CosyVoice realtime 端到端、工具调用与 `TurnMetrics`
 - [ ] **19.5** OpenAI Realtime：文本与双向音频路径、取消和重连的协议 mock
 - [ ] **19.6** Gemini Live / xAI：复用同一契约测试集，不接受仅能创建客户端
 - [ ] **19.7** console 语音入口：假 Transport 覆盖文本切换、打断和 HITL，设备 I/O 仅做显式手工冒烟

@@ -8,7 +8,6 @@
 ## P1 · v2.9 实时语音与协议保真
 
 - [ ] **20.7** 护栏中间件：输入注入检测和输出过滤覆盖模型、工具与二进制内容；默认保守且可关闭
-- [ ] **19.3** `RealtimeAgent`：打断仅保留已听前缀；断线重连不丢 backlog；工具确认超时；与 18.5 的多副本语义一致
 - [ ] **19.4** DashScope realtime：qwen-omni / qwen-audio + CosyVoice realtime 端到端、工具调用与 `TurnMetrics`
 - [ ] **19.5** OpenAI Realtime：文本与双向音频路径、取消和重连的协议 mock
 - [ ] **19.6** Gemini Live / xAI：复用同一契约测试集，不接受仅能创建客户端

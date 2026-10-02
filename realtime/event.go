@@ -88,11 +88,13 @@ func (ResponseDone) isRealtimeEvent()         {}
 func (ErrorEvent) isRealtimeEvent()           {}
 func (SessionClosed) isRealtimeEvent()        {}
 
-// Terminal reports whether e ends the event stream.
+// Terminal reports whether e ends the SESSION stream. Only SessionClosed
+// and ErrorEvent do: ResponseDone (either Final value) closes one response
+// TURN — a conversation continues afterwards with another ResponseStarted
+// (19.3 correction of the initial 19.1 wording: response done ≠ session
+// done).
 func Terminal(e Event) bool {
 	switch e.(type) {
-	case ResponseDone:
-		return e.(ResponseDone).Final
 	case SessionClosed, ErrorEvent:
 		return true
 	}

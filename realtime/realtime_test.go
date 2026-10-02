@@ -242,13 +242,12 @@ func TestContractNegotiation(t *testing.T) {
 	}
 }
 
-// TestContractTerminal: which events end the stream.
+// TestContractTerminal: which events end the SESSION stream (19.3
+// correction): only SessionClosed/ErrorEvent. ResponseDone closes a turn,
+// never the session — the conversation continues after a final response.
 func TestContractTerminal(t *testing.T) {
-	if !Terminal(ResponseDone{Final: true}) {
-		t.Fatal("final ResponseDone is terminal")
-	}
-	if Terminal(ResponseDone{Final: false}) {
-		t.Fatal("cut ResponseDone is not terminal")
+	if Terminal(ResponseDone{Final: true}) || Terminal(ResponseDone{Final: false}) {
+		t.Fatal("ResponseDone closes a turn, not the session")
 	}
 	if !Terminal(ErrorEvent{Err: "x"}) || !Terminal(SessionClosed{}) {
 		t.Fatal("Error and SessionClosed are terminal")

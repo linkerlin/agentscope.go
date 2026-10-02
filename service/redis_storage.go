@@ -297,13 +297,14 @@ func (s *RedisStorage) SaveCredential(ctx context.Context, cred *Credential) err
 var redisCredentialCAS = redis.NewScript(`
 local cur = redis.call('GET', KEYS[1])
 if not cur then return {0, ''} end
-local okStatus = false
 local st = cjson.decode(cur)['status']
-if st == nil or st == '' then okStatus = true end
-if not okStatus then
-  for allowed in string.gmatch(ARGV[2], '[^,]+') do
-    if st == allowed then okStatus = true end
-  end
+-- Empty/missing status (pre-18.4 rows) normalizes to AUTHORIZED — the same
+-- rule as NormalizedStatus and the Memory backend: never an unconditional
+-- pass, only allowed when the caller explicitly allows AUTHORIZED.
+if st == nil or st == '' then st = 'AUTHORIZED' end
+local okStatus = false
+for allowed in string.gmatch(ARGV[2], '[^,]+') do
+  if st == allowed then okStatus = true end
 end
 if not okStatus then return {0, cur} end
 local oldEnc = cjson.decode(cur)['encrypted']

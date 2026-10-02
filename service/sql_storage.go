@@ -25,15 +25,26 @@ type SQLStorage struct {
 	dialect string
 }
 
+// sqliteDSN appends per-connection pragmas to a SQLite path/DSN. PRAGMAs
+// must ride the DSN (modernc _pragma query args), NOT a one-off Exec: the
+// connection pool would apply them to a single pooled connection only, and
+// busy_timeout is per-connection — concurrent writers on other pool
+// connections would still fail immediately with SQLITE_BUSY.
+func sqliteDSN(dbPath string) string {
+	sep := "?"
+	if strings.Contains(dbPath, "?") {
+		sep = "&"
+	}
+	return dbPath + sep + "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+}
+
 // NewSQLStorage opens (or creates) a SQLite database at dbPath and provisions
 // the schema. Use ":memory:" for an ephemeral in-process database (great for tests).
 func NewSQLStorage(ctx context.Context, dbPath string) (*SQLStorage, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("sqlstorage: open %q: %w", dbPath, err)
 	}
-	// Enable WAL for better concurrency (ignored for :memory:).
-	_, _ = db.ExecContext(ctx, `PRAGMA journal_mode=WAL;`)
 	s := &SQLStorage{db: db, dialect: migration.DialectSQLite}
 	if err := s.initSchema(ctx); err != nil {
 		db.Close()
@@ -56,12 +67,13 @@ func NewSQLStorageWithDSN(ctx context.Context, driver, dsn string) (*SQLStorage,
 	default:
 		return nil, fmt.Errorf("sqlstorage: unsupported driver %q (supported: \"sqlite\", \"pgx\")", driver)
 	}
+	if driver == "sqlite" {
+		// Per-connection pragmas must ride the DSN (see sqliteDSN).
+		dsn = sqliteDSN(dsn)
+	}
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlstorage: open %q via %q: %w", dsn, driver, err)
-	}
-	if driver == "sqlite" {
-		_, _ = db.ExecContext(ctx, `PRAGMA journal_mode=WAL;`)
 	}
 	s := &SQLStorage{db: db, dialect: dialect}
 	if err := s.initSchema(ctx); err != nil {
@@ -490,19 +502,18 @@ func (s *SQLStorage) SaveCredentialIfCurrent(ctx context.Context, id string, nex
 	if s.dialect == migration.DialectPostgres {
 		statusExpr = `payload::jsonb->>'status'`
 	}
-	// (status IS NULL OR status = '' OR status IN (...)) — NULL/empty are
-	// the pre-18.4 legacy forms.
+	// An empty/NULL status (pre-18.4 rows) normalizes to AUTHORIZED — the
+	// same rule as NormalizedStatus and the Memory backend. A legacy row
+	// therefore satisfies the condition ONLY when AUTHORIZED is explicitly
+	// allowed by the caller; it is never an unconditional pass.
+	normStatus := `COALESCE(NULLIF(` + statusExpr + `, ''), 'AUTHORIZED')`
 	var conds []string
 	var args []any
 	for _, a := range allowedCurrent {
-		conds = append(conds, statusExpr+" = ?")
+		conds = append(conds, normStatus+" = ?")
 		args = append(args, string(a))
 	}
-	where := "(" + statusExpr + " IS NULL OR " + statusExpr + " = '' OR " + strings.Join(conds, " OR ") + ")"
-
-	// Empty status snapshots read as AUTHORIZED (NormalizedStatus); a legacy
-	// row only satisfies the transition when AUTHORIZED itself is allowed
-	// (same-target no-op path), which the '' clause above covers.
+	where := "(" + strings.Join(conds, " OR ") + ")"
 
 	if next.CreatedAt.IsZero() {
 		next.CreatedAt = time.Now().UTC()

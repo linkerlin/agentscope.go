@@ -65,11 +65,15 @@ type CredentialConditionalWriter interface {
 //
 // Terminal states are irreversible BY CONSTRUCTION on storages implementing
 // CredentialConditionalWriter: the persist step is conditional on the stored
-// status still being PENDING (or already equal to target — same-outcome
-// races stay idempotent), so a losing writer re-reads the winner and either
-// no-ops (same target) or reports ErrCredentialFinalized. An authorized
-// secret cannot be overwritten by a later different-outcome write. On
-// storages without the capability the unconditional save keeps the inherent
+// status still being PENDING ONLY. The target status is deliberately NOT in
+// the allowed set: two authorize calls racing with DIFFERENT secrets would
+// otherwise both satisfy "current ∈ {PENDING, AUTHORIZED}" and the later
+// write would replace the already-delivered secret. With PENDING-only, the
+// losing writer always sees swapped=false, re-reads the winner and either
+// no-ops (same target, the winner's record — and secret — is returned) or
+// reports ErrCredentialFinalized. An authorized secret cannot be
+// overwritten by ANY later write — same or different outcome. On storages
+// without the capability the unconditional save keeps the inherent
 // read-judge-write window (same-outcome races remain harmless; documented
 // limitation, not a guarantee).
 //
@@ -105,11 +109,12 @@ func TransitionCredential(ctx context.Context, storage Storage, id string, targe
 	cred.Status = target
 
 	// Atomic path: the write is conditional on the stored status still
-	// being PENDING (or already equal to target, keeping same-outcome
-	// races idempotent). A lost race re-judges against the persisted
-	// winner instead of silently overwriting it.
+	// being PENDING — nothing else. A lost race (same OR different target)
+	// re-judges against the persisted winner instead of silently
+	// overwriting it; same-target idempotency is the re-judge outcome, not
+	// a permission in the condition.
 	if cw, ok := storage.(CredentialConditionalWriter); ok {
-		cur, swapped, err := cw.SaveCredentialIfCurrent(ctx, id, cred, CredentialPending, target)
+		cur, swapped, err := cw.SaveCredentialIfCurrent(ctx, id, cred, CredentialPending)
 		if err != nil {
 			return nil, fmt.Errorf("credential: persist transition: %w", err)
 		}

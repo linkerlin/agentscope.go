@@ -93,8 +93,11 @@ function updateAuthBadge() {
   }
 }
 
+// System notices (login failures etc.) render wherever the chat transcript
+// lives. Older layouts pointed at #chat-log, which no longer exists — fall
+// back to #messages so the message is never silently dropped.
 function appendSystemNotice(text) {
-  const log = document.getElementById("chat-log");
+  const log = document.getElementById("chat-log") || document.getElementById("messages");
   if (!log) return;
   const div = document.createElement("div");
   div.className = "error-banner";
@@ -279,6 +282,14 @@ async function reconnectOnLoad() {
   try {
     const url = `/v2/chat?protocol=agui&session_id=${encodeURIComponent(sessionId)}`;
     const res = await fetch(url, { method: "GET", headers: Object.assign({ Accept: "application/json, text/event-stream", "Agent-Session-Id": sessionId }, authHeaders()), signal: controller.signal });
+    if (res.status === 401) {
+      // Stale token on the reconnect stream: same shared path as the send
+      // flow — clear the token and prompt for a fresh login instead of
+      // dead-ending on "重连失败".
+      run.wrap.remove(); setReconnectStatus("");
+      handleAuthFailure();
+      return;
+    }
     if (res.status === 404 || res.status === 503) {
       // Unknown or gone: drop the stale ID and let the next POST mint one.
       try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch (_) {}

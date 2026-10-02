@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **20.4** Moonshot：Kimi K3 / K2.7 卡片与跨后端统一 thinking 参数
 - [ ] **20.5** `A2AAgent`：远程 Agent 作为本地 Agent 使用，状态按 task 续接，运行中拒绝二次发送；`ClusterManager` 发送走真实 Client，移出 `NoopClient` 推荐路径
 - [ ] **20.8** `memory.Facade`：窗口、ReMe、Agentic、长期记忆从单一入口构造；示例不直连内部实现；撤下 Elasticsearch / pgvector 占位构造函数，并明确其余兼容包装的弃用策略
 

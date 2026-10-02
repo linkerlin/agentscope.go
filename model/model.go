@@ -62,6 +62,11 @@ type ChatOptions struct {
 	Tools          []ToolSpec
 	ToolChoice     *ToolChoice
 	ResponseFormat *ResponseFormat
+	// Thinking is the unified reasoning toggle (20.4): nil = the backend's
+	// default (builder-level or provider default), true/false = explicitly
+	// enabled/disabled. Backends that support a thinking parameter serialize
+	// it in their native shape (e.g. Ark/Kimi `thinking: {"type": ...}`).
+	Thinking *bool
 }
 
 // ToolSpec defines a tool available to the model
@@ -92,6 +97,12 @@ func WithToolChoice(tc *ToolChoice) ChatOption {
 
 func WithResponseFormat(rf *ResponseFormat) ChatOption {
 	return func(o *ChatOptions) { o.ResponseFormat = rf }
+}
+
+// WithThinking is the unified per-call reasoning toggle (20.4): backends
+// with a native thinking parameter serialize it in their own shape.
+func WithThinking(enabled bool) ChatOption {
+	return func(o *ChatOptions) { o.Thinking = &enabled }
 }
 
 // ApplyOptions folds functional ChatOptions into one ChatOptions value

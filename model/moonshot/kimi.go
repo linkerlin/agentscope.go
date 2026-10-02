@@ -1,12 +1,14 @@
-// Package ark provides a ChatModel implementation for Volcano Ark (火山方舟,
-// ByteDance) — Doubao chat models (doubao-seed-*) over the OpenAI-compatible
-// /api/v3/chat/completions endpoint, implemented directly on net/http (same
-// policy as openai_response): Ark-specific request knobs (the `thinking`
-// switch) and response fields (`reasoning_content`) need full wire control.
+// model/moonshot/kimi.go — the native-flavoured Kimi chat line (20.4):
+// Moonshot's OpenAI-compatible endpoint with the `thinking` parameter and
+// `reasoning_content` responses (Kimi K2.x/K3 thinking models), implemented
+// directly on net/http for the same reason as model/ark — the OpenAI SDK
+// request struct cannot carry provider extensions. The wire shape (OpenAI
+// messages + thinking + reasoning_content) is identical to Ark's, so the
+// ArkFormatter's wire types and the no-dropped-blocks parsing are reused.
 //
-// The wire types and the "no content block is dropped" parsing live in
-// formatter/ark.go; this package is the transport.
-package ark
+// MoonshotChatModelBuilder (the OpenAI SDK thin wrapper) remains for
+// non-thinking use; this is the builder for the unified thinking option.
+package moonshot
 
 import (
 	"bufio"
@@ -26,41 +28,37 @@ import (
 	"github.com/linkerlin/agentscope.go/retry"
 )
 
-// DefaultBaseURL is the Volcano Ark OpenAI-compatible endpoint.
-const DefaultBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
-
-// Default Doubao model names.
+// Kimi model names (thinking-capable line).
 const (
-	ModelDoubaoSeed = "doubao-seed-1-6" // thinking-capable flagship line
+	ModelKimiK27 = "kimi-k2.7"
+	ModelKimiK3  = "kimi-k3"
 )
 
-// ArkChatModel implements model.ChatModel for Volcano Ark.
-type ArkChatModel struct {
+// KimiChatModel implements model.ChatModel for Moonshot's Kimi thinking
+// models over net/http.
+type KimiChatModel struct {
 	httpClient   *http.Client
 	apiKey       string
 	baseURL      string
 	modelName    string
-	thinking     string // "enabled" | "disabled" | "" (server default)
+	thinking     string // builder default: "" | "enabled" | "disabled"
 	retryMax     int
 	retryBackoff time.Duration
 	fmt          *formatter.ArkFormatter
 }
 
-// Builder returns a new ArkChatModelBuilder.
-func Builder(apiKey string) *ArkChatModelBuilder {
-	return &ArkChatModelBuilder{
+// KimiBuilder returns a builder for a Kimi thinking chat model.
+func KimiBuilder(apiKey string) *KimiChatModelBuilder {
+	return &KimiChatModelBuilder{
 		apiKey:    apiKey,
 		baseURL:   DefaultBaseURL,
-		modelName: ModelDoubaoSeed,
+		modelName: ModelKimiK3,
 		http:      &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
-// NewBuilder is an alias for Builder, following the Go New-prefix convention.
-func NewBuilder(apiKey string) *ArkChatModelBuilder { return Builder(apiKey) }
-
-// ArkChatModelBuilder builds an ArkChatModel.
-type ArkChatModelBuilder struct {
+// KimiChatModelBuilder builds a KimiChatModel.
+type KimiChatModelBuilder struct {
 	apiKey    string
 	baseURL   string
 	modelName string
@@ -68,24 +66,22 @@ type ArkChatModelBuilder struct {
 	http      *http.Client
 	retryMax  int
 	backoff   time.Duration
-	fmt       *formatter.ArkFormatter
 }
 
 // BaseURL overrides the API base URL (proxies, tests).
-func (b *ArkChatModelBuilder) BaseURL(u string) *ArkChatModelBuilder {
+func (b *KimiChatModelBuilder) BaseURL(u string) *KimiChatModelBuilder {
 	b.baseURL = u
 	return b
 }
 
-// ModelName sets the Doubao model (e.g. doubao-seed-1-6).
-func (b *ArkChatModelBuilder) ModelName(m string) *ArkChatModelBuilder {
+// ModelName sets the Kimi model (kimi-k3, kimi-k2.7, ...).
+func (b *KimiChatModelBuilder) ModelName(m string) *KimiChatModelBuilder {
 	b.modelName = m
 	return b
 }
 
-// Thinking enables or disables the doubao-seed thinking mode (the Ark
-// `thinking` request parameter). Unset = server default.
-func (b *ArkChatModelBuilder) Thinking(enabled bool) *ArkChatModelBuilder {
+// Thinking sets the builder-level default (per-call WithThinking wins).
+func (b *KimiChatModelBuilder) Thinking(enabled bool) *KimiChatModelBuilder {
 	if enabled {
 		b.thinking = "enabled"
 	} else {
@@ -95,37 +91,27 @@ func (b *ArkChatModelBuilder) Thinking(enabled bool) *ArkChatModelBuilder {
 }
 
 // HTTPClient sets a custom HTTP client (tests inject mocks).
-func (b *ArkChatModelBuilder) HTTPClient(c *http.Client) *ArkChatModelBuilder {
+func (b *KimiChatModelBuilder) HTTPClient(c *http.Client) *KimiChatModelBuilder {
 	b.http = c
 	return b
 }
 
 // Retry configures connection-level retry policy.
-func (b *ArkChatModelBuilder) Retry(maxAttempts int, backoff time.Duration) *ArkChatModelBuilder {
+func (b *KimiChatModelBuilder) Retry(maxAttempts int, backoff time.Duration) *KimiChatModelBuilder {
 	b.retryMax, b.backoff = maxAttempts, backoff
 	return b
 }
 
-// Formatter overrides the default ArkFormatter.
-func (b *ArkChatModelBuilder) Formatter(f *formatter.ArkFormatter) *ArkChatModelBuilder {
-	b.fmt = f
-	return b
-}
-
-// Build constructs the ArkChatModel.
-func (b *ArkChatModelBuilder) Build() (*ArkChatModel, error) {
+// Build constructs the KimiChatModel.
+func (b *KimiChatModelBuilder) Build() (*KimiChatModel, error) {
 	if b.apiKey == "" {
-		return nil, errors.New("ark: API key is required")
-	}
-	f := b.fmt
-	if f == nil {
-		f = formatter.NewArkFormatter()
+		return nil, errors.New("moonshot kimi: API key is required")
 	}
 	httpClient := b.http
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 120 * time.Second}
 	}
-	return &ArkChatModel{
+	return &KimiChatModel{
 		httpClient:   httpClient,
 		apiKey:       b.apiKey,
 		baseURL:      b.baseURL,
@@ -133,22 +119,22 @@ func (b *ArkChatModelBuilder) Build() (*ArkChatModel, error) {
 		thinking:     b.thinking,
 		retryMax:     b.retryMax,
 		retryBackoff: b.backoff,
-		fmt:          f,
+		fmt:          formatter.NewArkFormatter(),
 	}, nil
 }
 
 // ModelName implements model.ChatModel.
-func (m *ArkChatModel) ModelName() string { return m.modelName }
+func (m *KimiChatModel) ModelName() string { return m.modelName }
 
 // Chat implements model.ChatModel.
-func (m *ArkChatModel) Chat(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
+func (m *KimiChatModel) Chat(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
 	if m.retryMax >= 2 {
 		var out *message.Msg
 		ro := retry.Options{MaxAttempts: m.retryMax, Backoff: m.retryBackoff}
 		err := retry.Do(ctx, ro, func() error {
 			msg, err := m.chatOnce(ctx, messages, options...)
 			if err != nil {
-				return err // Ark errors are classified below
+				return err
 			}
 			out = msg
 			return nil
@@ -158,7 +144,7 @@ func (m *ArkChatModel) Chat(ctx context.Context, messages []*message.Msg, option
 	return m.chatOnce(ctx, messages, options...)
 }
 
-func (m *ArkChatModel) chatOnce(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
+func (m *KimiChatModel) chatOnce(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (*message.Msg, error) {
 	body, err := m.buildRequest(messages, options)
 	if err != nil {
 		return nil, err
@@ -169,35 +155,34 @@ func (m *ArkChatModel) chatOnce(ctx context.Context, messages []*message.Msg, op
 	}
 	var resp formatter.ArkChatResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("ark: decode response: %w", err)
+		return nil, fmt.Errorf("moonshot kimi: decode response: %w", err)
 	}
 	if resp.Error != nil {
-		return nil, fmt.Errorf("ark: %s: %s", resp.Error.Code, resp.Error.Message)
+		return nil, fmt.Errorf("moonshot kimi: %s: %s", resp.Error.Code, resp.Error.Message)
 	}
 	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("ark: empty choices in response")
+		return nil, fmt.Errorf("moonshot kimi: empty choices in response")
 	}
 	return m.fmt.ParseArkMessage(&resp.Choices[0].Message), nil
 }
 
 // ChatStream implements model.ChatModel (SSE).
-func (m *ArkChatModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
+func (m *KimiChatModel) ChatStream(ctx context.Context, messages []*message.Msg, options ...model.ChatOption) (<-chan *model.StreamChunk, error) {
 	body, err := m.buildRequest(messages, options)
 	if err != nil {
 		return nil, err
 	}
 	body["stream"] = true
 	body["stream_options"] = map[string]any{"include_usage": true}
-	raw, err := m.postStream(ctx, body)
+	rc, err := m.postStream(ctx, body)
 	if err != nil {
 		return nil, err
 	}
-
 	out := make(chan *model.StreamChunk, 16)
 	go func() {
 		defer close(out)
-		defer raw.Close()
-		scanner := bufio.NewScanner(raw)
+		defer rc.Close()
+		scanner := bufio.NewScanner(rc)
 		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -210,10 +195,10 @@ func (m *ArkChatModel) ChatStream(ctx context.Context, messages []*message.Msg, 
 			}
 			var ev formatter.ArkStreamEvent
 			if err := json.Unmarshal([]byte(payload), &ev); err != nil {
-				continue // forward-compatible: unknown frames skipped
+				continue
 			}
 			if ev.Error != nil {
-				out <- &model.StreamChunk{Done: true, Delta: fmt.Sprintf("ark stream error: %s", ev.Error.Message)}
+				out <- &model.StreamChunk{Done: true, Delta: fmt.Sprintf("moonshot kimi stream error: %s", ev.Error.Message)}
 				return
 			}
 			for _, ch := range m.fmt.ParseArkStreamDelta(&ev) {
@@ -236,18 +221,17 @@ func (m *ArkChatModel) ChatStream(ctx context.Context, messages []*message.Msg, 
 	return out, nil
 }
 
-// buildRequest assembles the OpenAI-compatible request body plus the Ark
-// `thinking` switch.
-func (m *ArkChatModel) buildRequest(messages []*message.Msg, options []model.ChatOption) (map[string]any, error) {
+// buildRequest assembles the OpenAI-compatible body plus the Kimi thinking
+// switch (per-call WithThinking wins over the builder default).
+func (m *KimiChatModel) buildRequest(messages []*message.Msg, options []model.ChatOption) (map[string]any, error) {
 	opts := model.ApplyOptions(options)
-	typed := m.fmt.FormatMessagesTyped(messages)
-	msgsRaw, err := json.Marshal(typed)
+	msgsRaw, err := json.Marshal(m.fmt.FormatMessagesTyped(messages))
 	if err != nil {
-		return nil, fmt.Errorf("ark: marshal messages: %w", err)
+		return nil, fmt.Errorf("moonshot kimi: marshal messages: %w", err)
 	}
 	var msgs []any
 	if err := json.Unmarshal(msgsRaw, &msgs); err != nil {
-		return nil, fmt.Errorf("ark: re-message messages: %w", err)
+		return nil, fmt.Errorf("moonshot kimi: re-message messages: %w", err)
 	}
 	body := map[string]any{
 		"model":    m.modelName,
@@ -259,8 +243,6 @@ func (m *ArkChatModel) buildRequest(messages []*message.Msg, options []model.Cha
 	if opts.Temperature > 0 {
 		body["temperature"] = opts.Temperature
 	}
-	// Thinking precedence (20.4): the unified per-call option wins, then the
-	// builder-level switch, then nothing (server default).
 	thinking := m.thinking
 	if opts.Thinking != nil {
 		if *opts.Thinking {
@@ -275,17 +257,16 @@ func (m *ArkChatModel) buildRequest(messages []*message.Msg, options []model.Cha
 	if len(opts.Tools) > 0 {
 		toolsRaw, err := json.Marshal(m.fmt.FormatToolsTyped(opts.Tools))
 		if err != nil {
-			return nil, fmt.Errorf("ark: marshal tools: %w", err)
+			return nil, fmt.Errorf("moonshot kimi: marshal tools: %w", err)
 		}
 		var tools []any
 		if err := json.Unmarshal(toolsRaw, &tools); err != nil {
-			return nil, fmt.Errorf("ark: re-message tools: %w", err)
+			return nil, fmt.Errorf("moonshot kimi: re-message tools: %w", err)
 		}
 		body["tools"] = tools
 	}
 	if opts.ToolChoice != nil {
-		tc, err := m.fmt.FormatToolChoice(opts.ToolChoice)
-		if err == nil && tc != nil {
+		if tc, err := m.fmt.FormatToolChoice(opts.ToolChoice); err == nil && tc != nil {
 			body["tool_choice"] = tc
 		}
 	}
@@ -295,22 +276,16 @@ func (m *ArkChatModel) buildRequest(messages []*message.Msg, options []model.Cha
 	return body, nil
 }
 
-// postJSON sends the request and returns the full response body.
-func (m *ArkChatModel) postJSON(ctx context.Context, body map[string]any) ([]byte, error) {
+func (m *KimiChatModel) postJSON(ctx context.Context, body map[string]any) ([]byte, error) {
 	resp, err := m.doPost(ctx, body)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("ark: read response: %w", err)
-	}
-	return data, nil
+	return io.ReadAll(resp.Body)
 }
 
-// postStream sends the request and returns the raw SSE body stream.
-func (m *ArkChatModel) postStream(ctx context.Context, body map[string]any) (io.ReadCloser, error) {
+func (m *KimiChatModel) postStream(ctx context.Context, body map[string]any) (io.ReadCloser, error) {
 	resp, err := m.doPost(ctx, body)
 	if err != nil {
 		return nil, err
@@ -318,23 +293,20 @@ func (m *ArkChatModel) postStream(ctx context.Context, body map[string]any) (io.
 	return resp.Body, nil
 }
 
-// doPost sends one request; non-200 responses are decoded into a typed
-// error (Ark error envelope when present).
-func (m *ArkChatModel) doPost(ctx context.Context, body map[string]any) (*http.Response, error) {
+func (m *KimiChatModel) doPost(ctx context.Context, body map[string]any) (*http.Response, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("ark: marshal request: %w", err)
+		return nil, fmt.Errorf("moonshot kimi: marshal request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/chat/completions", bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("ark: create request: %w", err)
+		return nil, fmt.Errorf("moonshot kimi: create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+m.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ark: do request: %w", err)
+		return nil, fmt.Errorf("moonshot kimi: do request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer func() { _ = resp.Body.Close() }()
@@ -349,9 +321,9 @@ func (m *ArkChatModel) doPost(ctx context.Context, body map[string]any) (*http.R
 		if json.Unmarshal(b, &e) == nil && e.Error.Message != "" {
 			msg = e.Error.Code + ": " + e.Error.Message
 		}
-		return nil, fmt.Errorf("ark: %s: %s", resp.Status, msg)
+		return nil, fmt.Errorf("moonshot kimi: %s: %s", resp.Status, msg)
 	}
 	return resp, nil
 }
 
-var _ model.ChatModel = (*ArkChatModel)(nil)
+var _ model.ChatModel = (*KimiChatModel)(nil)

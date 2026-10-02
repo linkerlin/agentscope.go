@@ -124,6 +124,80 @@ func TestChat_ThinkingSwitch(t *testing.T) {
 	}
 }
 
+// TestChat_ThinkingUnifiedOption: the unified WithThinking option (20.4)
+// overrides the builder default on BOTH paths — per-call false beats
+// builder-enabled, unset falls back, and the streaming body carries the
+// same serialization.
+func TestChat_ThinkingUnifiedOption(t *testing.T) {
+	var bodies []map[string]any
+	m, _ := newTestModel(t, func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var b map[string]any
+		_ = json.Unmarshal(raw, &b)
+		bodies = append(bodies, b)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	})
+	enabled, _ := Builder("k").Thinking(true).BaseURL(m.baseURL).Build()
+	_ = enabled
+	ctx := context.Background()
+	msgs := []*message.Msg{message.NewMsg().Role(message.RoleUser).TextContent("hi").Build()}
+
+	// Builder ON, per-call OFF: per-call wins.
+	on, err := Builder("k").BaseURL(m.baseURL).Thinking(true).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := on.Chat(ctx, msgs, model.WithThinking(false)); err != nil {
+		t.Fatal(err)
+	}
+	off, _ := bodies[len(bodies)-1]["thinking"].(map[string]any)
+	if off["type"] != "disabled" {
+		t.Fatalf("per-call false must override builder-enabled: %v", bodies[len(bodies)-1]["thinking"])
+	}
+
+	// Builder OFF (default), per-call ON: lands enabled.
+	if _, err := m.Chat(ctx, msgs, model.WithThinking(true)); err != nil {
+		t.Fatal(err)
+	}
+	th, _ := bodies[len(bodies)-1]["thinking"].(map[string]any)
+	if th["type"] != "enabled" {
+		t.Fatalf("per-call true: %v", bodies[len(bodies)-1]["thinking"])
+	}
+
+	// Neither: absent from the wire.
+	if _, err := m.Chat(ctx, msgs); err != nil {
+		t.Fatal(err)
+	}
+	if _, has := bodies[len(bodies)-1]["thinking"]; has {
+		t.Fatalf("unset thinking must stay off the wire")
+	}
+
+	// Streaming path: same serialization.
+	streamBody := map[string]any{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &streamBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	sm, err := Builder("k").BaseURL(srv.URL).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := sm.ChatStream(ctx, msgs, model.WithThinking(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	sth, _ := streamBody["thinking"].(map[string]any)
+	if sth["type"] != "enabled" {
+		t.Fatalf("stream thinking wire: %v", streamBody["thinking"])
+	}
+}
+
 // TestChat_StructuredOutput: json_object and json_schema both reach the wire
 // in the OpenAI-compatible response_format shape.
 func TestChat_StructuredOutput(t *testing.T) {

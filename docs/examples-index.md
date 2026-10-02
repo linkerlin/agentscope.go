@@ -94,6 +94,7 @@ AgentScope.Go 提供丰富的示例程序，覆盖从基础入门到生产部署
 | 托管知识库 | [`examples/rag_kb/main.go`](../examples/rag_kb/main.go) | 上传→解析→分块→索引→检索 |
 | Agentic Memory | [`examples/agentic_memory/main.go`](../examples/agentic_memory/main.go) | Agent 用文件工具管理 Markdown 记忆 |
 | 长期记忆中间件 | [`examples/longterm_memory/main.go`](../examples/longterm_memory/main.go) | static / agent / both 三模式 |
+| 记忆门面 | [`examples/memory_facade/main.go`](../examples/memory_facade/main.go) | 窗口/ReMe/Agentic/长期记忆单入口装配 |
 | TTS | [`examples/tts/main.go`](../examples/tts/main.go) | DashScope / OpenAI TTS 合成 |
 | Plugin | [`examples/plugin_demo/main.go`](../examples/plugin_demo/main.go) | 三阶段生命周期 + YAML 注册工具 |
 | 治理平面 demo | [`examples/controlplane_demo/main.go`](../examples/controlplane_demo/main.go) | Goal / ShouldRun / 门 / 租约 / 看板 |

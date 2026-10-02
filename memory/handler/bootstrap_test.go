@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/linkerlin/agentscope.go/config"
@@ -91,5 +92,36 @@ func TestBuildReMeVectorMemoryUnsupportedBackend(t *testing.T) {
 	_, err := BuildReMeVectorMemory(cfg, fixedBootstrapEmbed{}, nil)
 	if err == nil {
 		t.Fatal("expected error for unsupported backend")
+	}
+}
+
+// TestBuildReMeVectorMemoryRemovedPlaceholderBackends: elasticsearch/pgvector
+// placeholders were removed in 20.8 — both must fail loudly at build time
+// (not at first use) with a message pointing at real backends.
+func TestBuildReMeVectorMemoryRemovedPlaceholderBackends(t *testing.T) {
+	for _, backend := range []string{"elasticsearch", "es", "pgvector", "pg"} {
+		cfg := &config.ReMeMemoryConfig{
+			VectorStore: struct {
+				Backend    string `json:"backend" yaml:"backend"`
+				Dimension  int    `json:"dimension" yaml:"dimension"`
+				DBPath     string `json:"db_path" yaml:"db_path"`
+				Host       string `json:"host" yaml:"host"`
+				Port       int    `json:"port" yaml:"port"`
+				Collection string `json:"collection" yaml:"collection"`
+				BaseURL    string `json:"base_url" yaml:"base_url"`
+				Index      string `json:"index" yaml:"index"`
+				ConnStr    string `json:"conn_str" yaml:"conn_str"`
+				Table      string `json:"table" yaml:"table"`
+			}{
+				Backend: backend,
+			},
+		}
+		_, err := BuildReMeVectorMemory(cfg, fixedBootstrapEmbed{}, nil)
+		if err == nil {
+			t.Fatalf("backend %q: expected removed-placeholder error", backend)
+		}
+		if !strings.Contains(err.Error(), "not implemented in this build") {
+			t.Fatalf("backend %q: error should name the removal: %v", backend, err)
+		}
 	}
 }

@@ -74,7 +74,11 @@ type VectorStore interface {
 	DeleteAll(ctx context.Context) error
 }
 
-// EmbeddingModel 文本嵌入（向量记忆依赖） - duplicated in vector for self-contained subpackage (no import cycle)
+// EmbeddingModel 文本嵌入（向量记忆依赖） - duplicated in vector for self-contained subpackage (no import cycle).
+// Deprecation policy (20.8): new code should use the top-level embedding/
+// package backends (NewOpenAI/NewOllama/NewGemini/NewDashScope) via the
+// memory.Facade; this in-memory duplicate stays for the v2.x series and will
+// be revisited at the v3.0 API convergence (21.7).
 type EmbeddingModel interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)

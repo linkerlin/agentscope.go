@@ -7,3 +7,36 @@
 #
 # Format: <import path><TAB><decl>
 # (This file starts empty: 22.x/23.x kept the exported surface compatible.)
+github.com/linkerlin/agentscope.go/memory	func NewElasticsearchVectorStore ([]string, string, int, EmbeddingModel) (*ElasticsearchVectorStore, error)
+github.com/linkerlin/agentscope.go/memory	func NewPgvectorVectorStore (string, string, int, EmbeddingModel) (*PgvectorVectorStore, error)
+github.com/linkerlin/agentscope.go/memory	method ElasticsearchVectorStore ElasticsearchVectorStore.Delete (context.Context, string) error
+github.com/linkerlin/agentscope.go/memory	method ElasticsearchVectorStore ElasticsearchVectorStore.DeleteAll (context.Context) error
+github.com/linkerlin/agentscope.go/memory	method ElasticsearchVectorStore ElasticsearchVectorStore.Get (context.Context, string) (*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory	method ElasticsearchVectorStore ElasticsearchVectorStore.Insert (context.Context, []*MemoryNode) error
+github.com/linkerlin/agentscope.go/memory	method ElasticsearchVectorStore ElasticsearchVectorStore.Search (context.Context, string, RetrieveOptions) ([]*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory	method ElasticsearchVectorStore ElasticsearchVectorStore.Update (context.Context, *MemoryNode) error
+github.com/linkerlin/agentscope.go/memory	method PgvectorVectorStore PgvectorVectorStore.Delete (context.Context, string) error
+github.com/linkerlin/agentscope.go/memory	method PgvectorVectorStore PgvectorVectorStore.DeleteAll (context.Context) error
+github.com/linkerlin/agentscope.go/memory	method PgvectorVectorStore PgvectorVectorStore.Get (context.Context, string) (*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory	method PgvectorVectorStore PgvectorVectorStore.Insert (context.Context, []*MemoryNode) error
+github.com/linkerlin/agentscope.go/memory	method PgvectorVectorStore PgvectorVectorStore.Search (context.Context, string, RetrieveOptions) ([]*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory	method PgvectorVectorStore PgvectorVectorStore.Update (context.Context, *MemoryNode) error
+github.com/linkerlin/agentscope.go/memory	type ElasticsearchVectorStore
+github.com/linkerlin/agentscope.go/memory	type PgvectorVectorStore
+github.com/linkerlin/agentscope.go/memory/vector	func NewElasticsearchVectorStore ([]string, string, int, EmbeddingModel) (*ElasticsearchVectorStore, error)
+github.com/linkerlin/agentscope.go/memory/vector	func NewPgvectorVectorStore (string, string, int, EmbeddingModel) (*PgvectorVectorStore, error)
+github.com/linkerlin/agentscope.go/memory/vector	method ElasticsearchVectorStore ElasticsearchVectorStore.Delete (context.Context, string) error
+github.com/linkerlin/agentscope.go/memory/vector	method ElasticsearchVectorStore ElasticsearchVectorStore.DeleteAll (context.Context) error
+github.com/linkerlin/agentscope.go/memory/vector	method ElasticsearchVectorStore ElasticsearchVectorStore.Get (context.Context, string) (*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory/vector	method ElasticsearchVectorStore ElasticsearchVectorStore.Insert (context.Context, []*MemoryNode) error
+github.com/linkerlin/agentscope.go/memory/vector	method ElasticsearchVectorStore ElasticsearchVectorStore.Search (context.Context, string, RetrieveOptions) ([]*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory/vector	method ElasticsearchVectorStore ElasticsearchVectorStore.Update (context.Context, *MemoryNode) error
+github.com/linkerlin/agentscope.go/memory/vector	method PgvectorVectorStore PgvectorVectorStore.Delete (context.Context, string) error
+github.com/linkerlin/agentscope.go/memory/vector	method PgvectorVectorStore PgvectorVectorStore.DeleteAll (context.Context) error
+github.com/linkerlin/agentscope.go/memory/vector	method PgvectorVectorStore PgvectorVectorStore.Get (context.Context, string) (*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory/vector	method PgvectorVectorStore PgvectorVectorStore.Insert (context.Context, []*MemoryNode) error
+github.com/linkerlin/agentscope.go/memory/vector	method PgvectorVectorStore PgvectorVectorStore.Search (context.Context, string, RetrieveOptions) ([]*MemoryNode, error)
+github.com/linkerlin/agentscope.go/memory/vector	method PgvectorVectorStore PgvectorVectorStore.Update (context.Context, *MemoryNode) error
+github.com/linkerlin/agentscope.go/memory/vector	type ElasticsearchVectorStore
+github.com/linkerlin/agentscope.go/memory/vector	type PgvectorVectorStore
+github.com/linkerlin/agentscope.go/memory/vector	var ErrNotImplemented

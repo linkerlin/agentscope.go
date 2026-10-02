@@ -20,17 +20,3 @@ func TestChromaVectorStoreNilEmbed(t *testing.T) {
 		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
 	}
 }
-
-func TestESVectorStoreNilEmbed(t *testing.T) {
-	_, err := NewElasticsearchVectorStore([]string{"http://localhost:9200"}, "test", 4, nil)
-	if err != ErrEmbeddingRequired {
-		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
-	}
-}
-
-func TestPGVectorStoreNilEmbed(t *testing.T) {
-	_, err := NewPgvectorVectorStore("postgres://localhost/test", "test", 4, nil)
-	if err != ErrEmbeddingRequired {
-		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
-	}
-}

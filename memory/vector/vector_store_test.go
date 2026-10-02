@@ -38,49 +38,6 @@ func TestQdrantVectorStoreNilEmbed(t *testing.T) {
 	}
 }
 
-// --- Elasticsearch stub ---
-
-func TestElasticsearchVectorStoreStub(t *testing.T) {
-	e := fixedEmbed{dim: 4}
-	s, err := NewElasticsearchVectorStore([]string{"http://localhost:9200"}, "test", 4, e)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Insert(context.Background(), nil); err != ErrNotImplemented {
-		t.Fatalf("expected ErrNotImplemented, got %v", err)
-	}
-	nodes, err := s.Search(context.Background(), "", RetrieveOptions{})
-	if err != ErrNotImplemented || nodes != nil {
-		t.Fatalf("expected ErrNotImplemented and nil nodes, got %v %v", nodes, err)
-	}
-}
-
-func TestElasticsearchVectorStoreNilEmbed(t *testing.T) {
-	_, err := NewElasticsearchVectorStore([]string{"http://localhost:9200"}, "test", 4, nil)
-	if err != ErrEmbeddingRequired {
-		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
-	}
-}
-
-// --- PGVector stub ---
-
-func TestPgvectorVectorStoreStub(t *testing.T) {
-	e := fixedEmbed{dim: 4}
-	s, err := NewPgvectorVectorStore("postgres://localhost/test", "test", 4, e)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = s.Insert(context.Background(), nil)
-	_, _ = s.Search(context.Background(), "", RetrieveOptions{})
-}
-
-func TestPgvectorVectorStoreNilEmbed(t *testing.T) {
-	_, err := NewPgvectorVectorStore("postgres://localhost/test", "test", 4, nil)
-	if err != ErrEmbeddingRequired {
-		t.Fatalf("expected ErrEmbeddingRequired, got %v", err)
-	}
-}
-
 // --- Chroma (real implementation with network — only test nil embed) ---
 
 func TestChromaVectorStoreNilEmbed(t *testing.T) {

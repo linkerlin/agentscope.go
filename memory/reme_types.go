@@ -38,6 +38,11 @@ func GenerateMemoryID(content string) string {
 
 // MemoryType, MemoryNode, RetrieveOptions, VectorStore re-exported from vector subpackage
 // (see memory/vector/types.go). Completes light split pilot.
+//
+// Deprecation policy (20.8): these aliases and the MemoryType constants below
+// are compatibility re-exports only. New code should prefer the facade
+// (memory.NewFacade) or import memory/vector directly. The aliases stay for
+// the v2.x series and will be revisited at the v3.0 API convergence (21.7).
 type (
 	MemoryType      = vector.MemoryType
 	MemoryNode      = vector.MemoryNode
@@ -46,6 +51,7 @@ type (
 )
 
 // Re-export all MemoryType constants from vector subpackage for convenience.
+// Same deprecation policy as the type aliases above (v3.0 / 21.7 revisits them).
 const (
 	MemoryTypePersonal   = vector.MemoryTypePersonal
 	MemoryTypeProcedural = vector.MemoryTypeProcedural

@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **20.8** `memory.Facade`：窗口、ReMe、Agentic、长期记忆从单一入口构造；示例不直连内部实现；撤下 Elasticsearch / pgvector 占位构造函数，并明确其余兼容包装的弃用策略
 
 ## P2 · v3.0 平台收敛
 

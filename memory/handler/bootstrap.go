@@ -36,18 +36,8 @@ func BuildReMeVectorMemory(cfg *config.ReMeMemoryConfig, embed memory.EmbeddingM
 				cfg.VectorStore.Collection,
 				cfg.VectorStore.Dimension, embed,
 			)
-		case "elasticsearch", "es":
-			store, err = memory.NewElasticsearchVectorStore(
-				[]string{cfg.VectorStore.BaseURL},
-				cfg.VectorStore.Index,
-				cfg.VectorStore.Dimension, embed,
-			)
-		case "pgvector", "pg":
-			store, err = memory.NewPgvectorVectorStore(
-				cfg.VectorStore.ConnStr,
-				cfg.VectorStore.Table,
-				cfg.VectorStore.Dimension, embed,
-			)
+		case "elasticsearch", "es", "pgvector", "pg":
+			return nil, fmt.Errorf("memory: vector store backend %q is not implemented in this build (placeholder removed in 20.8); use qdrant/chroma/sqlite_vec or inject a custom VectorStore", cfg.VectorStore.Backend)
 		default:
 			return nil, fmt.Errorf("memory: unsupported vector store backend %q", cfg.VectorStore.Backend)
 		}

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`memory.Facade` 单一记忆装配入口**（20.8）：`memory.NewFacade(FacadeOptions)` 一次构造四档记忆——Window（会话内窗口）/ ReMe（跨会话检索，Store+Embed 双设走向量、缺省走文件）/ Agentic（agent 自管 Markdown）/ LongTerm（mem0 式长期记忆，经 `middleware.NewFuncLongTermMemory` 闭包桥接 facade 自己的向量 ReMe 档）。各档可选（nil=不装），装配点 `Window()`/`ReMe()`/`Hooks()`/`Middlewares()`；Store/Embed 只设其一、LongTerm 无向量 ReMe 档均显式报错。示例 `examples/memory_facade`。
+
+### Removed
+
+- **Elasticsearch / pgvector 占位向量后端**（20.8，breaking）：删除 `memory`/`memory/vector` 两包的 `NewElasticsearchVectorStore`、`NewPgvectorVectorStore`、两个占位类型与 `vector.ErrNotImplemented`——这些构造只返回"not implemented"占位对象，任何调用都在运行期失败。`BuildReMeVectorMemory` 的 `elasticsearch`/`es`/`pgvector`/`pg` backend 分支改为启动即明确报错（提示改用 qdrant/chroma/sqlite_vec 或注入自定义 `VectorStore`）。迁移：如代码引用了这些占位符号，直接删除即可（它们从未真正工作过）；完整 breaking 清单见 `quality/api_breaking_allowlist.txt`。
+
+### Deprecated
+
+- **记忆兼容包装弃用策略明确化**（20.8）：`memory` 根包对 `memory/vector` 的类型别名（`MemoryType`/`MemoryNode`/`RetrieveOptions`/`VectorStore` 及 `MemoryType*` 常量）与 `memory/vector` 内嵌的 `EmbeddingModel` 副本标注弃用策略——新代码优先走 `memory.NewFacade` 或直接 import `memory/vector`；别名保留整个 v2.x 系列，v3.0 API 收敛（21.7）时统一评估去留。
+
 ## [2.7.0] - 2026-10-01 — 可靠多副本与交付门禁（v2.7）+ 认证热路径索引 + 长连接 worker
 
 > 详见 [RELEASE_NOTES_v2.7.0.md](RELEASE_NOTES_v2.7.0.md)。

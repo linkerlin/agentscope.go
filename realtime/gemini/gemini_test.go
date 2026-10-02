@@ -11,8 +11,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -504,6 +506,42 @@ func TestHandshake_Error(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "API key not valid") {
 		t.Fatalf("error must surface the server message: %v", err)
+	}
+}
+
+// TestDialError_RedactsAPIKey: the endpoint embeds the key in the query —
+// a dial failure wrapping a *url.Error must never leak it into the error
+// chain (logs), while errors.As on the chain keeps working.
+func TestDialError_RedactsAPIKey(t *testing.T) {
+	// Pure redaction: a *url.Error carrying the key comes back masked.
+	inner := &url.Error{Op: "Get", URL: "wss://example.invalid/x?key=super-secret-key&alt=json", Err: errors.New("boom")}
+	red := redactURLKey(inner)
+	msg := red.Error()
+	if strings.Contains(msg, "super-secret-key") {
+		t.Fatalf("redacted error leaks the key: %s", msg)
+	}
+	if !strings.Contains(msg, "key=REDACTED") {
+		t.Fatalf("redaction marker missing: %s", msg)
+	}
+	var ue *url.Error
+	if !errors.As(red, &ue) {
+		t.Fatalf("redacted error must stay a *url.Error for errors.As")
+	}
+
+	// Integration: a failed dial against a dead port surfaces no key.
+	model := NewLiveFlash("super-secret-key", WithBaseURL("http://127.0.0.1:1/dead"))
+	_, _, err := model.Connect(context.Background(), realtime.NegotiateOffer{Formats: []realtime.AudioFormat{pcm16k}})
+	if err == nil {
+		t.Fatalf("dial to a dead port must fail")
+	}
+	if strings.Contains(err.Error(), "super-secret-key") {
+		t.Fatalf("connect error leaks the api key: %s", err.Error())
+	}
+
+	// Non-URL errors pass through untouched.
+	plain := errors.New("plain")
+	if redactURLKey(plain) != plain {
+		t.Fatalf("non-url errors must pass through")
 	}
 }
 

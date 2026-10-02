@@ -9,8 +9,10 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -157,7 +159,10 @@ func (m *Model) Connect(ctx context.Context, offer realtime.NegotiateOffer) (rea
 	dialer := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
 	conn, _, err := dialer.DialContext(ctx, m.endpoint(), header)
 	if err != nil {
-		return nil, realtime.NegotiateAnswer{}, fmt.Errorf("gemini live: dial: %w", err)
+		// The endpoint embeds the API key (?key=); a wrapped *url.Error
+		// would carry it into logs — redact before surfacing (same policy
+		// as the hub fetcher's URL-without-query errors, 18.7).
+		return nil, realtime.NegotiateAnswer{}, fmt.Errorf("gemini live: dial: %w", redactURLKey(err))
 	}
 
 	setup := clientFrame{Setup: newSetup("models/"+m.model, m.voice, m.instructions, m.tools)}
@@ -226,6 +231,25 @@ func wsURL(base string) string {
 	default:
 		return "ws://" + base
 	}
+}
+
+// redactURLKey masks the key query parameter inside a *url.Error chain so a
+// failed dial never leaks the credential into error messages or logs. The
+// clone stays a *url.Error, so errors.As/Is on the chain keep working.
+func redactURLKey(err error) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	clone := *ue
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		if q := u.Query(); q.Get("key") != "" {
+			q.Set("key", "REDACTED")
+			u.RawQuery = q.Encode()
+			clone.URL = u.String()
+		}
+	}
+	return &clone
 }
 
 // newSessionID mints a local session id (the Live API has no session id in

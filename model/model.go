@@ -94,6 +94,18 @@ func WithResponseFormat(rf *ResponseFormat) ChatOption {
 	return func(o *ChatOptions) { o.ResponseFormat = rf }
 }
 
+// ApplyOptions folds functional ChatOptions into one ChatOptions value
+// (shared by backends that assemble their own request bodies, e.g. Ark).
+func ApplyOptions(options []ChatOption) *ChatOptions {
+	opts := &ChatOptions{}
+	for _, o := range options {
+		if o != nil {
+			o(opts)
+		}
+	}
+	return opts
+}
+
 // StreamChunk is a single chunk from a streaming model response
 type StreamChunk struct {
 	Delta      string

@@ -16,6 +16,12 @@ type ClusterManager struct {
 	localNodeID string
 	localURL    string
 
+	// clientFactory builds the Client used to send tasks to a node URL.
+	// Defaults to the real HTTP client (NewHTTPClient); tests inject fakes.
+	// NoopClient is NOT used here (20.5 review fix): a noop send would fail
+	// — the earlier version masked that by faking a completed result.
+	clientFactory func(url string) Client
+
 	// 健康检查
 	healthCheckInterval time.Duration
 	healthTimeout       time.Duration
@@ -50,12 +56,22 @@ func NewClusterManager(registry *Registry, localNodeID, localURL string) *Cluste
 		router:              NewShardRouter(registry, 150),
 		localNodeID:         localNodeID,
 		localURL:            localURL,
+		clientFactory:       func(url string) Client { return NewHTTPClient(url) },
 		healthCheckInterval: 30 * time.Second,
 		healthTimeout:       5 * time.Second,
 		failoverTimeout:     10 * time.Second,
 		maxRetries:          3,
 		nodeHealth:          make(map[string]*NodeHealth),
 	}
+}
+
+// WithClientFactory overrides how per-node Clients are built (tests inject
+// fakes; production keeps the real HTTP client).
+func (cm *ClusterManager) WithClientFactory(f func(url string) Client) *ClusterManager {
+	if f != nil {
+		cm.clientFactory = f
+	}
+	return cm
 }
 
 // Start 启动集群管理（健康检查、自动刷新）。
@@ -213,10 +229,14 @@ func (cm *ClusterManager) selectLeastLoadedNode() (string, error) {
 
 // SendTaskWithFailover 发送任务并支持故障转移。
 func (cm *ClusterManager) SendTaskWithFailover(ctx context.Context, task *Task) (*TaskResult, error) {
-	// 获取路由目标
+	// 获取路由目标；路由失败（如 ring 尚未填充）降级到最小负载健康节点——
+	// 集群有健康节点时不应因路由器状态拒绝任务。
 	target, err := cm.RouteWithLoadBalance(task.ID)
 	if err != nil {
-		return nil, err
+		target, err = cm.selectLeastLoadedNode()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// 尝试发送，失败时重试其他节点
@@ -238,17 +258,30 @@ func (cm *ClusterManager) SendTaskWithFailover(ctx context.Context, task *Task) 
 	return nil, fmt.Errorf("task failed after %d retries", cm.maxRetries)
 }
 
-// sendTaskToNode 向指定节点发送任务。
+// sendTaskToNode 向指定节点发送任务（经注入的 Client——默认真实 HTTP 客户端）。
+// An empty/failed remote reply is an ERROR, never a fabricated "completed"
+// result (20.5 review fix: the earlier NoopClient + hardcoded completed
+// masked every failure as success).
 func (cm *ClusterManager) sendTaskToNode(ctx context.Context, target string, task *Task) (*TaskResult, error) {
-	client := &NoopClient{}
+	client := cm.clientFactory(target)
+	defer func() { _ = client.Close() }()
+
 	resp, err := client.Send(ctx, &Message{Content: task.ID})
 	if err != nil {
 		return nil, err
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("a2a cluster: node %s returned no message for task %s", target, task.ID)
+	}
+	status := "completed"
+	if s, ok := resp.Meta["status"].(string); ok && s != "" {
+		status = s
+	}
 	return &TaskResult{
 		TaskID: task.ID,
-		Status: "completed",
+		Status: status,
 		Output: resp.Content,
+		NodeID: target,
 	}, nil
 }
 

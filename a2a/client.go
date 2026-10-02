@@ -19,7 +19,8 @@ type Client interface {
 	Close() error
 }
 
-// NoopClient 占位实现，便于在无远端时编译通过
+// NoopClient 占位实现：每个方法都显式报错。仅用于显式测试（构造失败路径）——
+// 生产/装配路径不得使用（20.5：ClusterManager 已改注入真实 Client）。
 type NoopClient struct{}
 
 func (NoopClient) Send(ctx context.Context, msg *Message) (*Message, error) {

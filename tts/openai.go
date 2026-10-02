@@ -24,7 +24,15 @@ type OpenAIAdapter struct {
 
 // NewOpenAIAdapter wraps an existing *model.OpenAITTS as a tts.Model.
 func NewOpenAIAdapter(tts *model.OpenAITTS) *OpenAIAdapter {
-	return &OpenAIAdapter{backend: tts}
+	return NewSynthesizerAdapter(tts)
+}
+
+// NewSynthesizerAdapter wraps any OpenAI-compatible TTS backend (anything
+// satisfying the minimal speechSynthesizer contract — e.g. *model.OpenAITTS
+// for gpt-4o-mini-tts / tts-1) as a tts.Model. Tests and alternative
+// clients use this entry directly.
+func NewSynthesizerAdapter(backend speechSynthesizer) *OpenAIAdapter {
+	return &OpenAIAdapter{backend: backend}
 }
 
 // WithDefaults sets default Options applied when a caller omits a field.

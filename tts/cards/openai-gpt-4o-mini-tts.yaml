@@ -1,0 +1,7 @@
+id: openai-gpt-4o-mini-tts
+provider: openai
+display_name: OpenAI gpt-4o-mini-tts
+model: gpt-4o-mini-tts
+default_voice: alloy
+formats: [mp3, opus, aac, flac, wav, pcm]
+multilingual: true

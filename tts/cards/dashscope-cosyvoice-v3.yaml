@@ -1,0 +1,7 @@
+id: dashscope-cosyvoice-v3
+provider: dashscope
+display_name: DashScope CosyVoice v3
+model: cosyvoice-v3
+default_voice: longxiaochun_v2
+formats: [mp3, pcm, wav]
+multilingual: true

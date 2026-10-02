@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **19.8** TTS：Gemini TTS、CosyVoice v3、gpt-4o-mini-tts 卡片与请求 / 错误契约；音频隐私、留存与成本指标有明确默认策略
 - [ ] **20.3** 火山方舟 Ark：doubao-seed 后端、formatter、流式和结构化输出契约
 - [ ] **20.4** Moonshot：Kimi K3 / K2.7 卡片与跨后端统一 thinking 参数
 - [ ] **20.5** `A2AAgent`：远程 Agent 作为本地 Agent 使用，状态按 task 续接，运行中拒绝二次发送；`ClusterManager` 发送走真实 Client，移出 `NoopClient` 推荐路径

@@ -1,0 +1,7 @@
+id: gemini-2.5-flash-preview-tts
+provider: google
+display_name: Gemini 2.5 Flash Preview TTS
+model: gemini-2.5-flash-preview-tts
+default_voice: Kore
+formats: [pcm]
+multilingual: true

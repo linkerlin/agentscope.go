@@ -18,6 +18,7 @@ import (
 	"github.com/linkerlin/agentscope.go/middleware"
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/permission"
+	"github.com/linkerlin/agentscope.go/tool"
 )
 
 // ReplyStream implements the V2 true event-stream API.
@@ -940,8 +941,16 @@ func (a *ReActAgent) executeToolsStream(
 		go func() {
 			defer g.Done()
 
-			out <- event.NewToolCallStart(replyID, idx, tc.ID, tc.Name)
-			out <- event.NewToolCallEnd(replyID, idx, tc.ID)
+			// Chunked tools (20.6): Start opens the call right before the
+			// execution, chunks stream as ToolCallDelta while the tool runs,
+			// and End closes it when the execution does — the first chunk is
+			// visible long before the call finishes. Plain tools keep the
+			// immediate Start+End pair (unchanged behaviour).
+			chunked := a.isChunkedTool(tc.Name)
+			if !chunked {
+				out <- event.NewToolCallStart(replyID, idx, tc.ID, tc.Name)
+				out <- event.NewToolCallEnd(replyID, idx, tc.ID)
+			}
 
 			// Fire before-tool hook
 			_, hr, err := a.fireHooks(ctx, hook.HookBeforeTool, history, nil, tc.Name, tc.Input)
@@ -957,7 +966,17 @@ func (a *ReActAgent) executeToolsStream(
 			out <- event.NewToolResultStart(replyID, idx, tc.ID, tc.Name)
 
 			start := time.Now()
-			resp, toolErr := a.executeToolSafely(ctx, tc.Name, tc.Input)
+			var resp *tool.Response
+			var toolErr error
+			if chunked {
+				out <- event.NewToolCallStart(replyID, idx, tc.ID, tc.Name)
+				resp, toolErr = a.executeToolSafelyChunked(ctx, tc.Name, tc.Input, func(chunk string) {
+					out <- event.NewToolCallDelta(replyID, idx, tc.ID, chunk)
+				})
+				out <- event.NewToolCallEnd(replyID, idx, tc.ID)
+			} else {
+				resp, toolErr = a.executeToolSafely(ctx, tc.Name, tc.Input)
+			}
 			elapsed := time.Since(start).Seconds()
 
 			var blocks []message.ContentBlock

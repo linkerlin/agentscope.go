@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **20.6** `ToolChunk`：工具执行真实增量输出并保留顺序、错误、取消语义，映射到 AG-UI
 - [ ] **20.7** 护栏中间件：输入注入检测和输出过滤覆盖模型、工具与二进制内容；默认保守且可关闭
 - [ ] **19.3** `RealtimeAgent`：打断仅保留已听前缀；断线重连不丢 backlog；工具确认超时；与 18.5 的多副本语义一致
 - [ ] **19.4** DashScope realtime：qwen-omni / qwen-audio + CosyVoice realtime 端到端、工具调用与 `TurnMetrics`

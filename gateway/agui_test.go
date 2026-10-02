@@ -41,6 +41,30 @@ func TestDefaultAGUIConverter_TextBlock(t *testing.T) {
 	}
 }
 
+func TestDefaultAGUIConverter_ToolCallChunks(t *testing.T) {
+	conv := NewDefaultAGUIConverter()
+	opts := AGUIConvertOptions{}
+
+	// Chunked tools (20.6): each ToolCallDelta maps to a TOOL_CALL_ARGS
+	// message preserving order and the tool call id.
+	d1, err := conv.Convert(event.NewToolCallDelta("r1", 0, "tc1", "part1"), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2, err := conv.Convert(event.NewToolCallDelta("r1", 0, "tc1", "part2"), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, m := range []map[string]any{d1, d2} {
+		if m["type"] != "TOOL_CALL_ARGS" || m["toolCallId"] != "tc1" {
+			t.Fatalf("delta %d wrong: %#v", i, m)
+		}
+	}
+	if d1["delta"] != "part1" || d2["delta"] != "part2" {
+		t.Fatalf("chunk order lost: %v %v", d1["delta"], d2["delta"])
+	}
+}
+
 func TestDefaultAGUIConverter_ToolResult(t *testing.T) {
 	conv := NewDefaultAGUIConverter()
 	opts := AGUIConvertOptions{}

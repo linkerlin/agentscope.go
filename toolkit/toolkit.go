@@ -2,6 +2,7 @@ package toolkit
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/linkerlin/agentscope.go/model"
 	"github.com/linkerlin/agentscope.go/tool"
@@ -96,4 +97,43 @@ func (tk *Toolkit) ExecuteTool(ctx context.Context, name string, input map[strin
 		return nil, err
 	}
 	return resp.Single, nil
+}
+
+// ExecuteToolChunked runs one tool with live output (20.6): when the tool
+// implements tool.ChunkedTool its chunks flow to emit as they are produced
+// (synchronously from the executing goroutine — order is emit order), and
+// the final Response is returned as usual. Plain tools execute exactly like
+// ExecuteTool. Toolkit middlewares wrap the execution the same way.
+func (tk *Toolkit) ExecuteToolChunked(ctx context.Context, name string, input map[string]any, emit func(chunk string)) (*tool.Response, error) {
+	resolve := func() (tool.Tool, bool) {
+		t, ok := tk.Registry.Get(name)
+		return t, ok
+	}
+	if len(tk.middlewares) == 0 {
+		return executeChunked(ctx, resolve, input, emit)
+	}
+	handler := func(ctx context.Context, req *Request) (*Response, error) {
+		r := func() (tool.Tool, bool) { return tk.Registry.Get(req.ToolName) }
+		resp, err := executeChunked(ctx, r, req.ToolInput, emit)
+		return &Response{Single: resp}, err
+	}
+	handler = chain(handler, tk.middlewares...)
+	resp, err := handler(ctx, &Request{Stage: StageExecuteTool, ToolName: name, ToolInput: input})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Single, nil
+}
+
+// executeChunked dispatches to the chunked execution when the tool supports
+// it, otherwise to the plain Execute.
+func executeChunked(ctx context.Context, resolve func() (tool.Tool, bool), input map[string]any, emit func(chunk string)) (*tool.Response, error) {
+	t, ok := resolve()
+	if !ok {
+		return nil, fmt.Errorf("tool not found")
+	}
+	if ct, ok := t.(tool.ChunkedTool); ok {
+		return ct.ExecuteChunked(ctx, input, emit)
+	}
+	return t.Execute(ctx, input)
 }

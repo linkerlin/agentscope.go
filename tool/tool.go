@@ -14,6 +14,18 @@ type Tool interface {
 	Execute(ctx context.Context, input map[string]any) (*Response, error)
 }
 
+// ChunkedTool is a Tool whose execution emits incremental output chunks
+// (20.6): long-running commands streaming stdout, progress lines, staged
+// results. emit is called synchronously from the executing goroutine —
+// chunk order is emit order, and the caller's stream preserves it. The
+// final Response remains the authoritative result (chunks are live output,
+// not the result); a cancellation (ctx) surfaces as the returned error
+// while chunks already emitted stay delivered.
+type ChunkedTool interface {
+	Tool
+	ExecuteChunked(ctx context.Context, input map[string]any, emit func(chunk string)) (*Response, error)
+}
+
 // ReadOnlyChecker is an optional interface tools may implement to declare
 // whether they are read-only operations. The permission engine uses this
 // information for EXPLORE and ACCEPT_EDITS mode logic.

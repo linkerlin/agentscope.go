@@ -987,6 +987,60 @@ func (a *ReActAgent) executeTool(ctx context.Context, name string, input map[str
 	return final(ctx)
 }
 
+// isChunkedTool reports whether the named tool streams live output chunks
+// (tool.ChunkedTool, 20.6). Unregistered names report false.
+func (a *ReActAgent) isChunkedTool(name string) bool {
+	if a.toolkit != nil {
+		if t, ok := a.toolkit.Registry.Get(name); ok {
+			_, ok := t.(tool.ChunkedTool)
+			return ok
+		}
+		return false
+	}
+	_, ok := a.toolMap[name].(tool.ChunkedTool)
+	return ok
+}
+
+// executeToolSafelyChunked is executeToolSafely for chunked tools: the
+// panic guard applies, the middleware chain (if any) wraps the execution,
+// and emit forwards the tool's chunks synchronously (order preserved). A
+// non-chunked tool falls back to plain execution (emit unused).
+func (a *ReActAgent) executeToolSafelyChunked(ctx context.Context, name string, input map[string]any, emit func(chunk string)) (resp *tool.Response, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			resp, err = nil, fmt.Errorf("tool %s panicked: %v", name, r)
+		}
+	}()
+	final := func(ctx context.Context) (*tool.Response, error) {
+		if a.toolkit != nil {
+			if a.workspace != nil {
+				if t, ok := a.toolkit.Registry.Get(name); ok {
+					bindWorkspaceToTool(t, a.workspace)
+				}
+			}
+			return a.toolkit.ExecuteToolChunked(ctx, name, input, emit)
+		}
+		t, ok := a.toolMap[name]
+		if !ok {
+			return nil, fmt.Errorf("tool not found: %s", name)
+		}
+		if a.workspace != nil {
+			bindWorkspaceToTool(t, a.workspace)
+		}
+		if ct, ok := t.(tool.ChunkedTool); ok {
+			return ct.ExecuteChunked(ctx, input, emit)
+		}
+		return t.Execute(ctx, input)
+	}
+	chain := a.MiddlewareChain()
+	if chain != nil && len(chain.Acting) > 0 {
+		actingInput := &middleware.ActingInput{ToolName: name, ToolInput: input}
+		handler := middleware.ChainActing(chain, a.Base, actingInput, final)
+		return handler(ctx)
+	}
+	return final(ctx)
+}
+
 // executeToolSafely runs a tool, converting a panic into a tool error so a
 // single misbehaving tool cannot crash the whole agent process. Both ReAct
 // loops (Call and ReplyStream) execute tools in goroutines; errgroup and

@@ -619,15 +619,19 @@ func TestFormatNegotiation_Reject(t *testing.T) {
 	}
 }
 
-// TestCards_Embedded: both realtime cards load with client truncation and
-// duplex pcm24k.
+// TestCards_Embedded: every realtime card loads with client truncation and
+// duplex pcm24k — including the xAI grok card (19.6).
 func TestCards_Embedded(t *testing.T) {
 	cards, err := ListModelCards()
 	if err != nil {
 		t.Fatalf("cards: %v", err)
 	}
-	if len(cards) != 2 {
-		t.Fatalf("want 2 cards, got %d", len(cards))
+	if len(cards) != 3 {
+		t.Fatalf("want 3 cards (gpt-realtime, 4o preview, grok), got %d", len(cards))
+	}
+	byID := map[string]realtime.ModelCard{}
+	for _, c := range cards {
+		byID[c.ID] = c
 	}
 	for _, c := range cards {
 		if c.Truncation.Normalized() != realtime.TruncationClient || !c.Tools {
@@ -637,4 +641,60 @@ func TestCards_Embedded(t *testing.T) {
 			t.Fatalf("card %s formats: %+v", c.ID, c)
 		}
 	}
+	grok, ok := byID["grok-voice-latest"]
+	if !ok || grok.Provider != "xai" || grok.Model != "grok-voice-latest" {
+		t.Fatalf("grok card: %+v", grok)
+	}
+}
+
+// TestGrokRealtime_AliasEventNames: xAI's endpoint speaks OpenAI-compatible
+// naming with the GA-era aliases (response.output_audio.delta /
+// response.output_text.delta). The SAME decoder and the SAME contract test
+// shape as the OpenAI path must drive a full turn — 19.6's "复用同一契约
+// 测试集, 不接受仅能创建客户端".
+func TestGrokRealtime_AliasEventNames(t *testing.T) {
+	srv := newMockRTServer(t)
+	srv.autoFrames = func(n int) []string {
+		return []string{
+			transcriptDone("北京天气"),
+			responseCreated("resp_x1"),
+			frameOf(serverEvent{Type: evTextDeltaAlt, Delta: "北京晴"}),
+			frameOf(serverEvent{Type: evAudioDeltaAlt, Delta: base64.StdEncoding.EncodeToString([]byte{9, 9})}),
+			functionCallDone("call_x1", "weather", `{"city":"北京"}`),
+			responseDoneFrame("resp_x1", "completed"),
+		}
+	}
+	// Default endpoint targets xAI (constructor-pinned); the mock overrides.
+	model := NewGrokRealtime("xai-key", WithBaseURL(srv.URL()))
+	if m := model.ModelName(); m != "grok-voice-latest" {
+		t.Fatalf("model name: %s", m)
+	}
+
+	metricsCh := make(chan realtime.TurnMetrics, 1)
+	agent := realtime.NewRealtimeAgent(model, realtime.AgentConfig{
+		Offer:         realtime.NegotiateOffer{Formats: []realtime.AudioFormat{pcm24k}},
+		OnTurnMetrics: func(m realtime.TurnMetrics) { metricsCh <- m },
+	}).WithTools(realtime.ToolHandlerFunc(func(ctx context.Context, call realtime.ToolCall) ([]byte, error) {
+		return []byte(`{"cond":"sunny"}`), nil
+	}))
+	out, err := agent.Connect(context.Background())
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	names := collect(t, out, func(ev realtime.Event) bool {
+		rd, ok := ev.(realtime.ResponseDone)
+		return ok && rd.Final
+	})
+	assertSeq(t, names, []string{
+		"started", "user_done", "response_started", "text", "audio", "tool_call", "tool_result", "response_done",
+	})
+	select {
+	case m := <-metricsCh:
+		if m.AudioChunks != 1 || m.AudioBytes != 2 || m.ToolCalls != 1 || !m.Final {
+			t.Fatalf("turn metrics: %+v", m)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("OnTurnMetrics did not fire")
+	}
+	_ = agent.Close()
 }

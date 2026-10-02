@@ -1,0 +1,15 @@
+id: gemini-2.0-flash-live-001
+provider: google
+display_name: Gemini 2.0 Flash Live (duplex voice)
+model: gemini-2.0-flash-live-001
+default_voice: Puck
+formats: [pcm]
+realtime: true
+multilingual: true
+truncation: server
+input_modalities: [audio, text]
+audio_in:
+  - {codec: pcm, sample_rate: 16000, channels: 1}
+audio_out:
+  - {codec: pcm, sample_rate: 24000, channels: 1}
+tools: true

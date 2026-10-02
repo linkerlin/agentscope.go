@@ -1,0 +1,15 @@
+id: gemini-live-2.5-flash-preview
+provider: google
+display_name: Gemini Live 2.5 Flash Preview (duplex voice)
+model: gemini-live-2.5-flash-preview
+default_voice: Aoora
+formats: [pcm]
+realtime: true
+multilingual: true
+truncation: server
+input_modalities: [audio, text]
+audio_in:
+  - {codec: pcm, sample_rate: 16000, channels: 1}
+audio_out:
+  - {codec: pcm, sample_rate: 24000, channels: 1}
+tools: true

@@ -33,14 +33,21 @@ const (
 	evResponseCancel = "response.cancel"
 )
 
-// Server event types (server→client).
+// Server event types (server→client). The primary names are the OpenAI
+// Realtime vocabulary; the alt names are the GA-era / xAI aliases accepted
+// by the same decoder (xAI's realtime endpoint at api.x.ai is
+// OpenAI-compatible naming with response.output_audio.delta /
+// response.text.delta / response.output_text.delta).
 const (
 	evSessionCreated = "session.created"
 	evSessionUpdated = "session.updated"
 	evTranscriptDone = "conversation.item.input_audio_transcription.completed"
 	evResponseStart  = "response.created"
 	evTextDelta      = "response.audio_transcript.delta"
+	evTextDeltaAlt   = "response.text.delta"
+	evTextDeltaAlt2  = "response.output_text.delta"
 	evAudioDelta     = "response.audio.delta"
+	evAudioDeltaAlt  = "response.output_audio.delta"
 	evItemDone       = "response.output_item.done"
 	evResponseDone   = "response.done"
 	evError          = "error"
@@ -164,10 +171,10 @@ func decodeEvent(data []byte, seq *audioSequencer) []realtime.Event {
 		seq.reset()
 		return []realtime.Event{realtime.ResponseStarted{ResponseID: e.Response.ID}}
 
-	case evTextDelta:
+	case evTextDelta, evTextDeltaAlt, evTextDeltaAlt2:
 		return []realtime.Event{realtime.TranscriptDelta{Text: e.Delta}}
 
-	case evAudioDelta:
+	case evAudioDelta, evAudioDeltaAlt:
 		raw, err := base64.StdEncoding.DecodeString(e.Delta)
 		if err != nil {
 			return nil // corrupt audio event: drop, do not kill the stream

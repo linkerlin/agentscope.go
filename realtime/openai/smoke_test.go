@@ -59,3 +59,36 @@ func TestOpenAIRealtimeLiveSmoke(t *testing.T) {
 		}
 	}
 }
+
+// TestXAIRealtimeLiveSmoke runs the same smoke against xAI's OpenAI-compatible
+// realtime endpoint (19.6): XAI_API_KEY gates it.
+func TestXAIRealtimeLiveSmoke(t *testing.T) {
+	key := os.Getenv("XAI_API_KEY")
+	if key == "" {
+		t.Skip("XAI_API_KEY not set (opt-in live smoke)")
+	}
+
+	model := NewGrokRealtime(key)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	sess, _, err := model.Connect(ctx, realtime.NegotiateOffer{
+		Formats: []realtime.AudioFormat{pcm24k},
+	})
+	if err != nil {
+		t.Fatalf("live connect: %v", err)
+	}
+	defer sess.Close()
+
+	select {
+	case ev, ok := <-sess.Events():
+		if !ok {
+			t.Fatalf("stream closed before SessionStarted")
+		}
+		if _, isStart := ev.(realtime.SessionStarted); !isStart {
+			t.Fatalf("first event: %T (%v)", ev, ev)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatalf("no SessionStarted within 20s")
+	}
+}

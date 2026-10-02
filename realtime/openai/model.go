@@ -114,6 +114,13 @@ func NewGPTRealtime(apiKey string, opts ...Option) *Model {
 	return New(apiKey, "gpt-realtime", opts...)
 }
 
+// NewGrokRealtime targets xAI's Grok realtime voice model
+// ("grok-voice-latest" at wss://api.x.ai/v1/realtime — OpenAI-compatible
+// event naming, accepted by the same decoder; 19.6).
+func NewGrokRealtime(apiKey string, opts ...Option) *Model {
+	return New(apiKey, "grok-voice-latest", append([]Option{WithBaseURL("wss://api.x.ai/v1/realtime")}, opts...)...)
+}
+
 // New builds a Model for a custom realtime model id (e.g.
 // "gpt-4o-realtime-preview"). The card comes from the embedded cards when
 // the id matches; otherwise a conservative fallback card is derived.

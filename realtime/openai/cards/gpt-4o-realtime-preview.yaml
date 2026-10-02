@@ -1,0 +1,15 @@
+id: gpt-4o-realtime-preview
+provider: openai
+display_name: OpenAI GPT-4o Realtime Preview
+model: gpt-4o-realtime-preview
+default_voice: alloy
+formats: [pcm]
+realtime: true
+multilingual: true
+truncation: client
+input_modalities: [audio, text]
+audio_in:
+  - {codec: pcm, sample_rate: 24000, channels: 1}
+audio_out:
+  - {codec: pcm, sample_rate: 24000, channels: 1}
+tools: true

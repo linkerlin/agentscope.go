@@ -7,7 +7,6 @@
 
 ## P1 · v2.9 实时语音与协议保真
 
-- [ ] **19.1** `realtime/` 契约：统一 realtime 与 TTS ModelCard schema、截断能力三态、模型事件和 Mock 事件流
 - [ ] **19.2** Transport / VAD / Playout：格式协商、控制帧背压、VAD 边沿与基于播放确认时钟的 `PlayoutPosition`
 - [ ] **20.6** `ToolChunk`：工具执行真实增量输出并保留顺序、错误、取消语义，映射到 AG-UI
 - [ ] **20.7** 护栏中间件：输入注入检测和输出过滤覆盖模型、工具与二进制内容；默认保守且可关闭

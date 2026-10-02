@@ -35,7 +35,10 @@ type AppConfig struct {
 	Storage       service.Storage
 	Authenticator service.Authenticator
 	JWTAuth       *service.JWTAuthenticator
-	Cipher        *service.Cipher
+	// DownloadTokenSecret arms the model download-token flow (18.9). Empty
+	// = the mint endpoint fails closed (503).
+	DownloadTokenSecret string
+	Cipher              *service.Cipher
 
 	// Production switches the server to production semantics (22.1): when no
 	// identity source is configured (neither Authenticator nor JWTAuth), a
@@ -132,6 +135,9 @@ func NewApp(cfg AppConfig) *Server {
 	}
 	if cfg.JWTAuth != nil {
 		srv.WithJWTAuth(cfg.JWTAuth)
+	}
+	if cfg.DownloadTokenSecret != "" {
+		srv.WithDownloadTokenSigner(service.NewDownloadTokenSigner([]byte(cfg.DownloadTokenSecret)))
 	}
 	if cfg.Production {
 		srv.WithProduction(true)

@@ -15,13 +15,16 @@ func (s *Server) WithModelCardsDir(dir string) *Server {
 	return s
 }
 
-// RegisterModelRoutes adds model card listing endpoints.
+// RegisterModelRoutes adds the model discovery endpoints (18.9): the
+// unified card listing (chat/tts/embedding behind one filtered, paginated
+// API), single-card detail, and the download-token flow. TTS/embedding
+// cards are embedded, so the routes register even without a chat cards dir.
 func (s *Server) RegisterModelRoutes() {
-	if s.modelCardsDir == "" {
-		return
-	}
-	s.mux.HandleFunc("GET /api/v1/models", s.requireAuth(s.handleListModels))
+	s.mux.HandleFunc("GET /api/v1/models", s.requireAuth(s.handleModelDiscovery))
+	s.mux.HandleFunc("GET /api/v1/model-cards", s.requireAuth(s.handleModelDiscovery))
 	s.mux.HandleFunc("GET /api/v1/models/{id}", s.requireAuth(s.handleGetModel))
+	s.mux.HandleFunc("POST /api/v1/models/download-tokens", s.requireAuth(s.handleMintDownloadToken))
+	s.mux.HandleFunc("GET /api/v1/models/{kind}/{id}/download", s.requireAuth(s.handleCardDownload))
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {

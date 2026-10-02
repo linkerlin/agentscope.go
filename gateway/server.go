@@ -71,6 +71,7 @@ type Server struct {
 	sessionCoord        *SessionCoordinator
 	backgroundTaskMgr   *BackgroundTaskManager
 	modelCardsDir       string
+	downloadSigner      *service.DownloadTokenSigner
 	toolOffload         *ToolOffloadManager
 	workspaceMgr        *WorkspaceManager
 	embeddingModel      model.EmbeddingModel

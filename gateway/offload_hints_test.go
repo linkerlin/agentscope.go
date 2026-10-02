@@ -31,18 +31,22 @@ func TestModelHandlers_ListAndGet(t *testing.T) {
 	srv.RegisterModelRoutes()
 
 	t.Run("list", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/models", nil)
+		// 18.9: /api/v1/models is the unified discovery shape ({cards,
+		// next_cursor, total}) — chat cards still surface in it.
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/models?kind=chat", nil)
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 		}
-		var cards []map[string]any
-		if err := json.NewDecoder(rec.Body).Decode(&cards); err != nil {
+		var resp struct {
+			Cards []map[string]any `json:"cards"`
+		}
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 			t.Fatal(err)
 		}
-		if len(cards) < 2 {
-			t.Fatalf("expected at least 2 cards, got %d", len(cards))
+		if len(resp.Cards) < 2 {
+			t.Fatalf("expected at least 2 cards, got %d", len(resp.Cards))
 		}
 	})
 

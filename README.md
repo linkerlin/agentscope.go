@@ -8,7 +8,7 @@ AgentScope.Go —— 一个生产级的 AI Agent 开发框架，助你使用 Go 
 
 AgentScope.Go 提供了构建智能 Agent 所需的一切，采用 ReAct（推理 + 行动）范式：工具调用、记忆管理、多 Agent 协作、**终端 TUI**、**长时序治理平面**、**多平台聊天机器人（Webhook/Discord/飞书）**、**生态市场（MCP/Skill）** 等功能一应俱全，并且全部使用地道的 Go 语言惯用法实现。
 
-当前版本 **v2.7.0**。未完成项见 [TODO.md](TODO.md)，顺序与验收见 [演进方案.md](演进方案.md)。
+当前发行号 **v2.7.0**。仓库中最新的 annotated tag 是 `v2.6.0`。2026-10-01 之后合入的 Phase 18 余量、Phase 19、Phase 20 与 21.1 记在 [CHANGELOG.md](CHANGELOG.md) 的 `[Unreleased]`，下一次版本切割见 [演进方案.md](演进方案.md) 的 24.2。未完成项见 [TODO.md](TODO.md)。
 
 ## 新增能力（v2.7.0）
 

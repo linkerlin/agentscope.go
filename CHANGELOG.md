@@ -7,10 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> 自 `version.go` 标为 2.7.0（2026-10-01，提交 `55b3626`）以来合入、尚未切出版本号的行为。Phase 18 计划对应 **v2.8.0**，Phase 19 与 20 对应 **v2.9.0**。切割步骤见 [演进方案.md](演进方案.md) 的 24.2。2.7.0 发行说明不包含本节。
+
 ### Added
 
-- **Web UI Platform 视图（21.1）**：零构建控制台新增三能力——Hub 市场（浏览 + 安装 MCP/Skill 卡片，`required_env` 模板卡安装时逐项收集值，服务端 spawn 前校验）、Channel 管理（注册渠道列表，`WEBUI_WEBHOOK_CHANNELS` 启用零依赖 webhook 渠道演示）、workspace git status（按会话查工作区目录 + 分支/变更，storage 部署可用、匿名 demo 空态提示）。web_ui 装配补 `WithWorkspaceManager`、`WithHubs`（内嵌 demo FS 市场）、channel 装配与 `/workspace/` 路由分发；`examples/web_ui/hub/` 自带演示市场。**Studio 自此标记 deprecated**——web_ui 是唯一持续演进的 UI，不进入 v3.0。
+- **网关入口边界（18.11）**：根包 JSON 写入口统一 `decodeJSONLimit`（默认 1MiB，越界 413，读满上限前停止）。`sessionapi` 经 `Deps.MaxBodyBytes` 走同一语义。`RateLimiter` 有进程内令牌桶与 `CoordCounter` 跨副本窗口两种实现，认证用户按 `u:<id>`、否则按 `ip:`；登录与注册挂限流，默认 30 次/分钟，429 带 `Retry-After`。计数器失败 fail-open。
+- **内置控制台会话身份（18.10）**：`examples/web_ui` 首包省略 `session_id`，从响应头 `Agent-Session-Id` 采纳。storage 模式下自造 UUID 为 404。`handleV2Steer` / `handleV2Interrupt` 补上归属校验。`WEBUI_STORAGE` 可 opt-in 装 sqlite/redis 与 JWT。
+- **凭证交互绑定（18.4）**：`Credential.Status` 四态 `PENDING` / `AUTHORIZED` / `FAILED` / `CANCELLED`（空状态读作 AUTHORIZED）。`TransitionCredential` 同目标重复为 no-op，异终态为 `ErrCredentialFinalized`。`POST /credentials/{id}/authorize|fail|cancel` 校验归属，响应不回显 secret。
+- **钉钉闭环（18.3）**：绑定凭证解出企业应用 Channel；未完成绑定拒绝产出可用凭证。`POST /api/v1/channels/{id}/dingtalk/card-callback` 以 HMAC 验签，HITL 动作走 23.2 幂等 resume。`CardStreamWriter` 按时间窗节流写卡。
+- **渠道能力模型（18.6）**：`Capability` 与可选的 `MaxTextLen`。`DeliverText` 按声明上限拆分发送。飞书补 reaction、列会话与 WebSocket 长连接；钉钉声明 `card_stream`，Discord 声明 reaction。未声明上限的渠道发送行为与此前一致。
+- **远程 Hub（18.7）**：429/5xx 指数退避，`Retry-After` 只延长退避。`GitHubMCPHub` 与 `ClawSkillHub` 复用游标分页。`${VAR}` 在连接前校验，未赋值占位符保留。安装接口接受 `{"values":{...}}`。
+- **Workspace 预热池（18.8）**：`PoolConfig{Preload, MaxCreates}`。按存在数补水，借出归还 idle，`Discard` 关闭坏实例并补水。满额等待可被 ctx 取消。
+- **模型发现与下载令牌（18.9）**：`GET /api/v1/model-cards` 聚合 chat/tts/embedding。`DownloadTokenSigner` 为 HMAC 无状态令牌，空 secret 拒绝签发。下载路由先验证令牌再查资源。
+- **realtime 契约（19.1）**：共用卡片 schema、截断三态（未知值归到 client）、事件序、`Negotiate` 无共同格式即 `ErrNoCommonFormat`。`MockRealtime` 用脚本驱动整段交互。
+- **Transport / VAD / Playout（19.2）**：有界传输的 block、drop-oldest、fail 三种背压（控制帧不丢）。能量 VAD 只发边沿。播放确认时钟上，`Truncate` 丢掉未确认尾部。
+- **`RealtimeAgent`（19.3）**：barge-in 按卡片截断模式分派；重连按 response 去重，重放的 `ResponseStarted` 不清空去重状态。工具确认超时合成 `ToolResult`。`ResponseDone` 是轮边界，会话终态只认 `SessionClosed` / `ErrorEvent`。
+- **`ToolChunk`（20.6）**：`tool.ChunkedTool` 与 `toolkit.ExecuteToolChunked`。ReAct 对分块工具先发 Start，再逐块发 `ToolCallDelta`，执行结束后发 End。AG-UI 映射为 `TOOL_CALL_ARGS`。
+- **护栏中间件（20.7）**：模型输入、模型输出、工具文本、二进制内容四面。命中返回 `ErrGuardrailBlocked`，不改原内容。无规则的配置自禁用。
+- **DashScope realtime 与 TurnMetrics（19.4）**：`realtime/dashscope` 实现 19.1 的 `Model`/`Session`。result-generated 的输出类型词汇由本仓库 mock 锁定，`decodeFrame`/`encodeFrame` 是对接真实字段的适配点。`OnTurnMetrics` 统计去重后的音频、工具与首包时间。真实服务冒烟由 `DASHSCOPE_API_KEY` 打开，只断言握手与流存活。
+- **OpenAI Realtime（19.5）**：`realtime/openai` 按公开事件名映射（`session.update`、`input_audio_buffer.append`、`response.cancel` 等）。pcm 必须 24k 单声道，g711 必须 8k。音频序号由本地计数器补齐。打断走 client 截断。
+- **Gemini Live 与 xAI（19.6）**：`realtime/gemini` 按 Live API 映射；无 `response.cancel` 时用空 `clientContent` 作为近取消，轮边界在本地合成。xAI 复用 openai 包，`NewGrokRealtime` 固定 `wss://api.x.ai/v1/realtime`，并识别 GA 事件别名。真实冒烟分别由 `GEMINI_API_KEY`、`XAI_API_KEY` 打开。
+- **console 语音入口（19.7）**：`console.VoiceSession` 通过 `MicSource`/`AudioSink` 切换 text/voice，VAD 与手动打断都走 `BargeIn`，`ConfirmTool` 接 19.3 的工具确认。设备 I/O 留在 `examples/console_voice`，用 stdin/stdout 接外部录音播放。
+- **TTS 补齐与数据策略（19.8）**：Gemini TTS、CosyVoice v3 卡片、`gpt-4o-mini-tts` 适配器。零值 `DataPolicy` 不留存音频，用量快照只计次数；留存音频、记录文本和实时用量回调都要显式打开。`Meter.Wrap` 按请求计字符与音频字节。
+- **火山方舟 Ark（20.3）**：`model/ark` 直接使用 `net/http`。`formatter.ParseArkMessage` 按 thinking、text、tool use 保留内容块。`model.WithThinking` 为三态，per-call 覆盖 Builder，两者都空则请求体不带 thinking。
+- **Moonshot 新卡与统一 thinking（20.4）**：`model/moonshot.KimiBuilder` 复用 Ark 的 wire 类型与解析。既有 `MoonshotChatModelBuilder` 保留。新增 `moonshot-kimi-k3` 与 `moonshot-kimi-k2.7` 卡片。
+- **A2AAgent 与 ClusterManager（20.5）**：`a2a.A2AAgent` 把远端 Agent 映射为本地 `Call`/`CallStream`，按 `task_id` 续接，运行中的第二次发送返回 `ErrAgentBusy`，流式增量保持多条消息。`ClusterManager` 经 `WithClientFactory` 使用真实客户端；空响应报错。`NoopClient` 只用于显式测试。
 - **`memory.Facade` 单一记忆装配入口**（20.8）：`memory.NewFacade(FacadeOptions)` 一次构造四档记忆——Window（会话内窗口）/ ReMe（跨会话检索，Store+Embed 双设走向量、缺省走文件）/ Agentic（agent 自管 Markdown）/ LongTerm（mem0 式长期记忆，经 `middleware.NewFuncLongTermMemory` 闭包桥接 facade 自己的向量 ReMe 档）。各档可选（nil=不装），装配点 `Window()`/`ReMe()`/`Hooks()`/`Middlewares()`；Store/Embed 只设其一、LongTerm 无向量 ReMe 档均显式报错。示例 `examples/memory_facade`。
+- **Web UI Platform 视图（21.1）**：零构建控制台新增三能力——Hub 市场（浏览 + 安装 MCP/Skill 卡片，`required_env` 模板卡安装时逐项收集值，服务端 spawn 前校验）、Channel 管理（注册渠道列表，`WEBUI_WEBHOOK_CHANNELS` 启用零依赖 webhook 渠道演示）、workspace git status（按会话查工作区目录 + 分支/变更，storage 部署可用、匿名 demo 空态提示）。web_ui 装配补 `WithWorkspaceManager`、`WithHubs`（内嵌 demo FS 市场）、channel 装配与 `/workspace/` 路由分发；`examples/web_ui/hub/` 自带演示市场。**Studio 自此标记 deprecated**——web_ui 是唯一持续演进的 UI，不进入 v3.0。
+
+### Changed
+
+- **gateway 后三簇注册函数化（16.2）**：`scheduleapi`、`wakeupapi`、`channelapi` 按 kbapi/sessionapi 的形状拆出。外部 URL、认证和协调语义不变。`BackgroundTaskManager` 以嵌入保留原类型，`WakeupDispatcher` 为别名。`ChannelRunner` 留在根包。`internal/apidump` 计算嵌入与别名提升出的方法，避免拆包被误报为破坏性变更。
+
+### Security
+
+- **复评六项（2026-10-01）**：限流在每次请求读取 `Server.rateLimiter`，先注册路由后 `Start` 仍然限流。`POST /v2/chat` 铸造会话进入同一预算，重连的 GET 不消耗。web_ui 的 fetch 带 Bearer，未设置 `WEBUI_API_SECRET` 时 fail-closed。飞书 WS 看门狗可打断阻塞读。`SaveCredentialIfCurrent` 在 Memory/SQL/Redis 上做条件写。钉钉 `robotSecret` 为空时验签全部拒绝。
+- **同目标授权不得替换已交付 secret（2026-10-02）**：`TransitionCredential` 的 CAS 条件只认 `PENDING`。后到的同目标 authorize 读回已落库记录。SQL 与 Redis 把空 status 归一为 AUTHORIZED，与 Memory 一致。SQLite `busy_timeout` 经 DSN `_pragma` 作用到池中每个连接。
+- **Gemini Live 拨号错误脱敏**：`?key=` 中的 API key 不进入错误链和日志。
+
+### Fixed
+
+- **web_ui `app.js`**：奖励按钮注释与代码粘连，导致整份脚本无法执行。页面加载重连在 401 时清除 token。`appendSystemNotice` 在缺少 `#chat-log` 时写入 `#messages`。
+- **`TransitionCredential` 数据竞争**：对 `GetCredential` 返回的共享指针改成拷贝后再写回，避免 Memory 存储上的并发读写。
 
 ### Removed
 
@@ -19,12 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 - **记忆兼容包装弃用策略明确化**（20.8）：`memory` 根包对 `memory/vector` 的类型别名（`MemoryType`/`MemoryNode`/`RetrieveOptions`/`VectorStore` 及 `MemoryType*` 常量）与 `memory/vector` 内嵌的 `EmbeddingModel` 副本标注弃用策略——新代码优先走 `memory.NewFacade` 或直接 import `memory/vector`；别名保留整个 v2.x 系列，v3.0 API 收敛（21.7）时统一评估去留。
+- **`examples/studio`**：web_ui 是唯一持续演进的内置 UI。Studio 不进入 v3.0（21.7 删除清单）。
 
 ## [2.7.0] - 2026-10-01 — 可靠多副本与交付门禁（v2.7）+ 认证热路径索引 + 长连接 worker
 
 > 详见 [RELEASE_NOTES_v2.7.0.md](RELEASE_NOTES_v2.7.0.md)。
 
-覆盖 tag `v2.6.0` 之后已在 HEAD 的全部行为：Phase 23（可靠多副本与交付门禁）七项、认证哈希索引、18.5 长连接 worker、依赖与 CI 修复。
+本版记录 tag `v2.6.0` 之后、2026-10-01 切版时纳入发行说明的行为：Phase 23（可靠多副本与交付门禁）七项、认证哈希索引、18.5 长连接 worker、依赖与 CI 修复。同日之后合入的 Phase 18 余量、Phase 19、Phase 20 与 21.1 见上方 `[Unreleased]`。
 
 ### Added
 

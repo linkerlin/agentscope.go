@@ -5,7 +5,7 @@
 
 ## 项目概述
 
-本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前版本 **v2.7.0**。未完成项见根目录 [TODO.md](TODO.md)，顺序与验收见 [演进方案.md](演进方案.md)。
+本项目是 [AgentScope](https://github.com/agentscope-ai/agentscope) 的 Go 语言实现，采用地道的 Go 惯用法构建生产级 AI Agent 框架。当前发行号 **v2.7.0**。未完成项与实施顺序以根目录 [TODO.md](TODO.md) 和 [演进方案.md](演进方案.md)（2026-10-03 复评）为准。下文编号条目是历史决策记录，不作为路线图。
 
 ## V2 架构总览
 
